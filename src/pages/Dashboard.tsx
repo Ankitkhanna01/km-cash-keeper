@@ -2,9 +2,11 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { BusinessPercentageRing } from '@/components/dashboard/BusinessPercentageRing';
+import { OdometerCard } from '@/components/dashboard/OdometerCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTripsDB } from '@/hooks/useTripsDB';
 import { useExpensesDB } from '@/hooks/useExpensesDB';
+import { useOdometerDB } from '@/hooks/useOdometerDB';
 import { Car, Receipt, Briefcase, TrendingUp, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -12,13 +14,20 @@ import { Button } from '@/components/ui/button';
 export default function Dashboard() {
   const { loading: tripsLoading, getStats: getTripStats, getUncategorizedTrips } = useTripsDB();
   const { loading: expensesLoading, getStats: getExpenseStats } = useExpensesDB();
+  const { loading: odometerLoading, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
 
   const currentYear = new Date().getFullYear();
   const tripStats = getTripStats(currentYear);
   const expenseStats = getExpenseStats(currentYear);
   const uncategorizedTrips = getUncategorizedTrips();
 
-  const loading = tripsLoading || expensesLoading;
+  // Use odometer-based percentage if available, otherwise fall back to trip-based
+  const odometerTotalKm = getTotalKmForYear(currentYear);
+  const businessPercentage = odometerTotalKm !== null
+    ? getBusinessPercentage(currentYear, tripStats.businessKilometres)
+    : tripStats.businessPercentage;
+
+  const loading = tripsLoading || expensesLoading || odometerLoading;
 
   if (loading) {
     return (
@@ -41,15 +50,20 @@ export default function Dashboard() {
       {/* Business Use Percentage */}
       <Card variant="glow" className="mb-6">
         <CardContent className="p-6 flex flex-col items-center">
-          <BusinessPercentageRing percentage={tripStats.businessPercentage} />
+          <BusinessPercentageRing percentage={businessPercentage} />
           <p className="text-sm text-muted-foreground mt-4 text-center">
-            CRA requires tracking business vs. personal use for vehicle deductions
+            {odometerTotalKm !== null 
+              ? 'Based on odometer readings (CRA compliant)'
+              : 'Based on logged trips only — add odometer readings for CRA compliance'}
           </p>
         </CardContent>
       </Card>
 
+      {/* Odometer Tracking */}
+      <OdometerCard year={currentYear} />
+
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-2 gap-3 my-6">
         <StatCard
           title="Business KM"
           value={tripStats.businessKilometres.toFixed(0)}
@@ -59,8 +73,8 @@ export default function Dashboard() {
         />
         <StatCard
           title="Total KM"
-          value={tripStats.totalKilometres.toFixed(0)}
-          subtitle={`${tripStats.totalTrips} trips`}
+          value={odometerTotalKm !== null ? odometerTotalKm.toFixed(0) : tripStats.totalKilometres.toFixed(0)}
+          subtitle={odometerTotalKm !== null ? 'From odometer' : `${tripStats.totalTrips} trips`}
           icon={Car}
         />
         <StatCard
@@ -72,7 +86,7 @@ export default function Dashboard() {
         />
         <StatCard
           title="Deductible"
-          value={`$${(expenseStats.totalAmount * (tripStats.businessPercentage / 100)).toFixed(0)}`}
+          value={`$${(expenseStats.totalAmount * (businessPercentage / 100)).toFixed(0)}`}
           subtitle="Estimated"
           icon={TrendingUp}
           variant="success"
