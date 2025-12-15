@@ -20,6 +20,7 @@ import {
 import { Plus } from 'lucide-react';
 import { ExpenseCategory, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS } from '@/types';
 import { format } from 'date-fns';
+import { ReceiptScanner } from './ReceiptScanner';
 
 interface AddExpenseDialogProps {
   onAdd: (expense: {
@@ -40,6 +41,21 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
     category: 'fuel' as ExpenseCategory,
     notes: '',
   });
+
+  const handleReceiptData = (data: {
+    vendor_name: string | null;
+    date: string | null;
+    amount: number | null;
+    category: ExpenseCategory;
+  }) => {
+    setFormData(prev => ({
+      ...prev,
+      vendorName: data.vendor_name || prev.vendorName,
+      date: data.date || prev.date,
+      amount: data.amount?.toString() || prev.amount,
+      category: data.category || prev.category,
+    }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,11 +85,27 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
           <Plus className="w-5 h-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="glass-card border-border max-w-sm mx-auto">
+      <DialogContent className="glass-card border-border max-w-sm mx-auto max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add Expense</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Scan Receipt</Label>
+            <ReceiptScanner onDataExtracted={handleReceiptData} />
+          </div>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">
+                or enter manually
+              </span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="expenseDate">Date</Label>
