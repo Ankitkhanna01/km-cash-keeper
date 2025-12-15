@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, Upload, Loader2, X } from 'lucide-react';
+import { Camera, Upload, Loader2, X, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ExpenseCategory } from '@/types';
@@ -22,6 +22,7 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
   const { user } = useAuth();
   const [isScanning, setIsScanning] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [isPdf, setIsPdf] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,11 +53,13 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
     }
   };
 
-  const processImage = async (file: File) => {
+  const processFile = async (file: File) => {
     setIsScanning(true);
+    const fileIsPdf = file.type === 'application/pdf';
+    setIsPdf(fileIsPdf);
     
     try {
-      // Convert to base64 for preview and OCR
+      // Convert to base64 for OCR
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve(reader.result as string);
@@ -64,15 +67,21 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
         reader.readAsDataURL(file);
       });
       
-      const base64Image = await base64Promise;
-      setPreview(base64Image);
+      const base64Data = await base64Promise;
+      
+      // For images, show preview; for PDFs, show icon
+      if (!fileIsPdf) {
+        setPreview(base64Data);
+      } else {
+        setPreview('pdf');
+      }
 
       // Upload receipt to storage
       const receiptUrl = await uploadReceipt(file);
 
       // Call the edge function for OCR
       const { data, error } = await supabase.functions.invoke('scan-receipt', {
-        body: { image: base64Image }
+        body: { image: base64Data, isPdf: fileIsPdf }
       });
 
       if (error) {
@@ -116,13 +125,14 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      processImage(file);
+      processFile(file);
     }
     e.target.value = '';
   };
 
   const clearPreview = () => {
     setPreview(null);
+    setIsPdf(false);
   };
 
   return (
@@ -139,7 +149,7 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf"
           onChange={handleFileChange}
           className="hidden"
         />
@@ -179,11 +189,17 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
 
       {preview && (
         <div className="relative">
-          <img
-            src={preview}
-            alt="Receipt preview"
-            className="w-full h-32 object-cover rounded-lg border border-border"
-          />
+          {isPdf ? (
+            <div className="w-full h-32 flex items-center justify-center rounded-lg border border-border bg-muted">
+              <FileText className="w-12 h-12 text-muted-foreground" />
+            </div>
+          ) : (
+            <img
+              src={preview}
+              alt="Receipt preview"
+              className="w-full h-32 object-cover rounded-lg border border-border"
+            />
+          )}
           <Button
             type="button"
             variant="secondary"

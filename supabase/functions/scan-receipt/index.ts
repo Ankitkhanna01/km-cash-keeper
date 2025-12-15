@@ -11,11 +11,11 @@ serve(async (req) => {
   }
 
   try {
-    const { image } = await req.json();
+    const { image, isPdf } = await req.json();
     
     if (!image) {
       return new Response(
-        JSON.stringify({ error: "No image provided" }),
+        JSON.stringify({ error: "No file provided" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -25,7 +25,7 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    console.log("Processing receipt image...");
+    console.log(`Processing receipt ${isPdf ? 'PDF' : 'image'}...`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -51,7 +51,7 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
             content: [
               {
                 type: "text",
-                text: "Extract the vendor name, date, and total amount from this receipt image. Return JSON only."
+                text: `Extract the vendor name, date, and total amount from this receipt ${isPdf ? 'PDF document' : 'image'}. Return JSON only.`
               },
               {
                 type: "image_url",
