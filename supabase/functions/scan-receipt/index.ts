@@ -90,6 +90,15 @@ serve(async (req) => {
   }
 
   try {
+    // Authentication check - require valid JWT
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { image, isPdf } = await req.json();
     
     if (!image) {
@@ -101,10 +110,14 @@ serve(async (req) => {
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+      console.error("Server configuration error: Missing API key");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    console.log(`Processing receipt ${isPdf ? 'PDF' : 'image'}...`);
+    console.log(`Processing receipt request`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -167,27 +180,30 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+      // Log error details server-side only (not exposed to client)
+      console.error("AI gateway request failed:", response.status);
       
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+          JSON.stringify({ error: "Service temporarily unavailable. Please try again later." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
         return new Response(
-          JSON.stringify({ error: "Payment required. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ error: "Service unavailable. Please contact support." }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
-      throw new Error(`AI gateway error: ${response.status}`);
+      return new Response(
+        JSON.stringify({ error: "Failed to process receipt" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const data = await response.json();
-    console.log("AI response received");
+    console.log("Receipt processing completed");
 
     // Extract the tool call result
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
@@ -195,14 +211,13 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
       try {
         const rawData = JSON.parse(toolCall.function.arguments);
         const validatedData = validateAndSanitizeReceiptData(rawData);
-        console.log("Validated receipt data:", validatedData);
         
         return new Response(
           JSON.stringify({ success: true, data: validatedData }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } catch (validationError) {
-        console.error("Validation error:", validationError);
+        console.error("Data validation failed");
         return new Response(
           JSON.stringify({ error: "Invalid receipt data format" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -221,7 +236,7 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } catch {
-        console.error("Failed to parse/validate response content");
+        console.error("Response parsing failed");
       }
     }
 
@@ -231,7 +246,7 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
     );
 
   } catch (error) {
-    console.error("Error processing receipt:", error);
+    console.error("Receipt processing error");
     return new Response(
       JSON.stringify({ error: "Failed to process receipt" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
