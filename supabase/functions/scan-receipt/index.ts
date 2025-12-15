@@ -5,6 +5,85 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Validation constants
+const VALID_CATEGORIES = ["fuel", "repairs", "insurance", "licence", "interest", "other"] as const;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_AMOUNT = 1000000; // Reasonable upper bound for expense amount
+const MAX_VENDOR_LENGTH = 200;
+
+interface ReceiptData {
+  vendor_name: string | null;
+  date: string | null;
+  amount: number | null;
+  category: typeof VALID_CATEGORIES[number];
+}
+
+function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid receipt data structure');
+  }
+
+  const raw = data as Record<string, unknown>;
+  
+  // Validate and sanitize vendor_name
+  let vendor_name: string | null = null;
+  if (raw.vendor_name !== null && raw.vendor_name !== undefined) {
+    if (typeof raw.vendor_name !== 'string') {
+      throw new Error('vendor_name must be a string');
+    }
+    // Sanitize: trim, limit length, remove potential injection characters
+    vendor_name = raw.vendor_name
+      .trim()
+      .slice(0, MAX_VENDOR_LENGTH)
+      .replace(/[<>'"&]/g, ''); // Remove potential XSS/injection chars
+    if (vendor_name.length === 0) vendor_name = null;
+  }
+
+  // Validate date format
+  let date: string | null = null;
+  if (raw.date !== null && raw.date !== undefined) {
+    if (typeof raw.date !== 'string') {
+      throw new Error('date must be a string');
+    }
+    const trimmedDate = raw.date.trim();
+    if (trimmedDate && DATE_REGEX.test(trimmedDate)) {
+      // Additional validation: check if it's a valid date
+      const parsed = new Date(trimmedDate);
+      if (!isNaN(parsed.getTime())) {
+        date = trimmedDate;
+      }
+    }
+  }
+
+  // Validate amount
+  let amount: number | null = null;
+  if (raw.amount !== null && raw.amount !== undefined) {
+    const numAmount = Number(raw.amount);
+    if (isNaN(numAmount)) {
+      throw new Error('amount must be a valid number');
+    }
+    if (numAmount < 0 || numAmount > MAX_AMOUNT) {
+      throw new Error(`amount must be between 0 and ${MAX_AMOUNT}`);
+    }
+    // Round to 2 decimal places
+    amount = Math.round(numAmount * 100) / 100;
+  }
+
+  // Validate category
+  let category: typeof VALID_CATEGORIES[number] = 'other';
+  if (raw.category !== null && raw.category !== undefined) {
+    if (typeof raw.category !== 'string') {
+      throw new Error('category must be a string');
+    }
+    const lowerCategory = raw.category.toLowerCase().trim();
+    if (VALID_CATEGORIES.includes(lowerCategory as typeof VALID_CATEGORIES[number])) {
+      category = lowerCategory as typeof VALID_CATEGORIES[number];
+    }
+  }
+
+  return { vendor_name, date, amount, category };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -108,18 +187,27 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
     }
 
     const data = await response.json();
-    console.log("AI response:", JSON.stringify(data));
+    console.log("AI response received");
 
     // Extract the tool call result
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (toolCall?.function?.arguments) {
-      const receiptData = JSON.parse(toolCall.function.arguments);
-      console.log("Extracted receipt data:", receiptData);
-      
-      return new Response(
-        JSON.stringify({ success: true, data: receiptData }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      try {
+        const rawData = JSON.parse(toolCall.function.arguments);
+        const validatedData = validateAndSanitizeReceiptData(rawData);
+        console.log("Validated receipt data:", validatedData);
+        
+        return new Response(
+          JSON.stringify({ success: true, data: validatedData }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (validationError) {
+        console.error("Validation error:", validationError);
+        return new Response(
+          JSON.stringify({ error: "Invalid receipt data format" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // Fallback: try to parse from content
@@ -127,12 +215,13 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
     if (content) {
       try {
         const parsed = JSON.parse(content);
+        const validatedData = validateAndSanitizeReceiptData(parsed);
         return new Response(
-          JSON.stringify({ success: true, data: parsed }),
+          JSON.stringify({ success: true, data: validatedData }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } catch {
-        console.error("Failed to parse response content:", content);
+        console.error("Failed to parse/validate response content");
       }
     }
 
@@ -144,7 +233,7 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
   } catch (error) {
     console.error("Error processing receipt:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: "Failed to process receipt" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

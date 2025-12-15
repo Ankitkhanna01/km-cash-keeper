@@ -42,7 +42,7 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
       // Get signed URL for private bucket
       const { data: signedData, error: signedError } = await supabase.storage
         .from('receipts')
-        .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year expiry
+        .createSignedUrl(fileName, 60 * 60 * 24); // 24 hour expiry
 
       if (signedError) throw signedError;
 
