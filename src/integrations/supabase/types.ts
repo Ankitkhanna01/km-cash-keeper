@@ -50,6 +50,36 @@ export type Database = {
         }
         Relationships: []
       }
+      odometer_readings: {
+        Row: {
+          created_at: string
+          end_reading: number | null
+          id: string
+          start_reading: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          end_reading?: number | null
+          id?: string
+          start_reading?: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          end_reading?: number | null
+          id?: string
+          start_reading?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string

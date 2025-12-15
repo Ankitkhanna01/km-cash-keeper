@@ -12,8 +12,10 @@ import {
 } from '@/components/ui/select';
 import { BusinessPercentageRing } from '@/components/dashboard/BusinessPercentageRing';
 import { CategorySummary } from '@/components/expenses/CategorySummary';
+import { OdometerCard } from '@/components/dashboard/OdometerCard';
 import { useTripsDB } from '@/hooks/useTripsDB';
 import { useExpensesDB } from '@/hooks/useExpensesDB';
+import { useOdometerDB } from '@/hooks/useOdometerDB';
 import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { FileText, Download, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,15 +26,24 @@ export default function Reports() {
 
   const { loading: tripsLoading, getStats: getTripStats, getTripsByYear } = useTripsDB();
   const { loading: expensesLoading, getTotalByCategory, getExpensesByYear } = useExpensesDB();
+  const { loading: odometerLoading, getReadingForYear, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
 
   const year = parseInt(selectedYear);
   const tripStats = getTripStats(year);
+  const odometerReading = getReadingForYear(year);
+  const odometerTotalKm = getTotalKmForYear(year);
+  
+  // Use odometer-based percentage if available
+  const businessPercentage = odometerTotalKm !== null
+    ? getBusinessPercentage(year, tripStats.businessKilometres)
+    : tripStats.businessPercentage;
+
   const categoryTotals = getTotalByCategory(year);
   const totalExpenses = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0);
-  const deductibleAmount = totalExpenses * (tripStats.businessPercentage / 100);
+  const deductibleAmount = totalExpenses * (businessPercentage / 100);
 
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
-  const loading = tripsLoading || expensesLoading;
+  const loading = tripsLoading || expensesLoading || odometerLoading;
 
   const generateReport = () => {
     const trips = getTripsByYear(year);
@@ -43,6 +54,8 @@ export default function Reports() {
       return;
     }
 
+    const totalKm = odometerTotalKm !== null ? odometerTotalKm : tripStats.totalKilometres;
+
     // Create report content
     const reportContent = `
 CRA FORM T2125 - VEHICLE EXPENSE SUMMARY
@@ -50,13 +63,23 @@ Tax Year: ${year}
 Generated: ${new Date().toLocaleDateString()}
 
 ============================================
+ODOMETER READINGS
+============================================
+${odometerReading 
+  ? `Start of Year (Jan 1): ${odometerReading.start_reading.toLocaleString()} km
+End of Year (Dec 31): ${odometerReading.end_reading ? odometerReading.end_reading.toLocaleString() : 'Not recorded'} km
+Total Annual Kilometres: ${odometerTotalKm !== null ? odometerTotalKm.toLocaleString() : 'N/A'} km`
+  : 'No odometer readings recorded for this year'}
+
+============================================
 MILEAGE SUMMARY
 ============================================
-Total Kilometres: ${tripStats.totalKilometres.toFixed(1)} km
+Total Kilometres: ${totalKm.toFixed(1)} km
 Business Kilometres: ${tripStats.businessKilometres.toFixed(1)} km
-Personal Kilometres: ${tripStats.personalKilometres.toFixed(1)} km
+Personal Kilometres: ${(totalKm - tripStats.businessKilometres).toFixed(1)} km
 
-BUSINESS-USE PERCENTAGE: ${tripStats.businessPercentage.toFixed(1)}%
+BUSINESS-USE PERCENTAGE: ${businessPercentage.toFixed(1)}%
+${odometerTotalKm !== null ? '(Calculated from odometer readings - CRA compliant)' : '(Calculated from logged trips only)'}
 
 ============================================
 EXPENSE SUMMARY (T2125 Categories)
@@ -67,7 +90,7 @@ ${Object.entries(categoryTotals)
 
 --------------------------------------------
 TOTAL EXPENSES: $${totalExpenses.toFixed(2)}
-DEDUCTIBLE AMOUNT (${tripStats.businessPercentage.toFixed(1)}%): $${deductibleAmount.toFixed(2)}
+DEDUCTIBLE AMOUNT (${businessPercentage.toFixed(1)}%): $${deductibleAmount.toFixed(2)}
 ============================================
 
 DETAILED TRIP LOG
@@ -134,10 +157,20 @@ ${expenses
         </Select>
       </div>
 
+      {/* Odometer Readings */}
+      <div className="mb-6">
+        <OdometerCard year={year} />
+      </div>
+
       {/* Business Use Summary */}
       <Card variant="glow" className="mb-6">
         <CardContent className="p-6 flex flex-col items-center">
-          <BusinessPercentageRing percentage={tripStats.businessPercentage} size={140} />
+          <BusinessPercentageRing percentage={businessPercentage} size={140} />
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            {odometerTotalKm !== null 
+              ? 'Based on odometer readings' 
+              : 'Based on logged trips only'}
+          </p>
           <div className="mt-4 grid grid-cols-2 gap-6 w-full text-center">
             <div>
               <p className="text-xs text-muted-foreground">Business</p>
@@ -146,9 +179,9 @@ ${expenses
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Personal</p>
+              <p className="text-xs text-muted-foreground">Total</p>
               <p className="text-lg font-bold text-foreground">
-                {tripStats.personalKilometres.toFixed(0)} km
+                {odometerTotalKm !== null ? odometerTotalKm.toFixed(0) : tripStats.totalKilometres.toFixed(0)} km
               </p>
             </div>
           </div>
@@ -173,7 +206,7 @@ ${expenses
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Business-Use Percentage</span>
-            <span className="font-semibold">{tripStats.businessPercentage.toFixed(1)}%</span>
+            <span className="font-semibold">{businessPercentage.toFixed(1)}%</span>
           </div>
           <div className="pt-2 border-t border-border flex items-center justify-between">
             <span className="font-semibold text-foreground">Deductible Amount</span>
@@ -189,7 +222,9 @@ ${expenses
         <CardContent className="p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
           <p className="text-sm text-muted-foreground">
-            This report is for reference only. Consult a tax professional for official CRA filings.
+            {!odometerReading 
+              ? 'Add odometer readings above for CRA-compliant business-use calculation.'
+              : 'This report is for reference only. Consult a tax professional for official CRA filings.'}
           </p>
         </CardContent>
       </Card>
