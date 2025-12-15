@@ -1,26 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TripCard } from '@/components/trips/TripCard';
 import { AddTripDialog } from '@/components/trips/AddTripDialog';
 import { useTripsDB, Trip } from '@/hooks/useTripsDB';
-import { useGPSTrackingContext } from '@/contexts/GPSTrackingContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Loader2, Navigation } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export default function Trips() {
   const { trips, loading, addTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
-  const { showBubble, setShowBubble, isTracking } = useGPSTrackingContext();
   const [activeTab, setActiveTab] = useState('uncategorized');
-
-  // Show bubble when entering Trips page
-  useEffect(() => {
-    if (!showBubble) {
-      setShowBubble(true);
-    }
-  }, []);
 
   const uncategorizedTrips = getUncategorizedTrips();
   const categorizedTrips = trips.filter((t) => t.category !== 'uncategorized');
@@ -79,22 +69,7 @@ export default function Trips() {
       <PageHeader
         title="Mileage Tracker"
         subtitle="CRA-compliant trip log"
-        action={
-          <div className="flex items-center gap-2">
-            <Button
-              variant={isTracking ? "default" : "outline"}
-              size="icon"
-              onClick={() => setShowBubble(true)}
-              className="relative"
-            >
-              <Navigation className="w-4 h-4" />
-              {isTracking && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-              )}
-            </Button>
-            <AddTripDialog onAdd={handleAddTrip} />
-          </div>
-        }
+        action={<AddTripDialog onAdd={handleAddTrip} />}
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
