@@ -12,18 +12,18 @@ import {
 } from '@/components/ui/select';
 import { BusinessPercentageRing } from '@/components/dashboard/BusinessPercentageRing';
 import { CategorySummary } from '@/components/expenses/CategorySummary';
-import { useTrips } from '@/hooks/useTrips';
-import { useExpenses } from '@/hooks/useExpenses';
+import { useTripsDB } from '@/hooks/useTripsDB';
+import { useExpensesDB } from '@/hooks/useExpensesDB';
 import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
-import { FileText, Download, AlertCircle } from 'lucide-react';
+import { FileText, Download, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Reports() {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear.toString());
 
-  const { getStats: getTripStats, getTripsByYear } = useTrips();
-  const { getTotalByCategory, getExpensesByYear } = useExpenses();
+  const { loading: tripsLoading, getStats: getTripStats, getTripsByYear } = useTripsDB();
+  const { loading: expensesLoading, getTotalByCategory, getExpensesByYear } = useExpensesDB();
 
   const year = parseInt(selectedYear);
   const tripStats = getTripStats(year);
@@ -32,6 +32,7 @@ export default function Reports() {
   const deductibleAmount = totalExpenses * (tripStats.businessPercentage / 100);
 
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
+  const loading = tripsLoading || expensesLoading;
 
   const generateReport = () => {
     const trips = getTripsByYear(year);
@@ -74,7 +75,7 @@ DETAILED TRIP LOG
 ${trips
   .map(
     (t) =>
-      `${t.date} | ${t.startTime}-${t.endTime} | ${t.kilometres.toFixed(1)}km | ${t.category.toUpperCase()}\n  From: ${t.startLocation}\n  To: ${t.endLocation}`
+      `${t.date} | ${t.start_time}-${t.end_time} | ${t.kilometres.toFixed(1)}km | ${t.category.toUpperCase()}\n  From: ${t.start_location}\n  To: ${t.end_location}`
   )
   .join('\n\n')}
 
@@ -84,7 +85,7 @@ DETAILED EXPENSE LOG
 ${expenses
   .map(
     (e) =>
-      `${e.date} | ${e.vendorName} | ${EXPENSE_CATEGORY_LABELS[e.category]} | $${e.amount.toFixed(2)}${e.notes ? `\n  Notes: ${e.notes}` : ''}`
+      `${e.date} | ${e.vendor_name} | ${EXPENSE_CATEGORY_LABELS[e.category]} | $${e.amount.toFixed(2)}${e.notes ? `\n  Notes: ${e.notes}` : ''}`
   )
   .join('\n\n')}
 `.trim();
@@ -102,6 +103,16 @@ ${expenses
 
     toast.success('Report downloaded successfully');
   };
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

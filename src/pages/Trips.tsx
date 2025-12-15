@@ -3,32 +3,66 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TripCard } from '@/components/trips/TripCard';
 import { AddTripDialog } from '@/components/trips/AddTripDialog';
-import { useTrips } from '@/hooks/useTrips';
+import { useTripsDB, Trip } from '@/hooks/useTripsDB';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 
 export default function Trips() {
-  const { trips, addTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTrips();
+  const { trips, loading, addTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
   const [activeTab, setActiveTab] = useState('uncategorized');
 
   const uncategorizedTrips = getUncategorizedTrips();
   const categorizedTrips = trips.filter((t) => t.category !== 'uncategorized');
 
-  const handleCategorize = (id: string, category: 'business' | 'personal') => {
-    categorizeTrip(id, category);
+  const handleCategorize = async (id: string, category: 'business' | 'personal') => {
+    await categorizeTrip(id, category);
     toast.success(`Trip marked as ${category}`);
   };
 
-  const handleDelete = (id: string) => {
-    deleteTrip(id);
+  const handleDelete = async (id: string) => {
+    await deleteTrip(id);
     toast.success('Trip deleted');
   };
 
-  const handleAddTrip = (tripData: Parameters<typeof addTrip>[0]) => {
-    addTrip(tripData);
-    toast.success('Trip added successfully');
-    setActiveTab('uncategorized');
+  const handleAddTrip = async (tripData: {
+    date: string;
+    start_time: string;
+    end_time: string;
+    start_location: string;
+    end_location: string;
+    kilometres: number;
+    category: 'business' | 'personal' | 'uncategorized';
+  }) => {
+    const result = await addTrip(tripData);
+    if (result) {
+      toast.success('Trip added successfully');
+      setActiveTab('uncategorized');
+    }
   };
+
+  // Convert DB trip format to component format
+  const mapTripForCard = (trip: Trip) => ({
+    id: trip.id,
+    date: trip.date,
+    startTime: trip.start_time,
+    endTime: trip.end_time,
+    startLocation: trip.start_location,
+    endLocation: trip.end_location,
+    kilometres: trip.kilometres,
+    category: trip.category,
+    createdAt: trip.created_at,
+  });
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -63,7 +97,7 @@ export default function Trips() {
             uncategorizedTrips.map((trip, index) => (
               <TripCard
                 key={trip.id}
-                trip={trip}
+                trip={mapTripForCard(trip)}
                 onCategorize={handleCategorize}
                 showSwipeHint={index === 0}
               />
@@ -80,7 +114,7 @@ export default function Trips() {
             categorizedTrips.map((trip) => (
               <TripCard
                 key={trip.id}
-                trip={trip}
+                trip={mapTripForCard(trip)}
                 onDelete={handleDelete}
               />
             ))

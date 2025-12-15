@@ -10,11 +10,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Plus } from 'lucide-react';
-import { Trip } from '@/types';
 import { format } from 'date-fns';
 
 interface AddTripDialogProps {
-  onAdd: (trip: Omit<Trip, 'id' | 'createdAt'>) => void;
+  onAdd: (trip: {
+    date: string;
+    start_time: string;
+    end_time: string;
+    start_location: string;
+    end_location: string;
+    kilometres: number;
+    category: 'business' | 'personal' | 'uncategorized';
+  }) => void;
 }
 
 export function AddTripDialog({ onAdd }: AddTripDialogProps) {
@@ -33,10 +40,10 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
     
     onAdd({
       date: formData.date,
-      startTime: formData.startTime,
-      endTime: formData.endTime,
-      startLocation: formData.startLocation,
-      endLocation: formData.endLocation,
+      start_time: formData.startTime,
+      end_time: formData.endTime,
+      start_location: formData.startLocation,
+      end_location: formData.endLocation,
       kilometres: parseFloat(formData.kilometres) || 0,
       category: 'uncategorized',
     });

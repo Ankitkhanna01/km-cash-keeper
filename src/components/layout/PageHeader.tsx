@@ -1,12 +1,14 @@
 import { ReactNode } from 'react';
+import { UserMenu } from './UserMenu';
 
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  showUserMenu?: boolean;
 }
 
-export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
+export function PageHeader({ title, subtitle, action, showUserMenu = false }: PageHeaderProps) {
   return (
     <header className="flex items-start justify-between mb-6">
       <div>
@@ -15,7 +17,10 @@ export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
           <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
         )}
       </div>
-      {action && <div>{action}</div>}
+      <div className="flex items-center gap-2">
+        {action && <div>{action}</div>}
+        {showUserMenu && <UserMenu />}
+      </div>
     </header>
   );
 }
