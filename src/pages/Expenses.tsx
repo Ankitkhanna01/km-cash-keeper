@@ -22,6 +22,7 @@ export default function Expenses() {
     amount: number;
     category: Expense['category'];
     notes: string | null;
+    receipt_url: string | null;
   }) => {
     const result = await addExpense(expenseData);
     if (result) {

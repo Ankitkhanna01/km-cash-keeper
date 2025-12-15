@@ -12,6 +12,7 @@ export interface Expense {
   amount: number;
   category: ExpenseCategory;
   notes: string | null;
+  receipt_url: string | null;
   created_at: string;
 }
 
@@ -60,6 +61,7 @@ export function useExpensesDB() {
           amount: expenseData.amount,
           category: expenseData.category,
           notes: expenseData.notes,
+          receipt_url: expenseData.receipt_url,
         })
         .select()
         .single();
