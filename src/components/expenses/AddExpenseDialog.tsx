@@ -18,11 +18,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus } from 'lucide-react';
-import { Expense, ExpenseCategory, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS } from '@/types';
+import { ExpenseCategory, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS } from '@/types';
 import { format } from 'date-fns';
 
 interface AddExpenseDialogProps {
-  onAdd: (expense: Omit<Expense, 'id' | 'createdAt'>) => void;
+  onAdd: (expense: {
+    date: string;
+    vendor_name: string;
+    amount: number;
+    category: ExpenseCategory;
+    notes: string | null;
+  }) => void;
 }
 
 export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
@@ -40,10 +46,10 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
     
     onAdd({
       date: formData.date,
-      vendorName: formData.vendorName,
+      vendor_name: formData.vendorName,
       amount: parseFloat(formData.amount) || 0,
       category: formData.category,
-      notes: formData.notes || undefined,
+      notes: formData.notes || null,
     });
 
     setFormData({
