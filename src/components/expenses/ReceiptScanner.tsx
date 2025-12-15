@@ -4,12 +4,14 @@ import { Camera, Upload, Loader2, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ExpenseCategory } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ReceiptData {
   vendor_name: string | null;
   date: string | null;
   amount: number | null;
   category: ExpenseCategory;
+  receipt_url: string | null;
 }
 
 interface ReceiptScannerProps {
@@ -17,16 +19,44 @@ interface ReceiptScannerProps {
 }
 
 export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
+  const { user } = useAuth();
   const [isScanning, setIsScanning] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+  const uploadReceipt = async (file: File): Promise<string | null> => {
+    if (!user) return null;
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('receipts')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get signed URL for private bucket
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('receipts')
+        .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year expiry
+
+      if (signedError) throw signedError;
+
+      return signedData.signedUrl;
+    } catch (error) {
+      console.error('Error uploading receipt:', error);
+      return null;
+    }
+  };
+
   const processImage = async (file: File) => {
     setIsScanning(true);
     
     try {
-      // Convert to base64
+      // Convert to base64 for preview and OCR
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve(reader.result as string);
@@ -37,7 +67,10 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
       const base64Image = await base64Promise;
       setPreview(base64Image);
 
-      // Call the edge function
+      // Upload receipt to storage
+      const receiptUrl = await uploadReceipt(file);
+
+      // Call the edge function for OCR
       const { data, error } = await supabase.functions.invoke('scan-receipt', {
         body: { image: base64Image }
       });
@@ -56,12 +89,21 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
           date: data.data.date || null,
           amount: data.data.amount || null,
           category: data.data.category || 'other',
+          receipt_url: receiptUrl,
         };
         
         onDataExtracted(extractedData);
         toast.success('Receipt scanned successfully!');
       } else {
-        throw new Error('Could not extract data from receipt');
+        // Even if OCR fails, still provide the receipt URL
+        onDataExtracted({
+          vendor_name: null,
+          date: null,
+          amount: null,
+          category: 'other',
+          receipt_url: receiptUrl,
+        });
+        toast.error('Could not extract data, but receipt was saved');
       }
     } catch (error) {
       console.error('Error scanning receipt:', error);
@@ -156,7 +198,7 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
 
       {isScanning && (
         <p className="text-xs text-muted-foreground text-center">
-          Analyzing receipt with AI...
+          Uploading & analyzing receipt...
         </p>
       )}
     </div>

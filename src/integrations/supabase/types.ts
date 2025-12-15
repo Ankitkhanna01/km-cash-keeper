@@ -22,6 +22,7 @@ export type Database = {
           date: string
           id: string
           notes: string | null
+          receipt_url: string | null
           user_id: string
           vendor_name: string
         }
@@ -32,6 +33,7 @@ export type Database = {
           date: string
           id?: string
           notes?: string | null
+          receipt_url?: string | null
           user_id: string
           vendor_name: string
         }
@@ -42,6 +44,7 @@ export type Database = {
           date?: string
           id?: string
           notes?: string | null
+          receipt_url?: string | null
           user_id?: string
           vendor_name?: string
         }

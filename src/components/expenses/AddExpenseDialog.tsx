@@ -29,6 +29,7 @@ interface AddExpenseDialogProps {
     amount: number;
     category: ExpenseCategory;
     notes: string | null;
+    receipt_url: string | null;
   }) => void;
 }
 
@@ -40,6 +41,7 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
     amount: '',
     category: 'fuel' as ExpenseCategory,
     notes: '',
+    receiptUrl: null as string | null,
   });
 
   const handleReceiptData = (data: {
@@ -47,6 +49,7 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
     date: string | null;
     amount: number | null;
     category: ExpenseCategory;
+    receipt_url: string | null;
   }) => {
     setFormData(prev => ({
       ...prev,
@@ -54,6 +57,7 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
       date: data.date || prev.date,
       amount: data.amount?.toString() || prev.amount,
       category: data.category || prev.category,
+      receiptUrl: data.receipt_url || prev.receiptUrl,
     }));
   };
 
@@ -66,6 +70,7 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
       amount: parseFloat(formData.amount) || 0,
       category: formData.category,
       notes: formData.notes || null,
+      receipt_url: formData.receiptUrl,
     });
 
     setFormData({
@@ -74,6 +79,7 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
       amount: '',
       category: 'fuel',
       notes: '',
+      receiptUrl: null,
     });
     setOpen(false);
   };
@@ -93,6 +99,9 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
           <div className="space-y-2">
             <Label>Scan Receipt</Label>
             <ReceiptScanner onDataExtracted={handleReceiptData} />
+            {formData.receiptUrl && (
+              <p className="text-xs text-green-600">✓ Receipt image saved</p>
+            )}
           </div>
 
           <div className="relative">
