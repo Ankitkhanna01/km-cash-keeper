@@ -179,6 +179,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   };
 
   const handleSelectSuggestion = (suggestion: AddressSuggestion) => {
+    console.log("AddressAutocomplete select:", suggestion.display_name);
+
     const now = Date.now();
     if (now - lastSelectAtRef.current < 250) return; // avoid double-select (touch + click)
     lastSelectAtRef.current = now;
@@ -242,7 +244,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
               e.stopPropagation();
             }}
           />,
-          document.body
+          document.getElementById("root") ?? document.body
         )}
 
       {showSuggestions && suggestions.length > 0 && anchorRect &&
@@ -268,9 +270,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
                 type="button"
                 className="w-full flex items-center border-b border-border last:border-0 hover:bg-accent active:bg-accent transition-colors touch-manipulation"
-                onPointerDown={(e) => {
+                onClick={(e) => {
                   e.stopPropagation();
-                  e.preventDefault();
                   handleSelectSuggestion(suggestion);
                 }}
               >
@@ -286,7 +287,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
               </button>
             ))}
             </div>,
-            document.body
+            document.getElementById("root") ?? document.body
           )}
     </div>
   );
