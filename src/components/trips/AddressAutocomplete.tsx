@@ -215,6 +215,11 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
               e.stopPropagation();
               if (showSuggestions) setShowSuggestions(false);
             }}
+            onClick={(e) => {
+              // Stop the synthesized mobile click from reaching the submit button
+              e.preventDefault();
+              e.stopPropagation();
+            }}
           />,
           document.body
         )}
