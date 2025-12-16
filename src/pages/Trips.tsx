@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { TripCard } from '@/components/trips/TripCard';
 import { AddTripDialog } from '@/components/trips/AddTripDialog';
+import { QuickTripRecorder } from '@/components/trips/QuickTripRecorder';
 import { useTripsDB, Trip } from '@/hooks/useTripsDB';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
@@ -71,6 +72,11 @@ export default function Trips() {
         subtitle="CRA-compliant trip log"
         action={<AddTripDialog onAdd={handleAddTrip} />}
       />
+
+      {/* Quick Trip Recorder */}
+      <div className="mb-4">
+        <QuickTripRecorder onTripComplete={handleAddTrip} />
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full grid grid-cols-2 mb-4">
