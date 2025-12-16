@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +44,19 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
   const [startLocation, setStartLocation] = useState<StopLocation>({ address: '' });
   const [stops, setStops] = useState<StopLocation[]>([{ address: '' }]);
   const [autoCalculated, setAutoCalculated] = useState(false);
+
+  // Prevent "ghost clicks" from submitting the form while the address dropdown is open
+  const [addressActiveByKey, setAddressActiveByKey] = useState<Record<string, boolean>>({});
+  const handleAddressActiveChange = useCallback((active: boolean, key: string) => {
+    setAddressActiveByKey((prev) => {
+      if (prev[key] === active) return prev;
+      return { ...prev, [key]: active };
+    });
+  }, []);
+  const addressPickerActive = useMemo(
+    () => Object.values(addressActiveByKey).some(Boolean),
+    [addressActiveByKey]
+  );
 
   // Auto-calculate distance when coordinates are available
   useEffect(() => {
@@ -122,11 +135,18 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
     setStartLocation({ address: '' });
     setStops([{ address: '' }]);
     setAutoCalculated(false);
+    setAddressActiveByKey({});
     setOpen(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setAddressActiveByKey({});
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="icon" className="rounded-full shadow-lg glow">
           <Plus className="w-5 h-5" />
@@ -214,6 +234,7 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
               id="startLocation"
               value={startLocation.address}
               onChange={handleStartLocationChange}
+              onActiveChange={handleAddressActiveChange}
               placeholder="Type to search address..."
             />
           </div>
@@ -244,6 +265,7 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
                     id={`stop-${index}`}
                     value={stop.address}
                     onChange={(value, lat, lon) => handleStopChange(index, value, lat, lon)}
+                    onActiveChange={handleAddressActiveChange}
                     placeholder={index === stops.length - 1 ? "Final destination..." : `Stop ${index + 1}...`}
                   />
                 </div>
@@ -268,7 +290,7 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
             )}
           </div>
 
-          <Button type="submit" className="w-full">
+          <Button type="submit" className="w-full" disabled={addressPickerActive}>
             Add Trip
           </Button>
         </form>

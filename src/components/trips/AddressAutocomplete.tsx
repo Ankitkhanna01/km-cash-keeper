@@ -13,13 +13,14 @@ interface AddressSuggestion {
 interface AddressAutocompleteProps {
   value: string;
   onChange: (value: string, lat?: number, lon?: number) => void;
+  onActiveChange?: (active: boolean, instanceKey: string) => void;
   placeholder?: string;
   id?: string;
 }
 
 type NearbyLocation = { lat: number; lon: number };
 
-export function AddressAutocomplete({ value, onChange, placeholder, id }: AddressAutocompleteProps) {
+export function AddressAutocomplete({ value, onChange, onActiveChange, placeholder, id }: AddressAutocompleteProps) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -34,6 +35,9 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
   const debounceRef = useRef<number | undefined>(undefined);
   const suppressTimerRef = useRef<number | undefined>(undefined);
   const geoRequestedRef = useRef(false);
+  const instanceKeyRef = useRef<string>(
+    `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+  );
 
   useEffect(() => {
     setInputValue(value);
@@ -46,7 +50,14 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
     };
   }, []);
 
+  // Notify parent when the autocomplete is active, so it can temporarily disable submit buttons.
   useEffect(() => {
+    const active = showSuggestions || suppressClicks;
+    onActiveChange?.(active, instanceKeyRef.current);
+    return () => {
+      onActiveChange?.(false, instanceKeyRef.current);
+    };
+  }, [showSuggestions, suppressClicks, onActiveChange]);
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       const clickedInsideInput = !!containerRef.current?.contains(target);
