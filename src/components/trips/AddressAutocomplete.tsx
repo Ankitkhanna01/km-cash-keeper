@@ -45,12 +45,13 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
 
     setIsLoading(true);
     try {
-      // Using OpenStreetMap Nominatim API (free, no API key required)
+      // Using OpenStreetMap Nominatim API - requires User-Agent header
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=5`,
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=5&addressdetails=1`,
         {
           headers: {
             'Accept': 'application/json',
+            'User-Agent': 'DriverTaxTracker/1.0',
           },
         }
       );
@@ -58,10 +59,11 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
       if (response.ok) {
         const data = await response.json();
         setSuggestions(data);
-        setShowSuggestions(true);
+        setShowSuggestions(data.length > 0);
       }
     } catch (error) {
       console.error('Address search error:', error);
+      setSuggestions([]);
     } finally {
       setIsLoading(false);
     }
@@ -72,13 +74,13 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
     setInputValue(newValue);
     onChange(newValue);
 
-    // Debounce the search
+    // Debounce the search - Nominatim has rate limits
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
     debounceRef.current = setTimeout(() => {
       searchAddress(newValue);
-    }, 300);
+    }, 500);
   };
 
   const handleSelectSuggestion = (suggestion: AddressSuggestion) => {
@@ -147,6 +149,24 @@ export function calculateDistance(
   const distance = R * c;
   // Add ~30% for road distance approximation (straight line vs actual roads)
   return Math.round(distance * 1.3 * 10) / 10;
+}
+
+// Calculate total distance for multiple stops
+export function calculateTotalDistance(
+  coordinates: Array<{ lat: number; lon: number }>
+): number {
+  if (coordinates.length < 2) return 0;
+  
+  let totalDistance = 0;
+  for (let i = 0; i < coordinates.length - 1; i++) {
+    totalDistance += calculateDistance(
+      coordinates[i].lat,
+      coordinates[i].lon,
+      coordinates[i + 1].lat,
+      coordinates[i + 1].lon
+    );
+  }
+  return Math.round(totalDistance * 10) / 10;
 }
 
 function toRad(deg: number): number {
