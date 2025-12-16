@@ -30,13 +30,19 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const portalRoot = inputRef.current?.closest('[role="dialog"]') as HTMLElement | null;
   const debounceRef = useRef<number | undefined>(undefined);
   const geoRequestedRef = useRef(false);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     setInputValue(value);
   }, [value]);
+
+  // Find dialog container for portal placement
+  useEffect(() => {
+    const dialog = inputRef.current?.closest('[role="dialog"]') as HTMLElement | null;
+    setPortalRoot(dialog);
+  }, []);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -121,6 +127,13 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
     [nearby]
   );
 
+  // Re-search when nearby location becomes available to bias results
+  useEffect(() => {
+    if (!nearby) return;
+    if (inputValue.trim().length < 3) return;
+    searchAddress(inputValue);
+  }, [nearby, inputValue, searchAddress]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     setInputValue(newValue);
@@ -184,7 +197,12 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
                 type="button"
                 className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground"
-                onClick={() => handleSelectSuggestion(suggestion)}
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSelectSuggestion(suggestion);
+                }}
               >
                 <div className="flex items-start gap-2">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -233,9 +251,3 @@ function toRad(deg: number): number {
   return deg * (Math.PI / 180);
 }
 
-  useEffect(() => {
-    // If we obtain location after the user already started typing, refresh results to bias nearby.
-    if (!nearby) return;
-    if (inputValue.trim().length < 3) return;
-    searchAddress(inputValue);
-  }, [nearby, inputValue, searchAddress]);
