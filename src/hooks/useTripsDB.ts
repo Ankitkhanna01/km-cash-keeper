@@ -3,6 +3,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
+export interface AddressComponents {
+  street?: string;
+  city?: string;
+  postal_code?: string;
+  province?: string;
+}
+
 export interface Trip {
   id: string;
   user_id: string;
@@ -14,6 +21,20 @@ export interface Trip {
   kilometres: number;
   category: 'business' | 'personal' | 'uncategorized';
   created_at: string;
+  // CRA-compliant structured address fields
+  start_street?: string;
+  start_city?: string;
+  start_postal_code?: string;
+  start_province?: string;
+  end_street?: string;
+  end_city?: string;
+  end_postal_code?: string;
+  end_province?: string;
+}
+
+export interface TripInput extends Omit<Trip, 'id' | 'user_id' | 'created_at'> {
+  start_address?: AddressComponents;
+  end_address?: AddressComponents;
 }
 
 export function useTripsDB() {
@@ -48,10 +69,14 @@ export function useTripsDB() {
     fetchTrips();
   }, [user]);
 
-  const addTrip = async (tripData: Omit<Trip, 'id' | 'user_id' | 'created_at'>) => {
+  const addTrip = async (tripData: TripInput) => {
     if (!user) return null;
 
     try {
+      // Extract address components for CRA compliance
+      const startAddr = tripData.start_address;
+      const endAddr = tripData.end_address;
+
       const { data, error } = await supabase
         .from('trips')
         .insert({
@@ -63,6 +88,15 @@ export function useTripsDB() {
           end_location: tripData.end_location,
           kilometres: tripData.kilometres,
           category: tripData.category,
+          // CRA-compliant structured fields
+          start_street: startAddr?.street || null,
+          start_city: startAddr?.city || null,
+          start_postal_code: startAddr?.postal_code || null,
+          start_province: startAddr?.province || null,
+          end_street: endAddr?.street || null,
+          end_city: endAddr?.city || null,
+          end_postal_code: endAddr?.postal_code || null,
+          end_province: endAddr?.province || null,
         })
         .select()
         .single();

@@ -11,7 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Plus, Calculator, X, MapPin, Navigation, Check, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
-import { AddressAutocomplete, calculateTotalDistance } from './AddressAutocomplete';
+import { AddressAutocomplete, calculateTotalDistance, AddressResult } from './AddressAutocomplete';
+import { AddressComponents as DBAddressComponents } from '@/hooks/useTripsDB';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -24,14 +25,25 @@ interface AddTripDialogProps {
     end_location: string;
     kilometres: number;
     category: 'business' | 'personal' | 'uncategorized';
+    start_address?: DBAddressComponents;
+    end_address?: DBAddressComponents;
   }) => void;
   trigger?: ReactElement;
+}
+
+interface AddressComponentsRaw {
+  house_number?: string;
+  road?: string;
+  city?: string;
+  state?: string;
+  postcode?: string;
 }
 
 interface StopLocation {
   address: string;
   lat?: number;
   lon?: number;
+  addressComponents?: AddressComponentsRaw;
 }
 
 export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
@@ -137,17 +149,33 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
     }
   };
 
-  const handleStartLocationChange = (value: string, lat?: number, lon?: number) => {
-    setStartLocation({ address: value, lat, lon });
+  const handleStartLocationChange = (value: string, lat?: number, lon?: number, addressComponents?: any) => {
+    // Convert Nominatim address format to our format
+    const components = addressComponents ? {
+      house_number: addressComponents.house_number,
+      road: addressComponents.road,
+      city: addressComponents.city,
+      state: addressComponents.state,
+      postcode: addressComponents.postcode,
+    } : undefined;
+    setStartLocation({ address: value, lat, lon, addressComponents: components });
     if (lat != null && lon != null) {
       toast.success('Location added');
     }
   };
 
-  const handleStopChange = (index: number, value: string, lat?: number, lon?: number) => {
+  const handleStopChange = (index: number, value: string, lat?: number, lon?: number, addressComponents?: any) => {
+    // Convert Nominatim address format to our format
+    const components = addressComponents ? {
+      house_number: addressComponents.house_number,
+      road: addressComponents.road,
+      city: addressComponents.city,
+      state: addressComponents.state,
+      postcode: addressComponents.postcode,
+    } : undefined;
     setStops(prev => {
       const newStops = [...prev];
-      newStops[index] = { address: value, lat, lon };
+      newStops[index] = { address: value, lat, lon, addressComponents: components };
       return newStops;
     });
     if (lat != null && lon != null) {
@@ -179,6 +207,17 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
       ? allStopAddresses.join(' → ')
       : allStopAddresses[0] || '';
 
+    // Build structured address for CRA compliance
+    const startAddr = startLocation.addressComponents;
+    const lastStop = stops.find(s => s.address && s.addressComponents);
+    const endAddr = lastStop?.addressComponents;
+
+    const formatStreet = (addr?: AddressComponentsRaw) => {
+      if (!addr) return undefined;
+      const parts = [addr.house_number, addr.road].filter(Boolean);
+      return parts.length > 0 ? parts.join(' ') : undefined;
+    };
+
     onAdd({
       date: formData.date,
       start_time: formData.startTime,
@@ -187,6 +226,18 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
       end_location: endLocation,
       kilometres: parseFloat(formData.kilometres) || 0,
       category: 'uncategorized',
+      start_address: startAddr ? {
+        street: formatStreet(startAddr),
+        city: startAddr.city,
+        postal_code: startAddr.postcode,
+        province: startAddr.state,
+      } : undefined,
+      end_address: endAddr ? {
+        street: formatStreet(endAddr),
+        city: endAddr.city,
+        postal_code: endAddr.postcode,
+        province: endAddr.state,
+      } : undefined,
     });
 
     // Reset form
@@ -302,7 +353,7 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
                   <AddressAutocomplete
                     id={`stop-${index}`}
                     value={stop.address}
-                    onChange={(value, lat, lon) => handleStopChange(index, value, lat, lon)}
+                    onChange={(value, lat, lon, addr) => handleStopChange(index, value, lat, lon, addr)}
                     onActiveChange={handleAddressActiveChange}
                     placeholder={index === stops.length - 1 ? "Final destination" : `Stop ${index + 1}`}
                   />

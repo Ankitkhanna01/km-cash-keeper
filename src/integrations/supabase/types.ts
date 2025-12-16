@@ -109,11 +109,19 @@ export type Database = {
           category: string
           created_at: string
           date: string
+          end_city: string | null
           end_location: string
+          end_postal_code: string | null
+          end_province: string | null
+          end_street: string | null
           end_time: string
           id: string
           kilometres: number
+          start_city: string | null
           start_location: string
+          start_postal_code: string | null
+          start_province: string | null
+          start_street: string | null
           start_time: string
           user_id: string
         }
@@ -121,11 +129,19 @@ export type Database = {
           category?: string
           created_at?: string
           date: string
+          end_city?: string | null
           end_location: string
+          end_postal_code?: string | null
+          end_province?: string | null
+          end_street?: string | null
           end_time: string
           id?: string
           kilometres: number
+          start_city?: string | null
           start_location: string
+          start_postal_code?: string | null
+          start_province?: string | null
+          start_street?: string | null
           start_time: string
           user_id: string
         }
@@ -133,11 +149,19 @@ export type Database = {
           category?: string
           created_at?: string
           date?: string
+          end_city?: string | null
           end_location?: string
+          end_postal_code?: string | null
+          end_province?: string | null
+          end_street?: string | null
           end_time?: string
           id?: string
           kilometres?: number
+          start_city?: string | null
           start_location?: string
+          start_postal_code?: string | null
+          start_province?: string | null
+          start_street?: string | null
           start_time?: string
           user_id?: string
         }
