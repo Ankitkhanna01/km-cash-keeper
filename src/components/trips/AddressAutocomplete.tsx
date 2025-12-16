@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, MapPin, Check } from "lucide-react";
 
-interface AddressComponents {
+export interface AddressComponents {
   house_number?: string;
   road?: string;
   neighbourhood?: string;
