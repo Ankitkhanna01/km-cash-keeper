@@ -185,8 +185,9 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
               width: Math.round(anchorRect.width),
               zIndex: 9999,
             }}
-            onPointerDown={(e) => {
-              // Prevent the dialog from treating this as an outside interaction
+            onTouchStart={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => e.stopPropagation()}
+            onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
@@ -195,9 +196,11 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
               <button
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
                 type="button"
-                className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground"
-                onPointerDown={(e) => {
-                  // Prevent mobile click-through to the underlying "Add Trip" submit button
+                className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground active:bg-accent"
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                }}
+                onTouchEnd={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   handleSelectSuggestion(suggestion);
@@ -206,8 +209,13 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
                   e.preventDefault();
                   e.stopPropagation();
                 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSelectSuggestion(suggestion);
+                }}
               >
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-2 pointer-events-none">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                   <span className="line-clamp-2">{suggestion.display_name}</span>
                 </div>
