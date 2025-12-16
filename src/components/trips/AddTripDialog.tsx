@@ -9,9 +9,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Calculator, X, MapPin } from 'lucide-react';
+import { Plus, Calculator, X, MapPin, Navigation, Check, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { AddressAutocomplete, calculateTotalDistance } from './AddressAutocomplete';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface AddTripDialogProps {
   onAdd: (trip: {
@@ -23,7 +25,6 @@ interface AddTripDialogProps {
     kilometres: number;
     category: 'business' | 'personal' | 'uncategorized';
   }) => void;
-  /** Optional custom trigger button (must be a single React element). */
   trigger?: ReactElement;
 }
 
@@ -42,12 +43,11 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
     kilometres: '',
   });
 
-  // Multi-stop support: start location + multiple stops (including final destination)
   const [startLocation, setStartLocation] = useState<StopLocation>({ address: '' });
   const [stops, setStops] = useState<StopLocation[]>([{ address: '' }]);
   const [autoCalculated, setAutoCalculated] = useState(false);
+  const [gettingLocation, setGettingLocation] = useState<string | null>(null);
 
-  // Prevent "ghost clicks" from submitting the form while the address dropdown is open
   const [addressActiveByKey, setAddressActiveByKey] = useState<Record<string, boolean>>({});
   const handleAddressActiveChange = useCallback((active: boolean, key: string) => {
     setAddressActiveByKey((prev) => {
@@ -81,6 +81,62 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
     }
   }, [startLocation, stops]);
 
+  const getCurrentLocation = async (target: 'start' | number) => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation not supported by your browser');
+      return;
+    }
+
+    const key = target === 'start' ? 'start' : `stop-${target}`;
+    setGettingLocation(key);
+
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+
+      // Reverse geocode to get address
+      const { data, error } = await supabase.functions.invoke('reverse-geocode', {
+        body: { lat: latitude, lon: longitude },
+      });
+
+      if (error) throw error;
+
+      const address = data.address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      
+      if (target === 'start') {
+        setStartLocation({ address, lat: latitude, lon: longitude });
+      } else {
+        setStops(prev => {
+          const newStops = [...prev];
+          newStops[target] = { address, lat: latitude, lon: longitude };
+          return newStops;
+        });
+      }
+
+      toast.success('Location added');
+    } catch (error: any) {
+      console.error('Location error:', error);
+      if (error.code === 1) {
+        toast.error('Location permission denied');
+      } else if (error.code === 2) {
+        toast.error('Unable to determine location');
+      } else if (error.code === 3) {
+        toast.error('Location request timed out');
+      } else {
+        toast.error('Failed to get location');
+      }
+    } finally {
+      setGettingLocation(null);
+    }
+  };
+
   const handleStartLocationChange = (value: string, lat?: number, lon?: number) => {
     setStartLocation({ address: value, lat, lon });
   };
@@ -110,11 +166,8 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Don't submit if an address dropdown is currently active (prevents mobile ghost clicks)
     if (addressPickerActive) return;
     
-    // Combine all stops into end_location for storage (last stop is final destination)
     const allStopAddresses = stops.map(s => s.address).filter(Boolean);
     const endLocation = allStopAddresses.length > 1 
       ? allStopAddresses.join(' → ')
@@ -144,6 +197,8 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
     setOpen(false);
   };
 
+  const hasValidData = startLocation.address && stops.some(s => s.address) && formData.kilometres;
+
   return (
     <Dialog
       open={open}
@@ -168,90 +223,60 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
           }
         }}
       >
-        <DialogHeader>
-          <DialogTitle>Add New Trip</DialogTitle>
+        <DialogHeader className="flex flex-row items-center justify-between pr-8">
+          <DialogTitle>Add Trip</DialogTitle>
+          <Button
+            type="button"
+            size="icon"
+            variant={hasValidData ? "default" : "ghost"}
+            className={`h-8 w-8 rounded-full ${hasValidData ? 'bg-primary' : ''}`}
+            disabled={addressPickerActive || !hasValidData}
+            onClick={handleSubmit}
+          >
+            <Check className="w-4 h-4" />
+          </Button>
         </DialogHeader>
+        
         <form onSubmit={handleSubmit} className="space-y-4" noValidate={addressPickerActive}>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="date">Date</Label>
-              <Input
-                id="date"
-                type="date"
-                value={formData.date}
-                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="kilometres" className="flex items-center gap-1">
-                Total Distance (km)
-                {autoCalculated && (
-                  <span title="Auto-calculated">
-                    <Calculator className="w-3 h-3 text-primary" />
-                  </span>
-                )}
-              </Label>
-              <Input
-                id="kilometres"
-                type="number"
-                step="0.1"
-                placeholder="0.0"
-                value={formData.kilometres}
-                onChange={handleKilometresChange}
-                required
-                className={autoCalculated ? 'border-primary/50' : ''}
-              />
-              {autoCalculated && (
-                <p className="text-xs text-muted-foreground">Auto-calculated (edit if needed)</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="startTime">Start Time</Label>
-              <Input
-                id="startTime"
-                type="time"
-                value={formData.startTime}
-                onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="endTime">End Time</Label>
-              <Input
-                id="endTime"
-                type="time"
-                value={formData.endTime}
-                onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                required
-              />
-            </div>
-          </div>
-
-          {/* Start Location */}
+          {/* Start Location with Current Location button */}
           <div className="space-y-2">
-            <Label htmlFor="startLocation" className="flex items-center gap-1">
+            <Label className="flex items-center gap-1">
               <MapPin className="w-3 h-3 text-green-500" />
               Start Location
             </Label>
-            <AddressAutocomplete
-              id="startLocation"
-              value={startLocation.address}
-              onChange={handleStartLocationChange}
-              onActiveChange={handleAddressActiveChange}
-              placeholder="Type to search address..."
-            />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <AddressAutocomplete
+                  id="startLocation"
+                  value={startLocation.address}
+                  onChange={handleStartLocationChange}
+                  onActiveChange={handleAddressActiveChange}
+                  placeholder="Search or use current location"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="shrink-0 h-10 w-10"
+                onClick={() => getCurrentLocation('start')}
+                disabled={gettingLocation === 'start'}
+              >
+                {gettingLocation === 'start' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Navigation className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
           </div>
 
-          {/* Multiple Stops */}
+          {/* Multiple Stops with Current Location buttons */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label className="flex items-center gap-1">
                 <MapPin className="w-3 h-3 text-red-500" />
-                Stops / Destinations
+                Stops
               </Label>
               <Button
                 type="button"
@@ -273,9 +298,23 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
                     value={stop.address}
                     onChange={(value, lat, lon) => handleStopChange(index, value, lat, lon)}
                     onActiveChange={handleAddressActiveChange}
-                    placeholder={index === stops.length - 1 ? "Final destination..." : `Stop ${index + 1}...`}
+                    placeholder={index === stops.length - 1 ? "Final destination" : `Stop ${index + 1}`}
                   />
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 h-10 w-10"
+                  onClick={() => getCurrentLocation(index)}
+                  disabled={gettingLocation === `stop-${index}`}
+                >
+                  {gettingLocation === `stop-${index}` ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Navigation className="w-4 h-4" />
+                  )}
+                </Button>
                 {stops.length > 1 && (
                   <Button
                     type="button"
@@ -289,27 +328,65 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
                 )}
               </div>
             ))}
-            
-            {stops.length > 1 && (
-              <p className="text-xs text-muted-foreground">
-                {stops.length} stops • Distance calculated through all points
-              </p>
+          </div>
+
+          {/* Distance */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1">
+              Total Distance (km)
+              {autoCalculated && (
+                <Calculator className="w-3 h-3 text-primary" />
+              )}
+            </Label>
+            <Input
+              type="number"
+              step="0.1"
+              placeholder="0.0"
+              value={formData.kilometres}
+              onChange={handleKilometresChange}
+              className={autoCalculated ? 'border-primary/50' : ''}
+            />
+            {autoCalculated && (
+              <p className="text-xs text-muted-foreground">Auto-calculated • Edit if needed</p>
             )}
           </div>
 
-          <Button
-            type={addressPickerActive ? "button" : "submit"}
-            className="w-full"
-            disabled={addressPickerActive}
-            onClick={(e) => {
-              if (addressPickerActive) {
-                e.preventDefault();
-                e.stopPropagation();
-              }
-            }}
-          >
-            Add Trip
-          </Button>
+          {/* Date and Time in collapsible section */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Date</Label>
+              <Input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                className="text-xs h-9"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Start</Label>
+              <Input
+                type="time"
+                value={formData.startTime}
+                onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                className="text-xs h-9"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">End</Label>
+              <Input
+                type="time"
+                value={formData.endTime}
+                onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                className="text-xs h-9"
+              />
+            </div>
+          </div>
+
+          {stops.length > 1 && (
+            <p className="text-xs text-muted-foreground text-center">
+              {stops.filter(s => s.address).length} stops • Distance includes all points
+            </p>
+          )}
         </form>
       </DialogContent>
     </Dialog>
