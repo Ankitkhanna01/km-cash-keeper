@@ -26,16 +26,25 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
   const [inputValue, setInputValue] = useState(value);
   const [nearby, setNearby] = useState<NearbyLocation | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const [suppressClicks, setSuppressClicks] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<number | undefined>(undefined);
+  const suppressTimerRef = useRef<number | undefined>(undefined);
   const geoRequestedRef = useRef(false);
 
   useEffect(() => {
     setInputValue(value);
   }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -141,6 +150,11 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
   };
 
   const handleSelectSuggestion = (suggestion: AddressSuggestion) => {
+    // Prevent the synthetic "ghost click" from hitting elements behind the dropdown (mobile)
+    setSuppressClicks(true);
+    if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
+    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 450);
+
     setInputValue(suggestion.display_name);
     onChange(suggestion.display_name, Number(suggestion.lat), Number(suggestion.lon));
     setShowSuggestions(false);
@@ -171,6 +185,25 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
           )}
         </div>
       </div>
+      {(showSuggestions || suppressClicks) &&
+        createPortal(
+          <div
+            data-address-autocomplete-overlay
+            className="fixed inset-0 bg-transparent"
+            style={{ zIndex: 9998 }}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (showSuggestions) setShowSuggestions(false);
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (showSuggestions) setShowSuggestions(false);
+            }}
+          />,
+          document.body
+        )}
 
       {showSuggestions && suggestions.length > 0 && anchorRect &&
         createPortal(
@@ -185,8 +218,6 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
               width: Math.round(anchorRect.width),
               zIndex: 9999,
             }}
-            onTouchStart={(e) => e.stopPropagation()}
-            onTouchEnd={(e) => e.stopPropagation()}
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -197,13 +228,8 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
                 type="button"
                 className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground active:bg-accent"
-                onTouchStart={(e) => {
+                onPointerDown={(e) => {
                   e.stopPropagation();
-                }}
-                onTouchEnd={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleSelectSuggestion(suggestion);
                 }}
                 onMouseDown={(e) => {
                   e.preventDefault();
