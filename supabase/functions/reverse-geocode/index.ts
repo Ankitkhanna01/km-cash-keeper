@@ -63,7 +63,8 @@ serve(async (req) => {
         address,
         full_address: data.display_name,
         lat: parseFloat(data.lat),
-        lon: parseFloat(data.lon)
+        lon: parseFloat(data.lon),
+        addressComponents: data.address || null
       }),
       { 
         headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -121,13 +121,20 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
       if (error) throw error;
 
       const address = data.address || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      const components = data.addressComponents ? {
+        house_number: data.addressComponents.house_number,
+        road: data.addressComponents.road,
+        city: data.addressComponents.city || data.addressComponents.town || data.addressComponents.village,
+        state: data.addressComponents.state || data.addressComponents.province,
+        postcode: data.addressComponents.postcode,
+      } : undefined;
       
       if (target === 'start') {
-        setStartLocation({ address, lat: latitude, lon: longitude });
+        setStartLocation({ address, lat: latitude, lon: longitude, addressComponents: components });
       } else {
         setStops(prev => {
           const newStops = [...prev];
-          newStops[target] = { address, lat: latitude, lon: longitude };
+          newStops[target] = { address, lat: latitude, lon: longitude, addressComponents: components };
           return newStops;
         });
       }
@@ -150,12 +157,12 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
   };
 
   const handleStartLocationChange = (value: string, lat?: number, lon?: number, addressComponents?: any) => {
-    // Convert Nominatim address format to our format
+    // Convert Nominatim address format to our format (city can be city, town, or village)
     const components = addressComponents ? {
       house_number: addressComponents.house_number,
       road: addressComponents.road,
-      city: addressComponents.city,
-      state: addressComponents.state,
+      city: addressComponents.city || addressComponents.town || addressComponents.village,
+      state: addressComponents.state || addressComponents.province,
       postcode: addressComponents.postcode,
     } : undefined;
     setStartLocation({ address: value, lat, lon, addressComponents: components });
@@ -165,12 +172,12 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
   };
 
   const handleStopChange = (index: number, value: string, lat?: number, lon?: number, addressComponents?: any) => {
-    // Convert Nominatim address format to our format
+    // Convert Nominatim address format to our format (city can be city, town, or village)
     const components = addressComponents ? {
       house_number: addressComponents.house_number,
       road: addressComponents.road,
-      city: addressComponents.city,
-      state: addressComponents.state,
+      city: addressComponents.city || addressComponents.town || addressComponents.village,
+      state: addressComponents.state || addressComponents.province,
       postcode: addressComponents.postcode,
     } : undefined;
     setStops(prev => {
