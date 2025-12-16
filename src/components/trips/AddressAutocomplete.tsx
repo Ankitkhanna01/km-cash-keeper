@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
-import { Input } from '@/components/ui/input';
-import { MapPin, Loader2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/integrations/supabase/client";
+import { Loader2, MapPin } from "lucide-react";
 
 interface AddressSuggestion {
   display_name: string;
@@ -15,55 +17,101 @@ interface AddressAutocompleteProps {
   id?: string;
 }
 
+type NearbyLocation = { lat: number; lon: number };
+
 export function AddressAutocomplete({ value, onChange, placeholder, id }: AddressAutocompleteProps) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputValue, setInputValue] = useState(value);
+  const [nearby, setNearby] = useState<NearbyLocation | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout>();
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<number | undefined>(undefined);
+  const geoRequestedRef = useRef(false);
 
   useEffect(() => {
     setInputValue(value);
   }, [value]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      const clickedInsideInput = !!containerRef.current?.contains(target);
+      const clickedInsideDropdown = !!dropdownRef.current?.contains(target);
+      if (!clickedInsideInput && !clickedInsideDropdown) {
         setShowSuggestions(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
 
+  useLayoutEffect(() => {
+    if (!showSuggestions) return;
+
+    const updateRect = () => {
+      const rect = inputRef.current?.getBoundingClientRect() ?? null;
+      setAnchorRect(rect);
+    };
+
+    updateRect();
+    window.addEventListener("resize", updateRect);
+    window.addEventListener("scroll", updateRect, true);
+    return () => {
+      window.removeEventListener("resize", updateRect);
+      window.removeEventListener("scroll", updateRect, true);
+    };
+  }, [showSuggestions]);
+
+  const requestNearby = () => {
+    if (geoRequestedRef.current || nearby) return;
+    geoRequestedRef.current = true;
+
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNearby({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+      },
+      () => {
+        // ignore; nearby bias is optional
+      },
+      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 5000 }
+    );
+  };
+
   const searchAddress = async (query: string) => {
-    if (query.length < 3) {
+    if (query.trim().length < 3) {
       setSuggestions([]);
+      setShowSuggestions(false);
       return;
     }
 
     setIsLoading(true);
     try {
-      // Using OpenStreetMap Nominatim API - requires User-Agent header
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=5&addressdetails=1`,
-        {
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'DriverTaxTracker/1.0',
-          },
-        }
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        setSuggestions(data);
-        setShowSuggestions(data.length > 0);
-      }
+      const { data, error } = await supabase.functions.invoke<AddressSuggestion[]>("geocode", {
+        body: {
+          q: query,
+          countrycodes: "ca",
+          limit: 6,
+          near: nearby ?? undefined,
+        },
+      });
+
+      if (error) throw error;
+
+      const results = Array.isArray(data) ? data : [];
+      setSuggestions(results);
+      setShowSuggestions(results.length > 0);
     } catch (error) {
-      console.error('Address search error:', error);
+      console.error("Address search error:", error);
       setSuggestions([]);
+      setShowSuggestions(false);
     } finally {
       setIsLoading(false);
     }
@@ -74,18 +122,17 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
     setInputValue(newValue);
     onChange(newValue);
 
-    // Debounce the search - Nominatim has rate limits
     if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
+      window.clearTimeout(debounceRef.current);
     }
-    debounceRef.current = setTimeout(() => {
+    debounceRef.current = window.setTimeout(() => {
       searchAddress(newValue);
-    }, 500);
+    }, 350);
   };
 
   const handleSelectSuggestion = (suggestion: AddressSuggestion) => {
     setInputValue(suggestion.display_name);
-    onChange(suggestion.display_name, parseFloat(suggestion.lat), parseFloat(suggestion.lon));
+    onChange(suggestion.display_name, Number(suggestion.lat), Number(suggestion.lon));
     setShowSuggestions(false);
     setSuggestions([]);
   };
@@ -94,51 +141,62 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
     <div ref={containerRef} className="relative">
       <div className="relative">
         <Input
+          ref={inputRef}
           id={id}
           value={inputValue}
           onChange={handleInputChange}
-          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+          onFocus={() => {
+            requestNearby();
+            if (suggestions.length > 0) setShowSuggestions(true);
+          }}
           placeholder={placeholder}
           className="pr-8"
           autoComplete="off"
         />
         <div className="absolute right-2 top-1/2 -translate-y-1/2">
           {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
-            <MapPin className="w-4 h-4 text-muted-foreground" />
+            <MapPin className="h-4 w-4 text-muted-foreground" />
           )}
         </div>
       </div>
-      
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              type="button"
-              className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors border-b border-border last:border-0"
-              onClick={() => handleSelectSuggestion(suggestion)}
-            >
-              <div className="flex items-start gap-2">
-                <MapPin className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
-                <span className="line-clamp-2">{suggestion.display_name}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+
+      {showSuggestions && suggestions.length > 0 && anchorRect &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-auto"
+            style={{
+              position: "fixed",
+              top: Math.round(anchorRect.bottom + 6),
+              left: Math.round(anchorRect.left),
+              width: Math.round(anchorRect.width),
+              zIndex: 9999,
+            }}
+          >
+            {suggestions.map((suggestion, index) => (
+              <button
+                key={`${suggestion.lat}-${suggestion.lon}-${index}`}
+                type="button"
+                className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground"
+                onClick={() => handleSelectSuggestion(suggestion)}
+              >
+                <div className="flex items-start gap-2">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span className="line-clamp-2">{suggestion.display_name}</span>
+                </div>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
 
 // Haversine formula to calculate distance between two coordinates
-export function calculateDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
+export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371; // Earth's radius in kilometers
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
@@ -152,11 +210,9 @@ export function calculateDistance(
 }
 
 // Calculate total distance for multiple stops
-export function calculateTotalDistance(
-  coordinates: Array<{ lat: number; lon: number }>
-): number {
+export function calculateTotalDistance(coordinates: Array<{ lat: number; lon: number }>): number {
   if (coordinates.length < 2) return 0;
-  
+
   let totalDistance = 0;
   for (let i = 0; i < coordinates.length - 1; i++) {
     totalDistance += calculateDistance(
@@ -172,3 +228,4 @@ export function calculateTotalDistance(
 function toRad(deg: number): number {
   return deg * (Math.PI / 180);
 }
+
