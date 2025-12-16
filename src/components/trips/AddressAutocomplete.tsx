@@ -73,14 +73,15 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     };
   }, []);
 
-  // Notify parent when the autocomplete is active, so it can temporarily disable submit buttons.
+  // Notify parent when the autocomplete is active (dropdown open OR address awaiting confirmation).
+  // Note: suppressClicks is only used to swallow mobile "ghost clicks" and shouldn't block form submit.
   useEffect(() => {
-    const active = showSuggestions || suppressClicks;
+    const active = showSuggestions || !!pendingSuggestion;
     onActiveChange?.(active, instanceKeyRef.current);
     return () => {
       onActiveChange?.(false, instanceKeyRef.current);
     };
-  }, [showSuggestions, suppressClicks, onActiveChange]);
+  }, [showSuggestions, pendingSuggestion, onActiveChange]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -220,7 +221,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     // Prevent ghost clicks
     setSuppressClicks(true);
     if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
-    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 600);
+    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 250);
 
     // Pass full address details including components for CRA compliance
     onChange(
