@@ -139,6 +139,9 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
 
   const handleStartLocationChange = (value: string, lat?: number, lon?: number) => {
     setStartLocation({ address: value, lat, lon });
+    if (lat != null && lon != null) {
+      toast.success('Location added');
+    }
   };
 
   const handleStopChange = (index: number, value: string, lat?: number, lon?: number) => {
@@ -147,6 +150,9 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
       newStops[index] = { address: value, lat, lon };
       return newStops;
     });
+    if (lat != null && lon != null) {
+      toast.success('Location added');
+    }
   };
 
   const addStop = () => {
