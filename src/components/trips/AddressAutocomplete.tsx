@@ -247,13 +247,11 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
                 type="button"
                 className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground active:bg-accent"
                 onPointerDown={(e) => {
-                  if (e.button !== 0) return;
-                  e.preventDefault();
+                  // Keep the dropdown interaction from being treated as an "outside" click
                   e.stopPropagation();
-                  handleSelectSuggestion(suggestion);
                 }}
                 onClick={(e) => {
-                  // Keyboard fallback (Enter/Space)
+                  // Primary selection handler (works for touch + mouse + keyboard)
                   e.preventDefault();
                   e.stopPropagation();
                   handleSelectSuggestion(suggestion);

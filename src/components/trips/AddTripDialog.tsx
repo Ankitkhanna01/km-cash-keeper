@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { ReactElement, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,8 @@ interface AddTripDialogProps {
     kilometres: number;
     category: 'business' | 'personal' | 'uncategorized';
   }) => void;
+  /** Optional custom trigger button (must be a single React element). */
+  trigger?: ReactElement;
 }
 
 interface StopLocation {
@@ -31,7 +33,7 @@ interface StopLocation {
   lon?: number;
 }
 
-export function AddTripDialog({ onAdd }: AddTripDialogProps) {
+export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
   const [open, setOpen] = useState(false);
   const [formData, setFormData] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -39,7 +41,7 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
     endTime: format(new Date(), 'HH:mm'),
     kilometres: '',
   });
-  
+
   // Multi-stop support: start location + multiple stops (including final destination)
   const [startLocation, setStartLocation] = useState<StopLocation>({ address: '' });
   const [stops, setStops] = useState<StopLocation[]>([{ address: '' }]);
@@ -61,20 +63,20 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
   // Auto-calculate distance when coordinates are available
   useEffect(() => {
     const allCoords: Array<{ lat: number; lon: number }> = [];
-    
-    if (startLocation.lat && startLocation.lon) {
+
+    if (startLocation.lat != null && startLocation.lon != null) {
       allCoords.push({ lat: startLocation.lat, lon: startLocation.lon });
     }
-    
-    stops.forEach(stop => {
-      if (stop.lat && stop.lon) {
+
+    stops.forEach((stop) => {
+      if (stop.lat != null && stop.lon != null) {
         allCoords.push({ lat: stop.lat, lon: stop.lon });
       }
     });
 
     if (allCoords.length >= 2) {
       const distance = calculateTotalDistance(allCoords);
-      setFormData(prev => ({ ...prev, kilometres: distance.toString() }));
+      setFormData((prev) => ({ ...prev, kilometres: distance.toString() }));
       setAutoCalculated(true);
     }
   }, [startLocation, stops]);
@@ -151,9 +153,11 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
       }}
     >
       <DialogTrigger asChild>
-        <Button size="icon" className="rounded-full shadow-lg glow">
-          <Plus className="w-5 h-5" />
-        </Button>
+        {trigger ?? (
+          <Button type="button" size="icon" className="rounded-full shadow-lg glow">
+            <Plus className="w-5 h-5" />
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent
         className="glass-card border-border max-w-sm mx-auto max-h-[90vh] overflow-y-auto"
