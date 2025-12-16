@@ -58,6 +58,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
       onActiveChange?.(false, instanceKeyRef.current);
     };
   }, [showSuggestions, suppressClicks, onActiveChange]);
+
+  useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       const clickedInsideInput = !!containerRef.current?.contains(target);
@@ -70,6 +72,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
+
 
   useLayoutEffect(() => {
     if (!showSuggestions) return;
