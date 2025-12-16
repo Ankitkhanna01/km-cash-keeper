@@ -5,8 +5,9 @@ import { TripCard } from '@/components/trips/TripCard';
 import { AddTripDialog } from '@/components/trips/AddTripDialog';
 import { useTripsDB, Trip } from '@/hooks/useTripsDB';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 
 export default function Trips() {
   const { trips, loading, addTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
@@ -66,11 +67,7 @@ export default function Trips() {
 
   return (
     <AppLayout>
-      <PageHeader
-        title="Mileage Tracker"
-        subtitle="CRA-compliant trip log"
-        action={<AddTripDialog onAdd={handleAddTrip} />}
-      />
+      <PageHeader title="Mileage Tracker" subtitle="CRA-compliant trip log" />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full grid grid-cols-2 mb-4">
@@ -89,9 +86,7 @@ export default function Trips() {
           {uncategorizedTrips.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">No trips to review</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Add a new trip to get started
-              </p>
+              <p className="text-sm text-muted-foreground mt-1">Add a new trip to get started</p>
             </div>
           ) : (
             uncategorizedTrips.map((trip, index) => (
@@ -112,15 +107,32 @@ export default function Trips() {
             </div>
           ) : (
             categorizedTrips.map((trip) => (
-              <TripCard
-                key={trip.id}
-                trip={mapTripForCard(trip)}
-                onDelete={handleDelete}
-              />
+              <TripCard key={trip.id} trip={mapTripForCard(trip)} onDelete={handleDelete} />
             ))
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Extra scroll room so the fixed bottom action bar never overlaps content */}
+      <div className="h-20" aria-hidden="true" />
+
+      {/* Fixed bottom action bar (above bottom navigation) */}
+      <aside
+        aria-label="Trip actions"
+        className="fixed left-0 right-0 z-40 bottom-[calc(6rem+env(safe-area-inset-bottom))] border-t border-border bg-background/80 backdrop-blur"
+      >
+        <div className="max-w-lg mx-auto px-4 py-3">
+          <AddTripDialog
+            onAdd={handleAddTrip}
+            trigger={
+              <Button className="w-full" size="lg">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Trip
+              </Button>
+            }
+          />
+        </div>
+      </aside>
     </AppLayout>
   );
 }
