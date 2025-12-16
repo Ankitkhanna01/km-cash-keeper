@@ -207,7 +207,6 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
 
   const handleSubmit = async (e: React.FormEvent | React.MouseEvent) => {
     e.preventDefault?.();
-    if (addressPickerActive) return;
 
     type GeocodeResult = {
       display_name: string;
@@ -285,15 +284,18 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
       const allStopAddresses = resolvedStops.map((s) => s.address).filter(Boolean);
       const endLocation = allStopAddresses.length > 1 ? allStopAddresses.join(" → ") : allStopAddresses[0] || "";
 
-      const endStop = [...resolvedStops].reverse().find((s) => s.address && s.addressComponents);
+      const endStopWithComponents = [...resolvedStops]
+        .reverse()
+        .find((s) => s.address && s.addressComponents);
 
-      if (!resolvedStart.addressComponents || !endStop?.addressComponents) {
-        toast.error("Select an address from the suggestions so we can save the full CRA-compliant address.");
-        return;
+      if (!resolvedStart.addressComponents || !endStopWithComponents?.addressComponents) {
+        toast.info(
+          "Trip saved, but we couldn’t fully parse the CRA address details. Next time, pick a suggestion when possible."
+        );
       }
 
       const startAddr = resolvedStart.addressComponents;
-      const endAddr = endStop.addressComponents;
+      const endAddr = endStopWithComponents?.addressComponents;
 
       const formatStreet = (addr: AddressComponentsRaw) => {
         const parts = [addr.house_number, addr.road].filter(Boolean);
@@ -308,18 +310,22 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
         end_location: endLocation,
         kilometres: parseFloat(formData.kilometres) || 0,
         category: "uncategorized",
-        start_address: {
-          street: formatStreet(startAddr),
-          city: startAddr.city,
-          postal_code: startAddr.postcode,
-          province: startAddr.state,
-        },
-        end_address: {
-          street: formatStreet(endAddr),
-          city: endAddr.city,
-          postal_code: endAddr.postcode,
-          province: endAddr.state,
-        },
+        start_address: startAddr
+          ? {
+              street: formatStreet(startAddr),
+              city: startAddr.city,
+              postal_code: startAddr.postcode,
+              province: startAddr.state,
+            }
+          : undefined,
+        end_address: endAddr
+          ? {
+              street: formatStreet(endAddr),
+              city: endAddr.city,
+              postal_code: endAddr.postcode,
+              province: endAddr.state,
+            }
+          : undefined,
       });
 
       // Reset form
