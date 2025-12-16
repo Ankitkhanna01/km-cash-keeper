@@ -231,24 +231,51 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
       if (!loc.address) return loc;
       if (loc.addressComponents) return loc;
 
-      const { data, error } = await supabase.functions.invoke<GeocodeResult[]>("geocode", {
-        body: {
-          q: loc.address,
-          countrycodes: "ca",
-          limit: 1,
-        },
-      });
-      if (error) throw error;
+      const originalQuery = loc.address.trim();
 
-      const first = Array.isArray(data) ? data[0] : undefined;
-      if (!first) return loc;
+      // Try to expand/normalize the query first (helps partial inputs like "Biryani p")
+      let expandedQuery = originalQuery;
+      try {
+        const { data: smart } = await supabase.functions.invoke<{ expanded?: string }>("smart-address", {
+          body: { query: originalQuery },
+        });
+        if (smart?.expanded && typeof smart.expanded === "string") {
+          expandedQuery = smart.expanded.trim() || originalQuery;
+        }
+      } catch {
+        // ignore; we'll fall back to raw query
+      }
 
-      return {
-        address: first.display_name,
-        lat: Number(first.lat),
-        lon: Number(first.lon),
-        addressComponents: toRawComponents(first.address),
-      };
+      const candidates = [expandedQuery, originalQuery]
+        .flatMap((q) => {
+          const hasCanada = q.toLowerCase().includes("canada");
+          return hasCanada ? [q] : [q, `${q}, Canada`];
+        })
+        .filter(Boolean)
+        .filter((v, i, arr) => arr.indexOf(v) === i);
+
+      for (const q of candidates) {
+        const { data, error } = await supabase.functions.invoke<GeocodeResult[]>("geocode", {
+          body: {
+            q,
+            countrycodes: "ca",
+            limit: 1,
+          },
+        });
+        if (error) throw error;
+
+        const first = Array.isArray(data) ? data[0] : undefined;
+        if (!first) continue;
+
+        return {
+          address: first.display_name,
+          lat: Number(first.lat),
+          lon: Number(first.lon),
+          addressComponents: toRawComponents(first.address),
+        };
+      }
+
+      return loc;
     };
 
     try {
