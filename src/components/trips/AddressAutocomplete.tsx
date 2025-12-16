@@ -28,6 +28,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   const [nearby, setNearby] = useState<NearbyLocation | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const [suppressClicks, setSuppressClicks] = useState(false);
+  const [pendingSuggestion, setPendingSuggestion] = useState<AddressSuggestion | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -185,19 +186,27 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     if (now - lastSelectAtRef.current < 250) return; // avoid double-select (touch + click)
     lastSelectAtRef.current = now;
 
-    // Prevent the synthetic "ghost click" from hitting elements behind the dropdown (mobile)
-    setSuppressClicks(true);
-    if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
-    // Extended timeout to catch delayed mobile "ghost click" events
-    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 600);
-
-    // Cancel any pending search from typing so it doesn't re-open suggestions after selection
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-
+    // Show confirmation bar instead of immediately confirming
+    setPendingSuggestion(suggestion);
     setInputValue(suggestion.display_name);
-    onChange(suggestion.display_name, Number(suggestion.lat), Number(suggestion.lon));
     setShowSuggestions(false);
     setSuggestions([]);
+  };
+
+  const confirmPendingAddress = () => {
+    if (!pendingSuggestion) return;
+    
+    // Prevent ghost clicks
+    setSuppressClicks(true);
+    if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
+    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 600);
+
+    onChange(pendingSuggestion.display_name, Number(pendingSuggestion.lat), Number(pendingSuggestion.lon));
+    setPendingSuggestion(null);
+  };
+
+  const cancelPendingAddress = () => {
+    setPendingSuggestion(null);
   };
 
   return (
@@ -224,6 +233,29 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
           )}
         </div>
       </div>
+
+      {/* Confirmation bar for mobile */}
+      {pendingSuggestion && (
+        <div className="mt-2 p-3 rounded-md border border-primary bg-primary/10 flex items-center gap-2">
+          <MapPin className="h-4 w-4 shrink-0 text-primary" />
+          <span className="flex-1 text-sm line-clamp-1">{pendingSuggestion.display_name}</span>
+          <button
+            type="button"
+            onClick={cancelPendingAddress}
+            className="px-3 py-1.5 text-sm rounded-md bg-muted hover:bg-muted/80 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={confirmPendingAddress}
+            className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium"
+          >
+            Use This
+          </button>
+        </div>
+      )}
+
       {suppressClicks &&
         createPortal(
           <div
