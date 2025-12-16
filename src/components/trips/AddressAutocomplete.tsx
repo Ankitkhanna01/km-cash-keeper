@@ -253,24 +253,14 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
               <button
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
                 type="button"
-                className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground active:bg-accent"
+                className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground active:bg-accent touch-manipulation"
                 onPointerDown={(e) => {
-                  // Keep the dropdown interaction from being treated as an "outside" click
                   e.stopPropagation();
-                }}
-                onTouchStart={(e) => {
                   e.preventDefault();
-                  e.stopPropagation();
-                  handleSelectSuggestion(suggestion);
-                }}
-                onClick={(e) => {
-                  // Fallback (mouse + some browsers)
-                  e.preventDefault();
-                  e.stopPropagation();
                   handleSelectSuggestion(suggestion);
                 }}
               >
-                <div className="flex items-start gap-2 pointer-events-none">
+                <div className="flex items-start gap-2">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                   <span className="line-clamp-2">{suggestion.display_name}</span>
                 </div>
