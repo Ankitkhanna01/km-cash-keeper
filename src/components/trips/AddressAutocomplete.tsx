@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, MapPin } from "lucide-react";
+import { Loader2, MapPin, Check } from "lucide-react";
 
 interface AddressSuggestion {
   display_name: string;
@@ -264,21 +264,28 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
             }}
           >
             {suggestions.map((suggestion, index) => (
-              <button
+              <div
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
-                type="button"
-                className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground active:bg-accent touch-manipulation"
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  handleSelectSuggestion(suggestion);
-                }}
+                className="flex items-center border-b border-border last:border-0"
               >
-                <div className="flex items-start gap-2">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <span className="line-clamp-2">{suggestion.display_name}</span>
+                <div className="flex-1 px-3 py-2 text-left text-sm">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span className="line-clamp-2">{suggestion.display_name}</span>
+                  </div>
                 </div>
-              </button>
+                <button
+                  type="button"
+                  className="flex items-center justify-center w-12 h-full py-3 border-l border-border bg-primary/10 hover:bg-primary/20 active:bg-primary/30 transition-colors touch-manipulation"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    handleSelectSuggestion(suggestion);
+                  }}
+                >
+                  <Check className="h-5 w-5 text-primary" />
+                </button>
+              </div>
             ))}
             </div>,
             document.body
