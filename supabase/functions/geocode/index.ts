@@ -67,8 +67,9 @@ serve(async (req) => {
     url.searchParams.set("countrycodes", countrycodes);
 
     if (body.near && isFiniteNumber(body.near.lat) && isFiniteNumber(body.near.lon)) {
-      // Bias results toward user's current area (not strictly bounded)
-      url.searchParams.set("viewbox", buildViewbox(body.near, 35));
+      // Strongly prioritize the user's current area
+      url.searchParams.set("viewbox", buildViewbox(body.near, 25));
+      url.searchParams.set("bounded", "1");
     }
 
     const res = await fetch(url.toString(), {

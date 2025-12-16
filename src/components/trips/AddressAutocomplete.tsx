@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +30,7 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const portalRoot = inputRef.current?.closest('[role="dialog"]') as HTMLElement | null;
   const debounceRef = useRef<number | undefined>(undefined);
   const geoRequestedRef = useRef(false);
 
@@ -85,37 +86,40 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
     );
   };
 
-  const searchAddress = async (query: string) => {
-    if (query.trim().length < 3) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
+  const searchAddress = useCallback(
+    async (query: string) => {
+      if (query.trim().length < 3) {
+        setSuggestions([]);
+        setShowSuggestions(false);
+        return;
+      }
 
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke<AddressSuggestion[]>("geocode", {
-        body: {
-          q: query,
-          countrycodes: "ca",
-          limit: 6,
-          near: nearby ?? undefined,
-        },
-      });
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.functions.invoke<AddressSuggestion[]>("geocode", {
+          body: {
+            q: query,
+            countrycodes: "ca",
+            limit: 6,
+            near: nearby ?? undefined,
+          },
+        });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      const results = Array.isArray(data) ? data : [];
-      setSuggestions(results);
-      setShowSuggestions(results.length > 0);
-    } catch (error) {
-      console.error("Address search error:", error);
-      setSuggestions([]);
-      setShowSuggestions(false);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        const results = Array.isArray(data) ? data : [];
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+      } catch (error) {
+        console.error("Address search error:", error);
+        setSuggestions([]);
+        setShowSuggestions(false);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [nearby]
+  );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
@@ -188,9 +192,9 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
                 </div>
               </button>
             ))}
-          </div>,
-          document.body
-        )}
+            </div>,
+            portalRoot ?? document.body
+          )}
     </div>
   );
 }
@@ -229,3 +233,9 @@ function toRad(deg: number): number {
   return deg * (Math.PI / 180);
 }
 
+  useEffect(() => {
+    // If we obtain location after the user already started typing, refresh results to bias nearby.
+    if (!nearby) return;
+    if (inputValue.trim().length < 3) return;
+    searchAddress(inputValue);
+  }, [nearby, inputValue, searchAddress]);
