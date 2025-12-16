@@ -72,6 +72,11 @@ export function useTripsDB() {
   const addTrip = async (tripData: TripInput) => {
     if (!user) return null;
 
+    // Debug logging
+    console.log('useTripsDB addTrip - tripData:', tripData);
+    console.log('useTripsDB addTrip - start_address:', tripData.start_address);
+    console.log('useTripsDB addTrip - end_address:', tripData.end_address);
+
     try {
       // Extract address components for CRA compliance
       const startAddr = tripData.start_address;

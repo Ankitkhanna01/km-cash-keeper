@@ -219,6 +219,12 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
     const lastStop = stops.find(s => s.address && s.addressComponents);
     const endAddr = lastStop?.addressComponents;
 
+    // Debug logging
+    console.log('AddTripDialog submit - startLocation:', startLocation);
+    console.log('AddTripDialog submit - stops:', stops);
+    console.log('AddTripDialog submit - startAddr:', startAddr);
+    console.log('AddTripDialog submit - endAddr:', endAddr);
+
     const formatStreet = (addr?: AddressComponentsRaw) => {
       if (!addr) return undefined;
       const parts = [addr.house_number, addr.road].filter(Boolean);
