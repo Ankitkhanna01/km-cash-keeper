@@ -132,7 +132,15 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
           <Plus className="w-5 h-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="glass-card border-border max-w-sm mx-auto max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="glass-card border-border max-w-sm mx-auto max-h-[90vh] overflow-y-auto"
+        onInteractOutside={(event) => {
+          const target = event.target as HTMLElement | null;
+          if (target?.closest?.("[data-address-autocomplete-dropdown]")) {
+            event.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Add New Trip</DialogTitle>
         </DialogHeader>

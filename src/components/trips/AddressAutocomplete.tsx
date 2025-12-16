@@ -68,10 +68,10 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
 
     updateRect();
     window.addEventListener("resize", updateRect);
-    window.addEventListener("scroll", updateRect, true);
+    document.addEventListener("scroll", updateRect, true);
     return () => {
       window.removeEventListener("resize", updateRect);
-      window.removeEventListener("scroll", updateRect, true);
+      document.removeEventListener("scroll", updateRect, true);
     };
   }, [showSuggestions]);
 
@@ -183,6 +183,7 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
         createPortal(
           <div
             ref={dropdownRef}
+            data-address-autocomplete-dropdown
             className="rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-auto"
             style={{
               position: "fixed",
@@ -211,7 +212,7 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
               </button>
             ))}
             </div>,
-            portalRoot ?? document.body
+            document.body
           )}
     </div>
   );
