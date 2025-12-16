@@ -200,24 +200,22 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
           )}
         </div>
       </div>
-      {(showSuggestions || suppressClicks) &&
+      {suppressClicks &&
         createPortal(
           <div
             data-address-autocomplete-overlay
             className="fixed inset-0 bg-transparent"
             style={{ zIndex: 9998 }}
-            onPointerDown={(e) => {
+            onPointerDownCapture={(e) => {
+              // Swallow the delayed synthetic click after selecting an item (mobile "ghost click")
               e.preventDefault();
               e.stopPropagation();
-              if (showSuggestions) setShowSuggestions(false);
-            }}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (showSuggestions) setShowSuggestions(false);
             }}
             onClick={(e) => {
-              // Stop the synthesized mobile click from reaching the submit button
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchStart={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
@@ -238,8 +236,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
               width: Math.round(anchorRect.width),
               zIndex: 9999,
             }}
-            onMouseDown={(e) => {
-              e.preventDefault();
+            onPointerDown={(e) => {
+              // Keep the dropdown interaction from being treated as an "outside" click
               e.stopPropagation();
             }}
           >
@@ -249,13 +247,13 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
                 type="button"
                 className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground active:bg-accent"
                 onPointerDown={(e) => {
-                  e.stopPropagation();
-                }}
-                onMouseDown={(e) => {
+                  if (e.button !== 0) return;
                   e.preventDefault();
                   e.stopPropagation();
+                  handleSelectSuggestion(suggestion);
                 }}
                 onClick={(e) => {
+                  // Keyboard fallback (Enter/Space)
                   e.preventDefault();
                   e.stopPropagation();
                   handleSelectSuggestion(suggestion);
