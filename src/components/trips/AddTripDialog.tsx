@@ -108,6 +108,9 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Don't submit if an address dropdown is currently active (prevents mobile ghost clicks)
+    if (addressPickerActive) return;
     
     // Combine all stops into end_location for storage (last stop is final destination)
     const allStopAddresses = stops.map(s => s.address).filter(Boolean);
@@ -164,7 +167,7 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
         <DialogHeader>
           <DialogTitle>Add New Trip</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate={addressPickerActive}>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="date">Date</Label>
@@ -290,7 +293,17 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={addressPickerActive}>
+          <Button
+            type={addressPickerActive ? "button" : "submit"}
+            className="w-full"
+            disabled={addressPickerActive}
+            onClick={(e) => {
+              if (addressPickerActive) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}
+          >
             Add Trip
           </Button>
         </form>
