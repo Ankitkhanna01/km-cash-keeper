@@ -119,9 +119,23 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
       setIsLoading(true);
       try {
+        // First, try AI-powered smart address parsing
+        let searchQuery = query;
+        try {
+          const { data: smartData } = await supabase.functions.invoke("smart-address", {
+            body: { query, city: nearby ? undefined : "Canada" },
+          });
+          if (smartData?.expanded && smartData.expanded !== query) {
+            searchQuery = smartData.expanded;
+          }
+        } catch (e) {
+          // Fall back to original query if smart parsing fails
+          console.log("Smart address fallback to original query");
+        }
+
         const { data, error } = await supabase.functions.invoke<AddressSuggestion[]>("geocode", {
           body: {
-            q: query,
+            q: searchQuery,
             countrycodes: "ca",
             limit: 6,
             near: nearby ?? undefined,
