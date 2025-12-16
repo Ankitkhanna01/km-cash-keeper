@@ -32,17 +32,10 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<number | undefined>(undefined);
   const geoRequestedRef = useRef(false);
-  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     setInputValue(value);
   }, [value]);
-
-  // Find dialog container for portal placement
-  useEffect(() => {
-    const dialog = inputRef.current?.closest('[role="dialog"]') as HTMLElement | null;
-    setPortalRoot(dialog);
-  }, []);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -192,17 +185,26 @@ export function AddressAutocomplete({ value, onChange, placeholder, id }: Addres
               width: Math.round(anchorRect.width),
               zIndex: 9999,
             }}
+            onPointerDown={(e) => {
+              // Prevent the dialog from treating this as an outside interaction
+              e.preventDefault();
+              e.stopPropagation();
+            }}
           >
             {suggestions.map((suggestion, index) => (
               <button
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
                 type="button"
                 className="w-full border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent hover:text-accent-foreground"
-                onPointerDown={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
+                onPointerDown={(e) => {
+                  // Prevent mobile click-through to the underlying "Add Trip" submit button
+                  e.preventDefault();
                   e.stopPropagation();
                   handleSelectSuggestion(suggestion);
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                 }}
               >
                 <div className="flex items-start gap-2">
