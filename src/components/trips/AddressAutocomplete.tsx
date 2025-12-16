@@ -35,6 +35,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   const debounceRef = useRef<number | undefined>(undefined);
   const suppressTimerRef = useRef<number | undefined>(undefined);
   const geoRequestedRef = useRef(false);
+  const lastSelectAtRef = useRef(0);
   const instanceKeyRef = useRef<string>(
     `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
   );
@@ -164,11 +165,18 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   };
 
   const handleSelectSuggestion = (suggestion: AddressSuggestion) => {
+    const now = Date.now();
+    if (now - lastSelectAtRef.current < 250) return; // avoid double-select (touch + click)
+    lastSelectAtRef.current = now;
+
     // Prevent the synthetic "ghost click" from hitting elements behind the dropdown (mobile)
     setSuppressClicks(true);
     if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
     // Extended timeout to catch delayed mobile "ghost click" events
     suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 600);
+
+    // Cancel any pending search from typing so it doesn't re-open suggestions after selection
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
 
     setInputValue(suggestion.display_name);
     onChange(suggestion.display_name, Number(suggestion.lat), Number(suggestion.lon));
@@ -250,8 +258,13 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
                   // Keep the dropdown interaction from being treated as an "outside" click
                   e.stopPropagation();
                 }}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSelectSuggestion(suggestion);
+                }}
                 onClick={(e) => {
-                  // Primary selection handler (works for touch + mouse + keyboard)
+                  // Fallback (mouse + some browsers)
                   e.preventDefault();
                   e.stopPropagation();
                   handleSelectSuggestion(suggestion);
