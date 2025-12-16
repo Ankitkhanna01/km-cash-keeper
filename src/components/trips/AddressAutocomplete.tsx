@@ -167,7 +167,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     // Prevent the synthetic "ghost click" from hitting elements behind the dropdown (mobile)
     setSuppressClicks(true);
     if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
-    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 450);
+    // Extended timeout to catch delayed mobile "ghost click" events
+    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 600);
 
     setInputValue(suggestion.display_name);
     onChange(suggestion.display_name, Number(suggestion.lat), Number(suggestion.lon));
