@@ -264,28 +264,26 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
             }}
           >
             {suggestions.map((suggestion, index) => (
-              <div
+              <button
                 key={`${suggestion.lat}-${suggestion.lon}-${index}`}
-                className="flex items-center border-b border-border last:border-0"
+                type="button"
+                className="w-full flex items-center border-b border-border last:border-0 hover:bg-accent active:bg-accent transition-colors touch-manipulation"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleSelectSuggestion(suggestion);
+                }}
               >
-                <div className="flex-1 px-3 py-2 text-left text-sm">
+                <div className="flex-1 px-3 py-3 text-left text-sm">
                   <div className="flex items-start gap-2">
                     <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     <span className="line-clamp-2">{suggestion.display_name}</span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="flex items-center justify-center w-12 h-full py-3 border-l border-border bg-primary/10 hover:bg-primary/20 active:bg-primary/30 transition-colors touch-manipulation"
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    handleSelectSuggestion(suggestion);
-                  }}
-                >
+                <div className="flex items-center justify-center w-12 h-full py-3 border-l border-border bg-primary/10">
                   <Check className="h-5 w-5 text-primary" />
-                </button>
-              </div>
+                </div>
+              </button>
             ))}
             </div>,
             document.body
