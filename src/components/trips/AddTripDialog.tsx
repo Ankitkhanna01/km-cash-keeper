@@ -205,66 +205,112 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
     setAutoCalculated(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e: React.FormEvent | React.MouseEvent) => {
+    e.preventDefault?.();
     if (addressPickerActive) return;
-    
-    const allStopAddresses = stops.map(s => s.address).filter(Boolean);
-    const endLocation = allStopAddresses.length > 1 
-      ? allStopAddresses.join(' → ')
-      : allStopAddresses[0] || '';
 
-    // Build structured address for CRA compliance
-    const startAddr = startLocation.addressComponents;
-    const lastStop = stops.find(s => s.address && s.addressComponents);
-    const endAddr = lastStop?.addressComponents;
-
-    // Debug logging
-    console.log('AddTripDialog submit - startLocation:', startLocation);
-    console.log('AddTripDialog submit - stops:', stops);
-    console.log('AddTripDialog submit - startAddr:', startAddr);
-    console.log('AddTripDialog submit - endAddr:', endAddr);
-
-    const formatStreet = (addr?: AddressComponentsRaw) => {
-      if (!addr) return undefined;
-      const parts = [addr.house_number, addr.road].filter(Boolean);
-      return parts.length > 0 ? parts.join(' ') : undefined;
+    type GeocodeResult = {
+      display_name: string;
+      lat: string;
+      lon: string;
+      address?: any;
     };
 
-    onAdd({
-      date: formData.date,
-      start_time: formData.startTime,
-      end_time: formData.endTime,
-      start_location: startLocation.address,
-      end_location: endLocation,
-      kilometres: parseFloat(formData.kilometres) || 0,
-      category: 'uncategorized',
-      start_address: startAddr ? {
-        street: formatStreet(startAddr),
-        city: startAddr.city,
-        postal_code: startAddr.postcode,
-        province: startAddr.state,
-      } : undefined,
-      end_address: endAddr ? {
-        street: formatStreet(endAddr),
-        city: endAddr.city,
-        postal_code: endAddr.postcode,
-        province: endAddr.state,
-      } : undefined,
-    });
+    const toRawComponents = (addr: any): AddressComponentsRaw | undefined => {
+      if (!addr) return undefined;
+      return {
+        house_number: addr.house_number,
+        road: addr.road,
+        city: addr.city || addr.town || addr.village,
+        state: addr.state || addr.province,
+        postcode: addr.postcode,
+      };
+    };
 
-    // Reset form
-    setFormData({
-      date: format(new Date(), 'yyyy-MM-dd'),
-      startTime: format(new Date(), 'HH:mm'),
-      endTime: format(new Date(), 'HH:mm'),
-      kilometres: '',
-    });
-    setStartLocation({ address: '' });
-    setStops([{ address: '' }]);
-    setAutoCalculated(false);
-    setAddressActiveByKey({});
-    setOpen(false);
+    const resolveLocation = async (loc: StopLocation): Promise<StopLocation> => {
+      if (!loc.address) return loc;
+      if (loc.addressComponents) return loc;
+
+      const { data, error } = await supabase.functions.invoke<GeocodeResult[]>("geocode", {
+        body: {
+          q: loc.address,
+          countrycodes: "ca",
+          limit: 1,
+        },
+      });
+      if (error) throw error;
+
+      const first = Array.isArray(data) ? data[0] : undefined;
+      if (!first) return loc;
+
+      return {
+        address: first.display_name,
+        lat: Number(first.lat),
+        lon: Number(first.lon),
+        addressComponents: toRawComponents(first.address),
+      };
+    };
+
+    try {
+      const resolvedStart = await resolveLocation(startLocation);
+      const resolvedStops = await Promise.all(stops.map(resolveLocation));
+
+      const allStopAddresses = resolvedStops.map((s) => s.address).filter(Boolean);
+      const endLocation = allStopAddresses.length > 1 ? allStopAddresses.join(" → ") : allStopAddresses[0] || "";
+
+      const endStop = [...resolvedStops].reverse().find((s) => s.address && s.addressComponents);
+
+      if (!resolvedStart.addressComponents || !endStop?.addressComponents) {
+        toast.error("Select an address from the suggestions so we can save the full CRA-compliant address.");
+        return;
+      }
+
+      const startAddr = resolvedStart.addressComponents;
+      const endAddr = endStop.addressComponents;
+
+      const formatStreet = (addr: AddressComponentsRaw) => {
+        const parts = [addr.house_number, addr.road].filter(Boolean);
+        return parts.length > 0 ? parts.join(" ") : undefined;
+      };
+
+      onAdd({
+        date: formData.date,
+        start_time: formData.startTime,
+        end_time: formData.endTime,
+        start_location: resolvedStart.address,
+        end_location: endLocation,
+        kilometres: parseFloat(formData.kilometres) || 0,
+        category: "uncategorized",
+        start_address: {
+          street: formatStreet(startAddr),
+          city: startAddr.city,
+          postal_code: startAddr.postcode,
+          province: startAddr.state,
+        },
+        end_address: {
+          street: formatStreet(endAddr),
+          city: endAddr.city,
+          postal_code: endAddr.postcode,
+          province: endAddr.state,
+        },
+      });
+
+      // Reset form
+      setFormData({
+        date: format(new Date(), "yyyy-MM-dd"),
+        startTime: format(new Date(), "HH:mm"),
+        endTime: format(new Date(), "HH:mm"),
+        kilometres: "",
+      });
+      setStartLocation({ address: "" });
+      setStops([{ address: "" }]);
+      setAutoCalculated(false);
+      setAddressActiveByKey({});
+      setOpen(false);
+    } catch (error) {
+      console.error("Trip save error:", error);
+      toast.error("Failed to save trip");
+    }
   };
 
   const hasValidData = startLocation.address && stops.some(s => s.address) && formData.kilometres;
