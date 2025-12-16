@@ -4,15 +4,36 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, MapPin, Check } from "lucide-react";
 
+interface AddressComponents {
+  house_number?: string;
+  road?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  city?: string;
+  county?: string;
+  state?: string;
+  postcode?: string;
+  country?: string;
+  amenity?: string;
+}
+
 interface AddressSuggestion {
   display_name: string;
   lat: string;
   lon: string;
+  address?: AddressComponents;
+}
+
+export interface AddressResult {
+  display_name: string;
+  lat: number;
+  lon: number;
+  address?: AddressComponents;
 }
 
 interface AddressAutocompleteProps {
   value: string;
-  onChange: (value: string, lat?: number, lon?: number) => void;
+  onChange: (value: string, lat?: number, lon?: number, address?: AddressComponents) => void;
   onActiveChange?: (active: boolean, instanceKey: string) => void;
   placeholder?: string;
   id?: string;
@@ -201,7 +222,13 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
     suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 600);
 
-    onChange(pendingSuggestion.display_name, Number(pendingSuggestion.lat), Number(pendingSuggestion.lon));
+    // Pass full address details including components for CRA compliance
+    onChange(
+      pendingSuggestion.display_name, 
+      Number(pendingSuggestion.lat), 
+      Number(pendingSuggestion.lon),
+      pendingSuggestion.address
+    );
     setPendingSuggestion(null);
   };
 
