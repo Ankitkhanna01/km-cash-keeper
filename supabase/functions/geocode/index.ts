@@ -19,7 +19,6 @@ function isFiniteNumber(n: unknown): n is number {
 }
 
 function buildViewbox(near: Nearby, kmRadius = 30) {
-  // ~111km per degree latitude
   const latDelta = kmRadius / 111;
   const lonDelta = kmRadius / (111 * Math.cos((near.lat * Math.PI) / 180) || 1);
 
@@ -28,8 +27,41 @@ function buildViewbox(near: Nearby, kmRadius = 30) {
   const top = near.lat + latDelta;
   const bottom = near.lat - latDelta;
 
-  // Nominatim expects: left,top,right,bottom (lon,lat,lon,lat)
   return `${left},${top},${right},${bottom}`;
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function queryNominatim(params: URLSearchParams, bounded: boolean): Promise<Response> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.search = params.toString();
+  
+  if (bounded) {
+    url.searchParams.set("bounded", "1");
+  } else {
+    url.searchParams.delete("bounded");
+    url.searchParams.delete("viewbox");
+  }
+
+  console.log(`Querying Nominatim (bounded=${bounded}): ${url.searchParams.get("q")}`);
+
+  return fetchWithTimeout(url.toString(), {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "en",
+      "User-Agent": "DriverTaxTracker/1.0 (Lovable Cloud)",
+    },
+  }, 5000); // 5 second timeout
 }
 
 serve(async (req) => {
@@ -38,7 +70,6 @@ serve(async (req) => {
   }
 
   try {
-    // Require logged-in users (prevents public abuse and keeps API reliable)
     const authHeader = req.headers.get("Authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -59,47 +90,76 @@ serve(async (req) => {
     const limit = Math.max(1, Math.min(10, Number(body.limit ?? 6)));
     const countrycodes = (body.countrycodes ?? "ca").toLowerCase().trim();
 
-    const url = new URL("https://nominatim.openstreetmap.org/search");
-    url.searchParams.set("format", "json");
-    url.searchParams.set("addressdetails", "1");
-    url.searchParams.set("q", q);
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("countrycodes", countrycodes);
+    const params = new URLSearchParams();
+    params.set("format", "json");
+    params.set("addressdetails", "1");
+    params.set("q", q);
+    params.set("limit", String(limit));
+    params.set("countrycodes", countrycodes);
 
-    if (body.near && isFiniteNumber(body.near.lat) && isFiniteNumber(body.near.lon)) {
-      // Strongly prioritize the user's current area
-      url.searchParams.set("viewbox", buildViewbox(body.near, 25));
-      url.searchParams.set("bounded", "1");
+    const hasNearby = !!(body.near && isFiniteNumber(body.near.lat) && isFiniteNumber(body.near.lon));
+    if (hasNearby) {
+      params.set("viewbox", buildViewbox(body.near!, 25));
     }
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "Accept-Language": "en",
-        // Required by Nominatim usage policy for non-browser calls
-        "User-Agent": "DriverTaxTracker/1.0 (Lovable Cloud)",
-      },
-    });
+    let res: Response;
+    let data: unknown[];
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return new Response(JSON.stringify({ error: "Geocoding failed", details: text }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    try {
+      // Try bounded search first if we have nearby coordinates
+      res = await queryNominatim(params, hasNearby);
+      
+      if (!res.ok) {
+        throw new Error(`Nominatim returned ${res.status}`);
+      }
+      
+      data = await res.json();
+      
+      // If bounded search returns no results, try unbounded
+      if (Array.isArray(data) && data.length === 0 && hasNearby) {
+        console.log("Bounded search returned no results, trying unbounded");
+        res = await queryNominatim(params, false);
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+    } catch (err) {
+      // If bounded search times out or fails, try unbounded
+      if (hasNearby) {
+        console.log("Bounded search failed, falling back to unbounded:", err);
+        try {
+          res = await queryNominatim(params, false);
+          if (res.ok) {
+            data = await res.json();
+          } else {
+            throw new Error("Unbounded search also failed");
+          }
+        } catch (fallbackErr) {
+          console.error("Both searches failed:", fallbackErr);
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } else {
+        console.error("Search failed:", err);
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
-    const data = await res.json();
     return new Response(JSON.stringify(data), {
       status: 200,
       headers: {
         ...corsHeaders,
         "Content-Type": "application/json",
-        // lightweight caching to reduce repeated queries
         "Cache-Control": "public, max-age=30",
       },
     });
   } catch (e) {
+    console.error("Unexpected error:", e);
     return new Response(JSON.stringify({ error: "Unexpected error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
