@@ -9,9 +9,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Calculator } from 'lucide-react';
+import { Plus, Calculator, X, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
-import { AddressAutocomplete, calculateDistance } from './AddressAutocomplete';
+import { AddressAutocomplete, calculateTotalDistance } from './AddressAutocomplete';
 
 interface AddTripDialogProps {
   onAdd: (trip: {
@@ -25,7 +25,8 @@ interface AddTripDialogProps {
   }) => void;
 }
 
-interface Coordinates {
+interface StopLocation {
+  address: string;
   lat?: number;
   lon?: number;
 }
@@ -36,39 +37,54 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
     date: format(new Date(), 'yyyy-MM-dd'),
     startTime: format(new Date(), 'HH:mm'),
     endTime: format(new Date(), 'HH:mm'),
-    startLocation: '',
-    endLocation: '',
     kilometres: '',
   });
-  const [startCoords, setStartCoords] = useState<Coordinates>({});
-  const [endCoords, setEndCoords] = useState<Coordinates>({});
+  
+  // Multi-stop support: start location + multiple stops (including final destination)
+  const [startLocation, setStartLocation] = useState<StopLocation>({ address: '' });
+  const [stops, setStops] = useState<StopLocation[]>([{ address: '' }]);
   const [autoCalculated, setAutoCalculated] = useState(false);
 
-  // Auto-calculate distance when both coordinates are available
+  // Auto-calculate distance when coordinates are available
   useEffect(() => {
-    if (startCoords.lat && startCoords.lon && endCoords.lat && endCoords.lon) {
-      const distance = calculateDistance(
-        startCoords.lat,
-        startCoords.lon,
-        endCoords.lat,
-        endCoords.lon
-      );
+    const allCoords: Array<{ lat: number; lon: number }> = [];
+    
+    if (startLocation.lat && startLocation.lon) {
+      allCoords.push({ lat: startLocation.lat, lon: startLocation.lon });
+    }
+    
+    stops.forEach(stop => {
+      if (stop.lat && stop.lon) {
+        allCoords.push({ lat: stop.lat, lon: stop.lon });
+      }
+    });
+
+    if (allCoords.length >= 2) {
+      const distance = calculateTotalDistance(allCoords);
       setFormData(prev => ({ ...prev, kilometres: distance.toString() }));
       setAutoCalculated(true);
     }
-  }, [startCoords, endCoords]);
+  }, [startLocation, stops]);
 
   const handleStartLocationChange = (value: string, lat?: number, lon?: number) => {
-    setFormData(prev => ({ ...prev, startLocation: value }));
-    if (lat && lon) {
-      setStartCoords({ lat, lon });
-    }
+    setStartLocation({ address: value, lat, lon });
   };
 
-  const handleEndLocationChange = (value: string, lat?: number, lon?: number) => {
-    setFormData(prev => ({ ...prev, endLocation: value }));
-    if (lat && lon) {
-      setEndCoords({ lat, lon });
+  const handleStopChange = (index: number, value: string, lat?: number, lon?: number) => {
+    setStops(prev => {
+      const newStops = [...prev];
+      newStops[index] = { address: value, lat, lon };
+      return newStops;
+    });
+  };
+
+  const addStop = () => {
+    setStops(prev => [...prev, { address: '' }]);
+  };
+
+  const removeStop = (index: number) => {
+    if (stops.length > 1) {
+      setStops(prev => prev.filter((_, i) => i !== index));
     }
   };
 
@@ -80,26 +96,31 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Combine all stops into end_location for storage (last stop is final destination)
+    const allStopAddresses = stops.map(s => s.address).filter(Boolean);
+    const endLocation = allStopAddresses.length > 1 
+      ? allStopAddresses.join(' → ')
+      : allStopAddresses[0] || '';
+
     onAdd({
       date: formData.date,
       start_time: formData.startTime,
       end_time: formData.endTime,
-      start_location: formData.startLocation,
-      end_location: formData.endLocation,
+      start_location: startLocation.address,
+      end_location: endLocation,
       kilometres: parseFloat(formData.kilometres) || 0,
       category: 'uncategorized',
     });
 
+    // Reset form
     setFormData({
       date: format(new Date(), 'yyyy-MM-dd'),
       startTime: format(new Date(), 'HH:mm'),
       endTime: format(new Date(), 'HH:mm'),
-      startLocation: '',
-      endLocation: '',
       kilometres: '',
     });
-    setStartCoords({});
-    setEndCoords({});
+    setStartLocation({ address: '' });
+    setStops([{ address: '' }]);
     setAutoCalculated(false);
     setOpen(false);
   };
@@ -111,7 +132,7 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
           <Plus className="w-5 h-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="glass-card border-border max-w-sm mx-auto">
+      <DialogContent className="glass-card border-border max-w-sm mx-auto max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add New Trip</DialogTitle>
         </DialogHeader>
@@ -129,7 +150,7 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="kilometres" className="flex items-center gap-1">
-                Distance (km)
+                Total Distance (km)
                 {autoCalculated && (
                   <span title="Auto-calculated">
                     <Calculator className="w-3 h-3 text-primary" />
@@ -175,24 +196,68 @@ export function AddTripDialog({ onAdd }: AddTripDialogProps) {
             </div>
           </div>
 
+          {/* Start Location */}
           <div className="space-y-2">
-            <Label htmlFor="startLocation">Start Location</Label>
+            <Label htmlFor="startLocation" className="flex items-center gap-1">
+              <MapPin className="w-3 h-3 text-green-500" />
+              Start Location
+            </Label>
             <AddressAutocomplete
               id="startLocation"
-              value={formData.startLocation}
+              value={startLocation.address}
               onChange={handleStartLocationChange}
-              placeholder="Type address to search..."
+              placeholder="Type to search address..."
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="endLocation">End Location</Label>
-            <AddressAutocomplete
-              id="endLocation"
-              value={formData.endLocation}
-              onChange={handleEndLocationChange}
-              placeholder="Type address to search..."
-            />
+          {/* Multiple Stops */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-red-500" />
+                Stops / Destinations
+              </Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={addStop}
+                className="h-7 text-xs"
+              >
+                <Plus className="w-3 h-3 mr-1" />
+                Add Stop
+              </Button>
+            </div>
+            
+            {stops.map((stop, index) => (
+              <div key={index} className="flex gap-2 items-start">
+                <div className="flex-1">
+                  <AddressAutocomplete
+                    id={`stop-${index}`}
+                    value={stop.address}
+                    onChange={(value, lat, lon) => handleStopChange(index, value, lat, lon)}
+                    placeholder={index === stops.length - 1 ? "Final destination..." : `Stop ${index + 1}...`}
+                  />
+                </div>
+                {stops.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeStop(index)}
+                    className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            
+            {stops.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                {stops.length} stops • Distance calculated through all points
+              </p>
+            )}
           </div>
 
           <Button type="submit" className="w-full">
