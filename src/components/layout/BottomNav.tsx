@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Car, Receipt, FileText, LayoutDashboard } from 'lucide-react';
+import { Car, Receipt, FileText, LayoutDashboard, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/trips', icon: Car, label: 'Trips' },
   { to: '/expenses', icon: Receipt, label: 'Expenses' },
   { to: '/reports', icon: FileText, label: 'Reports' },
+  { to: '/backup', icon: Database, label: 'Backup' },
 ];
 
 export function BottomNav() {
