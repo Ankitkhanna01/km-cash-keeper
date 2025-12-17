@@ -1,12 +1,12 @@
 import { useState, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Trip } from '@/types';
-import { format } from 'date-fns';
 import { MapPin, Clock, Car, Briefcase, Home, Trash2, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { EditTripDialog } from './EditTripDialog';
+import { formatDateForDisplay } from '@/lib/dateUtils';
 
 interface TripCardProps {
   trip: Trip;
@@ -130,7 +130,7 @@ export function TripCard({ trip, onCategorize, onDelete, onUpdate, showSwipeHint
                   {trip.kilometres.toFixed(1)} km
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {format(new Date(trip.date), 'MMM d, yyyy')}
+                  {formatDateForDisplay(trip.date)}
                 </p>
               </div>
             </div>

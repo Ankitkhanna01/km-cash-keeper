@@ -10,11 +10,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Plus, Calculator, X, MapPin, Navigation, Check, Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
 import { AddressAutocomplete, calculateTotalDistance, AddressResult } from './AddressAutocomplete';
 import { AddressComponents as DBAddressComponents } from '@/hooks/useTripsDB';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
 
 interface AddTripDialogProps {
   onAdd: (trip: {
@@ -49,9 +49,9 @@ interface StopLocation {
 export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
   const [open, setOpen] = useState(false);
   const [formData, setFormData] = useState({
-    date: format(new Date(), 'yyyy-MM-dd'),
-    startTime: format(new Date(), 'HH:mm'),
-    endTime: format(new Date(), 'HH:mm'),
+    date: getLocalDateString(),
+    startTime: getLocalTimeString(),
+    endTime: getLocalTimeString(),
     kilometres: '',
   });
 
@@ -330,9 +330,9 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
 
       // Reset form
       setFormData({
-        date: format(new Date(), "yyyy-MM-dd"),
-        startTime: format(new Date(), "HH:mm"),
-        endTime: format(new Date(), "HH:mm"),
+        date: getLocalDateString(),
+        startTime: getLocalTimeString(),
+        endTime: getLocalTimeString(),
         kilometres: "",
       });
       setStartLocation({ address: "" });

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Play, Square, MapPin, Plus, Clock, Navigation, Loader2 } from 'lucide-react';
+import { Play, Square, MapPin, Plus, Clock, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
 import { calculateTotalDistance } from './AddressAutocomplete';
+import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
 
 interface StopLocation {
   address: string;
@@ -86,7 +86,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
         address,
         lat: latitude,
         lon: longitude,
-        time: format(new Date(), 'HH:mm'),
+        time: getLocalTimeString(),
       };
     } catch (error: any) {
       console.error('Location error:', error);
@@ -142,7 +142,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       : endLocation.address;
 
     onTripComplete({
-      date: format(new Date(), 'yyyy-MM-dd'),
+      date: getLocalDateString(),
       start_time: startLocation.time,
       end_time: endLocation.time,
       start_location: startLocation.address,
