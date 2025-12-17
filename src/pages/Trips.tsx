@@ -123,6 +123,10 @@ export default function Trips() {
             await updateTrip(id, dbUpdates);
             toast.success('Trip updated');
           }}
+          onCreate={async (tripData) => {
+            await addTrip(tripData);
+            toast.success('Trip created from gap');
+          }}
         />
       </div>
 

@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trip } from '@/hooks/useTripsDB';
 import { getLocalDateString } from '@/lib/dateUtils';
-import { Clock, MapPin, AlertTriangle, Car, ChevronLeft, ChevronRight, Calendar, Pencil, Loader2 } from 'lucide-react';
+import { Clock, MapPin, AlertTriangle, Car, ChevronLeft, ChevronRight, Calendar, Pencil, Loader2, Plus } from 'lucide-react';
 import { AddressAutocomplete, AddressComponents } from './AddressAutocomplete';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -15,6 +16,7 @@ interface TripTimelineProps {
   trips: Trip[];
   date?: string;
   onUpdate?: (id: string, updates: Partial<Trip>) => Promise<void>;
+  onCreate?: (trip: Omit<Trip, 'id' | 'created_at' | 'user_id'>) => Promise<void>;
 }
 
 interface TimelineSegment {
@@ -25,6 +27,8 @@ interface TimelineSegment {
   endMinutes: number;
   trip?: Trip;
   estimatedGapKm?: number;
+  gapStartLocation?: string;
+  gapEndLocation?: string;
 }
 
 // Parse time string (HH:MM) to minutes since midnight
@@ -51,16 +55,18 @@ function formatDateDisplay(dateStr: string): string {
   return date.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-export function TripTimeline({ trips, date, onUpdate }: TripTimelineProps) {
+export function TripTimeline({ trips, date, onUpdate, onCreate }: TripTimelineProps) {
   const today = getLocalDateString();
   const [selectedDate, setSelectedDate] = useState(date || today);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
+  const [creatingFromGap, setCreatingFromGap] = useState<TimelineSegment | null>(null);
   const [editForm, setEditForm] = useState({
     start_time: '',
     end_time: '',
     start_location: '',
     end_location: '',
     kilometres: '',
+    category: 'uncategorized' as 'business' | 'personal' | 'uncategorized',
   });
   const [startCoords, setStartCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [endCoords, setEndCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -118,6 +124,8 @@ export function TripTimeline({ trips, date, onUpdate }: TripTimelineProps) {
             startMinutes: tripEnd,
             endMinutes: nextStart,
             estimatedGapKm,
+            gapStartLocation: trip.end_location,
+            gapEndLocation: nextTrip.start_location,
           });
         }
       }
@@ -144,12 +152,30 @@ export function TripTimeline({ trips, date, onUpdate }: TripTimelineProps) {
 
   const openEditDialog = (trip: Trip) => {
     setEditingTrip(trip);
+    setCreatingFromGap(null);
     setEditForm({
       start_time: trip.start_time,
       end_time: trip.end_time,
       start_location: trip.start_location,
       end_location: trip.end_location,
       kilometres: trip.kilometres.toString(),
+      category: trip.category as 'business' | 'personal' | 'uncategorized',
+    });
+    setStartCoords(null);
+    setEndCoords(null);
+  };
+
+  const openCreateFromGap = (gap: TimelineSegment) => {
+    if (!onCreate) return;
+    setCreatingFromGap(gap);
+    setEditingTrip(null);
+    setEditForm({
+      start_time: gap.startTime,
+      end_time: gap.endTime,
+      start_location: gap.gapStartLocation || '',
+      end_location: gap.gapEndLocation || '',
+      kilometres: gap.estimatedGapKm?.toString() || '0',
+      category: 'uncategorized',
     });
     setStartCoords(null);
     setEndCoords(null);
@@ -205,8 +231,38 @@ export function TripTimeline({ trips, date, onUpdate }: TripTimelineProps) {
         start_location: editForm.start_location,
         end_location: editForm.end_location,
         kilometres: parseFloat(editForm.kilometres) || editingTrip.kilometres,
+        category: editForm.category,
       });
       setEditingTrip(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateTrip = async () => {
+    if (!creatingFromGap || !onCreate) return;
+    
+    setSaving(true);
+    try {
+      await onCreate({
+        date: selectedDate,
+        start_time: editForm.start_time,
+        end_time: editForm.end_time,
+        start_location: editForm.start_location,
+        end_location: editForm.end_location,
+        kilometres: parseFloat(editForm.kilometres) || 0,
+        category: editForm.category,
+        notes: null,
+        start_street: null,
+        start_city: null,
+        start_postal_code: null,
+        start_province: null,
+        end_street: null,
+        end_city: null,
+        end_postal_code: null,
+        end_province: null,
+      });
+      setCreatingFromGap(null);
     } finally {
       setSaving(false);
     }
@@ -409,6 +465,20 @@ export function TripTimeline({ trips, date, onUpdate }: TripTimelineProps) {
                         Potential missed segment
                       </p>
                     </div>
+                    {onCreate && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="shrink-0 gap-1 text-orange-500 hover:text-orange-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCreateFromGap(segment);
+                        }}
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -499,6 +569,23 @@ export function TripTimeline({ trips, date, onUpdate }: TripTimelineProps) {
               )}
             </div>
 
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Select
+                value={editForm.category}
+                onValueChange={(value) => setEditForm(prev => ({ ...prev, category: value as 'business' | 'personal' | 'uncategorized' }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="business">Business</SelectItem>
+                  <SelectItem value="personal">Personal</SelectItem>
+                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setEditingTrip(null)} className="flex-1">
                 Cancel
@@ -506,6 +593,95 @@ export function TripTimeline({ trips, date, onUpdate }: TripTimelineProps) {
               <Button onClick={handleSaveEdit} className="flex-1" disabled={saving}>
                 {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Trip from Gap Dialog */}
+      <Dialog open={!!creatingFromGap} onOpenChange={(open) => !open && setCreatingFromGap(null)}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Trip from Gap</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Start Time</Label>
+                <Input
+                  type="time"
+                  value={editForm.start_time}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, start_time: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>End Time</Label>
+                <Input
+                  type="time"
+                  value={editForm.end_time}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, end_time: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Start Location</Label>
+              <AddressAutocomplete
+                value={editForm.start_location}
+                onChange={handleStartAddressChange}
+                placeholder="Start address"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>End Location</Label>
+              <AddressAutocomplete
+                value={editForm.end_location}
+                onChange={handleEndAddressChange}
+                placeholder="End address"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Distance (km)</Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={editForm.kilometres}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, kilometres: e.target.value }))}
+                />
+                {calculating && (
+                  <Loader2 className="w-4 h-4 animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Select
+                value={editForm.category}
+                onValueChange={(value) => setEditForm(prev => ({ ...prev, category: value as 'business' | 'personal' | 'uncategorized' }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="business">Business</SelectItem>
+                  <SelectItem value="personal">Personal</SelectItem>
+                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={() => setCreatingFromGap(null)} className="flex-1">
+                Cancel
+              </Button>
+              <Button onClick={handleCreateTrip} className="flex-1" disabled={saving}>
+                {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Create Trip
               </Button>
             </div>
           </div>
