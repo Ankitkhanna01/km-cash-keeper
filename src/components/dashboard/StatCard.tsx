@@ -1,6 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { LucideIcon } from 'lucide-react';
+import { LucideIcon, ChevronRight } from 'lucide-react';
 
 interface StatCardProps {
   title: string;
@@ -9,6 +9,7 @@ interface StatCardProps {
   icon?: LucideIcon;
   variant?: 'default' | 'primary' | 'success' | 'warning';
   className?: string;
+  onClick?: () => void;
 }
 
 const variantStyles = {
@@ -25,12 +26,17 @@ export function StatCard({
   icon: Icon,
   variant = 'default',
   className,
+  onClick,
 }: StatCardProps) {
   return (
-    <Card variant="elevated" className={cn('animate-fade-in', className)}>
+    <Card 
+      variant="elevated" 
+      className={cn('animate-fade-in', onClick && 'cursor-pointer hover:bg-secondary/50 transition-colors', className)}
+      onClick={onClick}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
-          <div className="space-y-1">
+          <div className="space-y-1 flex-1">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               {title}
             </p>
@@ -41,11 +47,16 @@ export function StatCard({
               <p className="text-xs text-muted-foreground">{subtitle}</p>
             )}
           </div>
-          {Icon && (
-            <div className={cn('p-2 rounded-lg bg-secondary', variantStyles[variant])}>
-              <Icon className="w-5 h-5" />
-            </div>
-          )}
+          <div className="flex items-center gap-1">
+            {Icon && (
+              <div className={cn('p-2 rounded-lg bg-secondary', variantStyles[variant])}>
+                <Icon className="w-5 h-5" />
+              </div>
+            )}
+            {onClick && (
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            )}
+          </div>
         </div>
       </CardContent>
     </Card>

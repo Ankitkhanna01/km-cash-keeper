@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { BusinessPercentageRing } from '@/components/dashboard/BusinessPercentageRing';
 import { OdometerCard } from '@/components/dashboard/OdometerCard';
+import { KmDetailView } from '@/components/dashboard/KmDetailView';
+import { ExpenseDetailView } from '@/components/dashboard/ExpenseDetailView';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTripsDB } from '@/hooks/useTripsDB';
 import { useExpensesDB } from '@/hooks/useExpensesDB';
@@ -12,9 +15,14 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
 export default function Dashboard() {
-  const { loading: tripsLoading, getStats: getTripStats, getUncategorizedTrips } = useTripsDB();
-  const { loading: expensesLoading, getStats: getExpenseStats } = useExpensesDB();
+  const { trips, loading: tripsLoading, getStats: getTripStats, getUncategorizedTrips } = useTripsDB();
+  const { expenses, loading: expensesLoading, getStats: getExpenseStats } = useExpensesDB();
   const { loading: odometerLoading, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
+
+  const [showBusinessKm, setShowBusinessKm] = useState(false);
+  const [showTotalKm, setShowTotalKm] = useState(false);
+  const [showExpenses, setShowExpenses] = useState(false);
+  const [showDeductible, setShowDeductible] = useState(false);
 
   const currentYear = new Date().getFullYear();
   const tripStats = getTripStats(currentYear);
@@ -70,12 +78,14 @@ export default function Dashboard() {
           subtitle={`${tripStats.businessTrips} trips`}
           icon={Briefcase}
           variant="primary"
+          onClick={() => setShowBusinessKm(true)}
         />
         <StatCard
           title="Total KM"
           value={odometerTotalKm !== null ? odometerTotalKm.toFixed(0) : tripStats.totalKilometres.toFixed(0)}
           subtitle={odometerTotalKm !== null ? 'From odometer' : `${tripStats.totalTrips} trips`}
           icon={Car}
+          onClick={() => setShowTotalKm(true)}
         />
         <StatCard
           title="Expenses"
@@ -83,6 +93,7 @@ export default function Dashboard() {
           subtitle={`${expenseStats.totalExpenses} items`}
           icon={Receipt}
           variant="warning"
+          onClick={() => setShowExpenses(true)}
         />
         <StatCard
           title="Deductible"
@@ -90,6 +101,7 @@ export default function Dashboard() {
           subtitle="Estimated"
           icon={TrendingUp}
           variant="success"
+          onClick={() => setShowDeductible(true)}
         />
       </div>
 
@@ -136,6 +148,37 @@ export default function Dashboard() {
           </Link>
         </CardContent>
       </Card>
+
+      {/* Detail Dialogs */}
+      <KmDetailView
+        open={showBusinessKm}
+        onOpenChange={setShowBusinessKm}
+        trips={trips}
+        type="business"
+        year={currentYear}
+      />
+      <KmDetailView
+        open={showTotalKm}
+        onOpenChange={setShowTotalKm}
+        trips={trips}
+        type="total"
+        year={currentYear}
+      />
+      <ExpenseDetailView
+        open={showExpenses}
+        onOpenChange={setShowExpenses}
+        expenses={expenses}
+        year={currentYear}
+        businessPercentage={businessPercentage}
+      />
+      <ExpenseDetailView
+        open={showDeductible}
+        onOpenChange={setShowDeductible}
+        expenses={expenses}
+        year={currentYear}
+        businessPercentage={businessPercentage}
+        isDeductible
+      />
     </AppLayout>
   );
 }
