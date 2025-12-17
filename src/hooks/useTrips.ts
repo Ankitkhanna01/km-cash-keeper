@@ -1,5 +1,6 @@
 import { useLocalStorage } from './useLocalStorage';
 import { Trip } from '@/types';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 const generateId = () => {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -37,7 +38,7 @@ export function useTrips() {
   };
 
   const getTripsByYear = (year: number) => {
-    return trips.filter((trip) => new Date(trip.date).getFullYear() === year);
+    return trips.filter((trip) => parseLocalDate(trip.date).getFullYear() === year);
   };
 
   const getStats = (year?: number) => {

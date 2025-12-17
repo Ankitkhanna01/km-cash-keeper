@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 export interface AddressComponents {
   street?: string;
@@ -167,7 +168,7 @@ export function useTripsDB() {
   };
 
   const getTripsByYear = (year: number) => {
-    return trips.filter(trip => new Date(trip.date).getFullYear() === year);
+    return trips.filter(trip => parseLocalDate(trip.date).getFullYear() === year);
   };
 
   const getStats = (year?: number) => {
