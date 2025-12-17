@@ -52,6 +52,17 @@ const PURPOSE_LABELS: Record<TripPurpose, string> = {
   other: 'Other',
 };
 
+const STORAGE_KEY = 'quickTripRecording';
+
+interface PersistedTripState {
+  isRecording: boolean;
+  startLocation: StopLocation | null;
+  stops: StopLocation[];
+  waypoints: Waypoint[];
+  comments: string;
+  startTimestamp: number;
+}
+
 export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [startLocation, setStartLocation] = useState<StopLocation | null>(null);
@@ -64,12 +75,56 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [showPurposeDialog, setShowPurposeDialog] = useState(false);
   const [pendingEndLocation, setPendingEndLocation] = useState<StopLocation | null>(null);
   const lastWaypointTime = useRef<number>(0);
+  const startTimestamp = useRef<number>(0);
   
   // Nearby places state
   const [showStartNearby, setShowStartNearby] = useState(false);
   const [showEndNearby, setShowEndNearby] = useState(false);
   const [pendingStartCoords, setPendingStartCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [pendingStartTime, setPendingStartTime] = useState<string>('');
+
+  // Load persisted state on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const state: PersistedTripState = JSON.parse(saved);
+        if (state.isRecording && state.startLocation) {
+          setIsRecording(true);
+          setStartLocation(state.startLocation);
+          setStops(state.stops || []);
+          setWaypoints(state.waypoints || []);
+          setComments(state.comments || '');
+          startTimestamp.current = state.startTimestamp;
+          lastWaypointTime.current = Date.now();
+          // Calculate elapsed time from when trip started
+          const elapsed = Math.floor((Date.now() - state.startTimestamp) / 1000);
+          setElapsedTime(elapsed);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load trip state:', e);
+    }
+  }, []);
+
+  // Persist state when recording changes
+  useEffect(() => {
+    if (isRecording && startLocation) {
+      const state: PersistedTripState = {
+        isRecording,
+        startLocation,
+        stops,
+        waypoints,
+        comments,
+        startTimestamp: startTimestamp.current,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+  }, [isRecording, startLocation, stops, waypoints, comments]);
+
+  const clearPersistedState = () => {
+    localStorage.removeItem(STORAGE_KEY);
+  };
 
   // Timer effect
   useEffect(() => {
@@ -226,6 +281,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setElapsedTime(0);
     setComments('');
     lastWaypointTime.current = Date.now();
+    startTimestamp.current = Date.now();
     setIsRecording(true);
     setPendingStartCoords(null);
     toast.success('Trip started! Open app anytime to track your route.');
@@ -305,7 +361,8 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       notes: notesText,
     });
 
-    // Reset state
+    // Reset state and clear persistence
+    clearPersistedState();
     setIsRecording(false);
     setStartLocation(null);
     setStops([]);
@@ -318,6 +375,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   };
 
   const handleCancelTrip = () => {
+    clearPersistedState();
     setIsRecording(false);
     setStartLocation(null);
     setStops([]);
