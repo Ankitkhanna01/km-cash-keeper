@@ -42,9 +42,9 @@ serve(async (req) => {
 
     console.log(`Current total: ${currentTotalKm} km, Actual: ${actualTotalKm} km, Difference: ${difference} km`);
 
-    // Build trip summary for AI
-    const tripSummary = trips.map((t, i) => 
-      `Trip ${i + 1}: ${t.start_location} → ${t.end_location}, ${t.kilometres.toFixed(1)} km, ${t.start_time}-${t.end_time}`
+    // Build trip summary for AI with actual IDs
+    const tripSummary = trips.map((t) => 
+      `ID: ${t.id} | ${t.start_location} → ${t.end_location} | ${t.kilometres.toFixed(1)} km | ${t.start_time}-${t.end_time}`
     ).join('\n');
 
     const systemPrompt = `You are an intelligent trip distance analyzer for a delivery driver's tax tracking app. 
@@ -56,6 +56,8 @@ Consider these factors when redistributing:
 - Highway vs city driving (infer from location names)
 - Time duration vs distance ratio (longer time with short distance suggests traffic/complex route)
 
+CRITICAL: You MUST use the exact trip ID provided (the UUID after "ID:") in your response. Do NOT use "Trip 1", "Trip 2", etc.
+
 Return ONLY a valid JSON array with trip adjustments. No explanation text.`;
 
     const userPrompt = `The driver's car odometer shows ${actualTotalKm.toFixed(1)} km for today, but the app logged ${currentTotalKm.toFixed(1)} km.
@@ -65,8 +67,8 @@ ${tripSummary}
 
 Redistribute the ${Math.abs(difference).toFixed(1)} km ${difference > 0 ? 'addition' : 'reduction'} intelligently.
 
-Return a JSON array like this:
-[{"id": "trip-id-here", "adjustment": 2.5, "reason": "brief reason"}]
+IMPORTANT: Use the exact UUID from each trip's "ID:" field. Return a JSON array like this:
+[{"id": "actual-uuid-from-trip", "adjustment": 2.5, "reason": "brief reason"}]
 
 The sum of all adjustments must equal ${difference.toFixed(1)}.`;
 
