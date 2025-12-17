@@ -42,35 +42,40 @@ serve(async (req) => {
 
     console.log(`Current total: ${currentTotalKm} km, Actual: ${actualTotalKm} km, Difference: ${difference} km`);
 
-    // Build trip summary for AI with actual IDs
-    const tripSummary = trips.map((t) => 
-      `ID: ${t.id} | ${t.start_location} → ${t.end_location} | ${t.kilometres.toFixed(1)} km | ${t.start_time}-${t.end_time}`
+    // Build trip list with numbered mapping for clarity
+    const tripList = trips.map((t, i) => ({
+      index: i + 1,
+      uuid: t.id,
+      route: `${t.start_location} → ${t.end_location}`,
+      km: t.kilometres,
+      time: `${t.start_time}-${t.end_time}`
+    }));
+
+    const tripSummary = tripList.map(t => 
+      `#${t.index} [UUID: ${t.uuid}] ${t.route} | ${t.km.toFixed(1)} km | ${t.time}`
     ).join('\n');
 
-    const systemPrompt = `You are an intelligent trip distance analyzer for a delivery driver's tax tracking app. 
-Your task is to redistribute a kilometre difference across trips based on which routes likely had inaccurate GPS measurements.
+    // Create explicit ID mapping for AI
+    const idMapping = tripList.map(t => `Trip #${t.index} = "${t.uuid}"`).join(', ');
 
-Consider these factors when redistributing:
-- Longer trips are more likely to have GPS inaccuracies
-- Trips with multiple stops or complex routes may need more adjustment
-- Highway vs city driving (infer from location names)
-- Time duration vs distance ratio (longer time with short distance suggests traffic/complex route)
+    const systemPrompt = `You are a trip distance analyzer. Your ONLY job is to output a JSON array redistributing kilometres.
 
-CRITICAL: You MUST use the exact trip ID provided (the UUID after "ID:") in your response. Do NOT use "Trip 1", "Trip 2", etc.
+CRITICAL RULES:
+1. Each trip has a UUID like "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+2. You MUST copy-paste the EXACT UUID from the input into your output
+3. NEVER write "Trip 1", "Trip 2", etc - always use the actual UUID string
+4. Return ONLY valid JSON, no other text`;
 
-Return ONLY a valid JSON array with trip adjustments. No explanation text.`;
-
-    const userPrompt = `The driver's car odometer shows ${actualTotalKm.toFixed(1)} km for today, but the app logged ${currentTotalKm.toFixed(1)} km.
-That's a difference of ${difference.toFixed(1)} km that needs to be distributed across these trips:
+    const userPrompt = `Redistribute ${difference.toFixed(1)} km across these trips:
 
 ${tripSummary}
 
-Redistribute the ${Math.abs(difference).toFixed(1)} km ${difference > 0 ? 'addition' : 'reduction'} intelligently.
+ID Reference: ${idMapping}
 
-IMPORTANT: Use the exact UUID from each trip's "ID:" field. Return a JSON array like this:
-[{"id": "actual-uuid-from-trip", "adjustment": 2.5, "reason": "brief reason"}]
+Return JSON array ONLY. Example format with REAL UUIDs from above:
+[{"id": "${trips[0]?.id || 'uuid-here'}", "adjustment": ${(difference / trips.length).toFixed(1)}, "reason": "example"}]
 
-The sum of all adjustments must equal ${difference.toFixed(1)}.`;
+Each "id" MUST be one of the exact UUIDs listed above. Sum of adjustments = ${difference.toFixed(1)}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
