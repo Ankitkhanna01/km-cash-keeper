@@ -20,6 +20,7 @@ interface Adjustment {
   reason: string;
   calculatedKm?: number;
   loggedKm?: number;
+  type: 'route' | 'distribution';
 }
 
 interface SegmentSuggestion {
@@ -44,9 +45,7 @@ async function geocodeAddress(address: string): Promise<{ lat: number; lon: numb
     const encoded = encodeURIComponent(address);
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&limit=1`,
-      {
-        headers: { 'User-Agent': 'KMCashKeeper/1.0' },
-      }
+      { headers: { 'User-Agent': 'KMCashKeeper/1.0' } }
     );
     
     if (!response.ok) {
@@ -77,9 +76,7 @@ async function getRouteDistance(
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=false`;
     
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'KMCashKeeper/1.0' },
-    });
+    const response = await fetch(url, { headers: { 'User-Agent': 'KMCashKeeper/1.0' } });
     
     if (!response.ok) return null;
     
@@ -118,7 +115,6 @@ async function processTrip(trip: Trip): Promise<{
     calculatedKm = await getRouteDistance(startCoords, endCoords);
     if (calculatedKm !== null) {
       discrepancy = trip.kilometres - calculatedKm;
-      console.log(`${trip.start_location.split(',')[0]} → ${trip.end_location.split(',')[0]}: Logged ${trip.kilometres.toFixed(1)} km, Route ${calculatedKm.toFixed(1)} km`);
     }
   }
   
@@ -134,7 +130,6 @@ async function processTripsBatched(trips: Trip[], batchSize: number = 5) {
     const batchResults = await Promise.all(batch.map(processTrip));
     results.push(...batchResults);
     
-    // Small delay between batches to be respectful to APIs
     if (i + batchSize < trips.length) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -171,6 +166,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           adjustments: [],
+          distributionAdjustments: [],
           segmentSuggestions: [],
           summary: { currentTotal: currentTotalKm, actualTotal: actualTotalKm, difference: 0 }
         }),
@@ -181,10 +177,11 @@ serve(async (req) => {
     // Process all trips in parallel batches
     const tripAnalysis = await processTripsBatched(trips, 5);
 
-    // Build adjustments based on actual route calculations
-    const adjustments: Adjustment[] = [];
+    // Build route-based adjustments
+    const routeAdjustments: Adjustment[] = [];
     let totalCalculatedKm = 0;
     let tripsWithRoutes = 0;
+    let routeAdjustmentSum = 0;
 
     for (const analysis of tripAnalysis) {
       if (analysis.calculatedKm !== null) {
@@ -195,12 +192,14 @@ serve(async (req) => {
         
         // Only suggest adjustment if there's a meaningful difference (> 0.3 km)
         if (Math.abs(diff) > 0.3) {
-          adjustments.push({
+          routeAdjustmentSum += diff;
+          routeAdjustments.push({
             id: analysis.trip.id,
             adjustment: Math.round(diff * 10) / 10,
             calculatedKm: Math.round(analysis.calculatedKm * 10) / 10,
             loggedKm: analysis.trip.kilometres,
             reason: `Route: ${analysis.calculatedKm.toFixed(1)} km (logged ${analysis.trip.kilometres.toFixed(1)} km)`,
+            type: 'route',
           });
         }
       }
@@ -212,7 +211,7 @@ serve(async (req) => {
       parseTimeToMinutes(a.trip.start_time) - parseTimeToMinutes(b.trip.start_time)
     );
 
-    // Process gap detection in parallel
+    let gapKmTotal = 0;
     const gapPromises = sortedAnalysis.slice(1).map(async (curr, idx) => {
       const prev = sortedAnalysis[idx];
       
@@ -220,7 +219,6 @@ serve(async (req) => {
         const gapDistance = await getRouteDistance(prev.endCoords, curr.startCoords);
         
         if (gapDistance !== null && gapDistance > 0.5) {
-          console.log(`Gap: ${prev.trip.end_location.split(',')[0]} → ${curr.trip.start_location.split(',')[0]} = ${gapDistance.toFixed(1)} km`);
           const suggestion: SegmentSuggestion = {
             type: 'extend_start',
             tripId: curr.trip.id,
@@ -239,14 +237,75 @@ serve(async (req) => {
     for (const result of gapResults) {
       if (result !== null) {
         segmentSuggestions.push(result);
+        gapKmTotal += result.estimatedKm;
       }
     }
 
-    console.log(`Completed: ${tripsWithRoutes}/${trips.length} verified, ${adjustments.length} adjustments, ${segmentSuggestions.length} gaps`);
+    // Calculate remaining difference after route adjustments and gaps
+    const remainingDiff = difference - routeAdjustmentSum - gapKmTotal;
+    console.log(`Route adjustments: ${routeAdjustmentSum.toFixed(1)} km, Gaps: ${gapKmTotal.toFixed(1)} km, Remaining: ${remainingDiff.toFixed(1)} km`);
+
+    // Create distribution adjustments for remaining difference
+    // This handles KM driven on different routes than the system calculated
+    const distributionAdjustments: Adjustment[] = [];
+    
+    if (Math.abs(remainingDiff) >= 0.2) {
+      // Distribute proportionally based on trip distance (longer trips get more adjustment)
+      const totalKmForDistribution = trips.reduce((sum, t) => sum + t.kilometres, 0);
+      
+      // Sort trips by duration (end_time - start_time) to prefer longer duration trips
+      const tripsWithDuration = trips.map(t => {
+        const startMins = parseTimeToMinutes(t.start_time);
+        const endMins = parseTimeToMinutes(t.end_time);
+        const duration = endMins - startMins;
+        return { trip: t, duration };
+      }).sort((a, b) => b.duration - a.duration);
+
+      let remainingToDistribute = remainingDiff;
+      
+      for (const { trip, duration } of tripsWithDuration) {
+        if (Math.abs(remainingToDistribute) < 0.1) break;
+        
+        // Weight by both distance and duration
+        const distanceWeight = trip.kilometres / totalKmForDistribution;
+        const durationWeight = duration / tripsWithDuration.reduce((sum, t) => sum + t.duration, 0);
+        const combinedWeight = (distanceWeight + durationWeight) / 2;
+        
+        // Calculate adjustment for this trip
+        let adjustment = remainingDiff * combinedWeight;
+        
+        // Round to 0.1 km
+        adjustment = Math.round(adjustment * 10) / 10;
+        
+        // Skip tiny adjustments
+        if (Math.abs(adjustment) < 0.2) continue;
+        
+        // Don't let adjustment make trip negative
+        if (trip.kilometres + adjustment < 0.1) {
+          adjustment = 0.1 - trip.kilometres;
+        }
+        
+        remainingToDistribute -= adjustment;
+        
+        distributionAdjustments.push({
+          id: trip.id,
+          adjustment,
+          loggedKm: trip.kilometres,
+          calculatedKm: trip.kilometres + adjustment,
+          reason: remainingDiff > 0 
+            ? `Distribute +${adjustment.toFixed(1)} km (alternate routes)`
+            : `Reduce by ${Math.abs(adjustment).toFixed(1)} km`,
+          type: 'distribution',
+        });
+      }
+    }
+
+    console.log(`Completed: ${tripsWithRoutes}/${trips.length} verified, ${routeAdjustments.length} route adjustments, ${distributionAdjustments.length} distribution adjustments, ${segmentSuggestions.length} gaps`);
 
     return new Response(
       JSON.stringify({ 
-        adjustments,
+        adjustments: routeAdjustments,
+        distributionAdjustments,
         segmentSuggestions,
         summary: {
           currentTotal: currentTotalKm,
@@ -255,6 +314,9 @@ serve(async (req) => {
           calculatedTotal: Math.round(totalCalculatedKm * 10) / 10,
           tripsVerified: tripsWithRoutes,
           tripsTotal: trips.length,
+          routeAdjustmentSum: Math.round(routeAdjustmentSum * 10) / 10,
+          gapKmTotal: Math.round(gapKmTotal * 10) / 10,
+          remainingDiff: Math.round(remainingDiff * 10) / 10,
         }
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
