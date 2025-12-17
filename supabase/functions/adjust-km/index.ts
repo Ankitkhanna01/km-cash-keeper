@@ -14,6 +14,101 @@ interface Trip {
   end_time: string;
 }
 
+interface Adjustment {
+  id: string;
+  adjustment: number;
+  reason: string;
+}
+
+interface SegmentSuggestion {
+  type: 'extend_start' | 'create_gap';
+  tripId: string;
+  fromLocation: string;
+  toLocation: string;
+  estimatedKm: number;
+  reason: string;
+}
+
+// Parse time string (HH:MM) to minutes since midnight
+function parseTimeToMinutes(timeStr: string): number {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + (minutes || 0);
+}
+
+// Calculate trip duration in minutes
+function getTripDuration(trip: Trip): number {
+  const startMinutes = parseTimeToMinutes(trip.start_time);
+  const endMinutes = parseTimeToMinutes(trip.end_time);
+  // Handle overnight trips
+  return endMinutes >= startMinutes ? endMinutes - startMinutes : (1440 - startMinutes) + endMinutes;
+}
+
+// Calculate heuristic weight for a trip (longer duration + longer distance = more likely to have inaccuracy)
+function calculateTripWeight(trip: Trip, allTrips: Trip[]): number {
+  const duration = getTripDuration(trip);
+  const km = trip.kilometres;
+  
+  // Base weight on distance (60%) and duration (40%)
+  const totalKm = allTrips.reduce((sum, t) => sum + t.kilometres, 0);
+  const totalDuration = allTrips.reduce((sum, t) => sum + getTripDuration(t), 0);
+  
+  const kmWeight = totalKm > 0 ? km / totalKm : 1 / allTrips.length;
+  const durationWeight = totalDuration > 0 ? duration / totalDuration : 1 / allTrips.length;
+  
+  return kmWeight * 0.6 + durationWeight * 0.4;
+}
+
+// Detect potential missed segments between trips
+function detectMissedSegments(trips: Trip[], difference: number): SegmentSuggestion[] {
+  const suggestions: SegmentSuggestion[] = [];
+  
+  // Sort trips by start time
+  const sortedTrips = [...trips].sort((a, b) => 
+    parseTimeToMinutes(a.start_time) - parseTimeToMinutes(b.start_time)
+  );
+  
+  // Only check for gaps if we're missing KM (difference > 0)
+  if (difference <= 0.5) return suggestions;
+  
+  for (let i = 1; i < sortedTrips.length; i++) {
+    const prevTrip = sortedTrips[i - 1];
+    const currTrip = sortedTrips[i];
+    
+    // Check if current trip's start doesn't match previous trip's end
+    const prevEnd = prevTrip.end_location.toLowerCase().trim();
+    const currStart = currTrip.start_location.toLowerCase().trim();
+    
+    // Simple location comparison (check if they're different)
+    const locationsMatch = prevEnd === currStart || 
+      prevEnd.includes(currStart.split(',')[0]) || 
+      currStart.includes(prevEnd.split(',')[0]);
+    
+    if (!locationsMatch) {
+      // Calculate time gap
+      const prevEndTime = parseTimeToMinutes(prevTrip.end_time);
+      const currStartTime = parseTimeToMinutes(currTrip.start_time);
+      const timeGap = currStartTime - prevEndTime;
+      
+      // If there's a time gap and locations don't match, suggest extending start
+      if (timeGap >= 0) {
+        // Estimate that the missing segment could account for part of the difference
+        const estimatedGapKm = Math.min(difference * 0.5, 5); // Cap at 5km or half the difference
+        
+        suggestions.push({
+          type: 'extend_start',
+          tripId: currTrip.id,
+          fromLocation: prevTrip.end_location,
+          toLocation: currTrip.start_location,
+          estimatedKm: estimatedGapKm,
+          reason: `Trip may have started from "${prevTrip.end_location.split(',')[0]}" instead of "${currTrip.start_location.split(',')[0]}"`
+        });
+      }
+    }
+  }
+  
+  return suggestions;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -32,113 +127,104 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
-
     const currentTotalKm = trips.reduce((sum, t) => sum + t.kilometres, 0);
     const difference = actualTotalKm - currentTotalKm;
 
     console.log(`Current total: ${currentTotalKm} km, Actual: ${actualTotalKm} km, Difference: ${difference} km`);
 
-    // Build trip list with numbered mapping for clarity
-    const tripList = trips.map((t, i) => ({
-      index: i + 1,
-      uuid: t.id,
-      route: `${t.start_location} → ${t.end_location}`,
-      km: t.kilometres,
-      time: `${t.start_time}-${t.end_time}`
+    // Detect potential missed segments
+    const segmentSuggestions = detectMissedSegments(trips, difference);
+    console.log(`Found ${segmentSuggestions.length} potential missed segments`);
+
+    // If difference is negligible, return no adjustments
+    if (Math.abs(difference) < 0.1) {
+      return new Response(
+        JSON.stringify({ 
+          adjustments: [],
+          segmentSuggestions: [],
+          summary: {
+            currentTotal: currentTotalKm,
+            actualTotal: actualTotalKm,
+            difference: 0
+          }
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Calculate weights for each trip using heuristic approach
+    const tripWeights = trips.map(trip => ({
+      trip,
+      weight: calculateTripWeight(trip, trips)
     }));
 
-    const tripSummary = tripList.map(t => 
-      `#${t.index} [UUID: ${t.uuid}] ${t.route} | ${t.km.toFixed(1)} km | ${t.time}`
-    ).join('\n');
+    // Normalize weights to ensure they sum to 1
+    const totalWeight = tripWeights.reduce((sum, tw) => sum + tw.weight, 0);
+    const normalizedWeights = tripWeights.map(tw => ({
+      ...tw,
+      normalizedWeight: tw.weight / totalWeight
+    }));
 
-    // Create explicit ID mapping for AI
-    const idMapping = tripList.map(t => `Trip #${t.index} = "${t.uuid}"`).join(', ');
+    // Distribute the difference based on weights
+    let remainingDifference = difference;
+    const adjustments: Adjustment[] = [];
 
-    const systemPrompt = `You are a trip distance analyzer. Your ONLY job is to output a JSON array redistributing kilometres.
+    // Sort by weight descending to assign larger adjustments to more likely candidates
+    normalizedWeights.sort((a, b) => b.normalizedWeight - a.normalizedWeight);
 
-CRITICAL RULES:
-1. Each trip has a UUID like "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-2. You MUST copy-paste the EXACT UUID from the input into your output
-3. NEVER write "Trip 1", "Trip 2", etc - always use the actual UUID string
-4. Return ONLY valid JSON, no other text`;
-
-    const userPrompt = `Redistribute ${difference.toFixed(1)} km across these trips:
-
-${tripSummary}
-
-ID Reference: ${idMapping}
-
-Return JSON array ONLY. Example format with REAL UUIDs from above:
-[{"id": "${trips[0]?.id || 'uuid-here'}", "adjustment": ${(difference / trips.length).toFixed(1)}, "reason": "example"}]
-
-Each "id" MUST be one of the exact UUIDs listed above. Sum of adjustments = ${difference.toFixed(1)}`;
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded, please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
-    }
-
-    const aiResponse = await response.json();
-    const content = aiResponse.choices?.[0]?.message?.content || "";
-    
-    console.log("AI response:", content);
-
-    // Parse JSON from response
-    let adjustments;
-    try {
-      // Extract JSON from potential markdown code blocks
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        adjustments = JSON.parse(jsonMatch[0]);
+    for (let i = 0; i < normalizedWeights.length; i++) {
+      const { trip, normalizedWeight } = normalizedWeights[i];
+      const duration = getTripDuration(trip);
+      
+      let adjustment: number;
+      if (i === normalizedWeights.length - 1) {
+        // Last trip gets the remainder to ensure exact total
+        adjustment = Math.round(remainingDifference * 10) / 10;
       } else {
-        throw new Error("No JSON array found in response");
+        // Proportional adjustment based on weight
+        adjustment = Math.round(normalizedWeight * difference * 10) / 10;
+        remainingDifference -= adjustment;
       }
-    } catch (parseError) {
-      console.error("Failed to parse AI response:", parseError);
-      // Fallback: distribute evenly
-      const perTrip = difference / trips.length;
-      adjustments = trips.map(t => ({
-        id: t.id,
-        adjustment: perTrip,
-        reason: "Distributed evenly (AI parsing failed)"
-      }));
+
+      // Skip tiny adjustments
+      if (Math.abs(adjustment) < 0.1) {
+        adjustment = 0;
+      }
+
+      // Generate reason based on trip characteristics
+      let reason = "";
+      if (adjustment > 0) {
+        if (trip.kilometres > 3 && duration > 15) {
+          reason = `Longer route (${trip.kilometres.toFixed(1)}km, ${duration}min) - likely took alternate roads`;
+        } else if (duration > 20) {
+          reason = `Extended duration (${duration}min) suggests traffic detours`;
+        } else {
+          reason = `Adjusted based on route distance`;
+        }
+      } else if (adjustment < 0) {
+        if (trip.kilometres > 5) {
+          reason = `Shorter actual route than GPS estimated`;
+        } else {
+          reason = `Minor distance correction`;
+        }
+      }
+
+      if (adjustment !== 0) {
+        adjustments.push({
+          id: trip.id,
+          adjustment,
+          reason
+        });
+      }
     }
+
+    // Filter out zero adjustments
+    const finalAdjustments = adjustments.filter(a => a.adjustment !== 0);
 
     return new Response(
       JSON.stringify({ 
-        adjustments,
+        adjustments: finalAdjustments,
+        segmentSuggestions,
         summary: {
           currentTotal: currentTotalKm,
           actualTotal: actualTotalKm,

@@ -3,11 +3,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Gauge, Sparkles, Loader2, Check, AlertCircle } from 'lucide-react';
+import { Gauge, Sparkles, Loader2, Check, AlertCircle, MapPin, ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Trip } from '@/hooks/useTripsDB';
 import { getLocalDateString } from '@/lib/dateUtils';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface Adjustment {
   id: string;
@@ -15,9 +16,18 @@ interface Adjustment {
   reason: string;
 }
 
+interface SegmentSuggestion {
+  type: 'extend_start' | 'create_gap';
+  tripId: string;
+  fromLocation: string;
+  toLocation: string;
+  estimatedKm: number;
+  reason: string;
+}
+
 interface AdjustDailyKmDialogProps {
   trips: Trip[];
-  onAdjustmentsApplied: (updates: Array<{ id: string; kilometres: number }>) => void;
+  onAdjustmentsApplied: (updates: Array<{ id: string; kilometres: number; start_location?: string }>) => void;
 }
 
 export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDailyKmDialogProps) {
@@ -25,6 +35,8 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
   const [actualKm, setActualKm] = useState('');
   const [loading, setLoading] = useState(false);
   const [adjustments, setAdjustments] = useState<Adjustment[] | null>(null);
+  const [segmentSuggestions, setSegmentSuggestions] = useState<SegmentSuggestion[]>([]);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   // Filter today's trips
@@ -47,6 +59,8 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
     setLoading(true);
     setError(null);
     setAdjustments(null);
+    setSegmentSuggestions([]);
+    setSelectedSuggestions(new Set());
 
     try {
       const { data, error: fnError } = await supabase.functions.invoke('adjust-km', {
@@ -66,7 +80,8 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
       if (fnError) throw fnError;
       if (data.error) throw new Error(data.error);
 
-      setAdjustments(data.adjustments);
+      setAdjustments(data.adjustments || []);
+      setSegmentSuggestions(data.segmentSuggestions || []);
     } catch (err: any) {
       console.error('Adjust KM error:', err);
       setError(err.message || 'Failed to analyze trips');
@@ -76,32 +91,77 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
     }
   };
 
+  const toggleSuggestion = (tripId: string) => {
+    const newSelected = new Set(selectedSuggestions);
+    if (newSelected.has(tripId)) {
+      newSelected.delete(tripId);
+    } else {
+      newSelected.add(tripId);
+    }
+    setSelectedSuggestions(newSelected);
+  };
+
   const handleApplyAdjustments = () => {
-    if (!adjustments) return;
+    const updates: Array<{ id: string; kilometres: number; start_location?: string }> = [];
 
-    const updates = adjustments.map(adj => {
-      const trip = todaysTrips.find(t => t.id === adj.id);
-      const newKm = (trip?.kilometres || 0) + adj.adjustment;
-      return { id: adj.id, kilometres: Math.max(0.1, newKm) };
-    });
+    // Apply KM adjustments
+    if (adjustments) {
+      for (const adj of adjustments) {
+        const trip = todaysTrips.find(t => t.id === adj.id);
+        if (trip) {
+          const newKm = trip.kilometres + adj.adjustment;
+          updates.push({ id: adj.id, kilometres: Math.max(0.1, newKm) });
+        }
+      }
+    }
 
-    onAdjustmentsApplied(updates);
+    // Apply selected segment suggestions (extend start location)
+    for (const suggestion of segmentSuggestions) {
+      if (selectedSuggestions.has(suggestion.tripId)) {
+        const existingUpdate = updates.find(u => u.id === suggestion.tripId);
+        if (existingUpdate) {
+          existingUpdate.start_location = suggestion.fromLocation;
+          existingUpdate.kilometres = (existingUpdate.kilometres || 0) + suggestion.estimatedKm;
+        } else {
+          const trip = todaysTrips.find(t => t.id === suggestion.tripId);
+          if (trip) {
+            updates.push({
+              id: suggestion.tripId,
+              kilometres: trip.kilometres + suggestion.estimatedKm,
+              start_location: suggestion.fromLocation,
+            });
+          }
+        }
+      }
+    }
+
+    if (updates.length > 0) {
+      onAdjustmentsApplied(updates);
+      toast.success('Trip distances updated!');
+    } else {
+      toast.info('No changes to apply');
+    }
+
     setOpen(false);
     setAdjustments(null);
+    setSegmentSuggestions([]);
+    setSelectedSuggestions(new Set());
     setActualKm('');
-    toast.success('Trip distances updated!');
   };
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
     if (!isOpen) {
       setAdjustments(null);
+      setSegmentSuggestions([]);
+      setSelectedSuggestions(new Set());
       setError(null);
       setActualKm('');
     }
   };
 
   const difference = parseFloat(actualKm) - currentTotal;
+  const hasChanges = (adjustments && adjustments.length > 0) || selectedSuggestions.size > 0;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -115,7 +175,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            AI KM Adjustment
+            Smart KM Adjustment
           </DialogTitle>
         </DialogHeader>
 
@@ -146,7 +206,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
           </div>
 
           {/* Analyze button */}
-          {!adjustments && (
+          {!adjustments && segmentSuggestions.length === 0 && (
             <Button
               onClick={handleAnalyze}
               disabled={loading || !actualKm || todaysTrips.length === 0}
@@ -174,10 +234,59 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
             </div>
           )}
 
-          {/* Adjustments preview */}
-          {adjustments && (
+          {/* Segment Suggestions (missed trips) */}
+          {segmentSuggestions.length > 0 && (
             <div className="space-y-3">
-              <p className="text-sm font-medium">Suggested adjustments:</p>
+              <p className="text-sm font-medium flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-orange-500" />
+                Potential missed segments detected
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Select any you want to fix (will update trip start location):
+              </p>
+              <div className="space-y-2">
+                {segmentSuggestions.map((suggestion) => {
+                  const trip = todaysTrips.find(t => t.id === suggestion.tripId);
+                  if (!trip) return null;
+                  return (
+                    <div 
+                      key={suggestion.tripId} 
+                      className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20"
+                    >
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          id={`suggestion-${suggestion.tripId}`}
+                          checked={selectedSuggestions.has(suggestion.tripId)}
+                          onCheckedChange={() => toggleSuggestion(suggestion.tripId)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <label 
+                            htmlFor={`suggestion-${suggestion.tripId}`}
+                            className="text-sm font-medium cursor-pointer"
+                          >
+                            Extend trip start
+                          </label>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                            <span className="truncate">{suggestion.fromLocation.split(',')[0]}</span>
+                            <ArrowRight className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{trip.start_location.split(',')[0]}</span>
+                          </div>
+                          <p className="text-xs text-orange-600 mt-1">
+                            +{suggestion.estimatedKm.toFixed(1)} km estimated
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* KM Adjustments preview */}
+          {adjustments && adjustments.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">KM redistribution (based on trip length & duration):</p>
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {adjustments.map((adj) => {
                   const trip = todaysTrips.find(t => t.id === adj.id);
@@ -197,16 +306,39 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
                   );
                 })}
               </div>
+            </div>
+          )}
 
-              <div className="flex gap-2 pt-2">
-                <Button variant="outline" onClick={() => setAdjustments(null)} className="flex-1">
-                  Cancel
-                </Button>
-                <Button onClick={handleApplyAdjustments} className="flex-1 gap-2">
-                  <Check className="w-4 h-4" />
-                  Apply
-                </Button>
-              </div>
+          {/* No changes needed */}
+          {adjustments && adjustments.length === 0 && segmentSuggestions.length === 0 && (
+            <div className="p-3 rounded-lg bg-green-500/10 text-green-600 flex items-center gap-2">
+              <Check className="w-4 h-4" />
+              <p className="text-sm">Trip distances are already accurate!</p>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          {(adjustments !== null || segmentSuggestions.length > 0) && (
+            <div className="flex gap-2 pt-2">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setAdjustments(null);
+                  setSegmentSuggestions([]);
+                  setSelectedSuggestions(new Set());
+                }} 
+                className="flex-1"
+              >
+                Re-analyze
+              </Button>
+              <Button 
+                onClick={handleApplyAdjustments} 
+                className="flex-1 gap-2"
+                disabled={!hasChanges}
+              >
+                <Check className="w-4 h-4" />
+                Apply Changes
+              </Button>
             </div>
           )}
         </div>
