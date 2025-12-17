@@ -8,6 +8,7 @@ export interface Trip {
   kilometres: number;
   category: 'business' | 'personal' | 'uncategorized';
   createdAt: string;
+  notes?: string;
 }
 
 export interface Expense {

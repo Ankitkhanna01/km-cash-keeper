@@ -4,26 +4,46 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { TripCard } from '@/components/trips/TripCard';
 import { AddTripDialog } from '@/components/trips/AddTripDialog';
 import { QuickTripRecorder } from '@/components/trips/QuickTripRecorder';
-import { useTripsDB, Trip } from '@/hooks/useTripsDB';
+import { useTripsDB, Trip as DBTrip } from '@/hooks/useTripsDB';
+import { Trip as ComponentTrip } from '@/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
 export default function Trips() {
-  const { trips, loading, addTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
+  const { trips, loading, addTrip, updateTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
   const [activeTab, setActiveTab] = useState('uncategorized');
 
   const uncategorizedTrips = getUncategorizedTrips();
   const categorizedTrips = trips.filter((t) => t.category !== 'uncategorized');
 
-  const handleCategorize = async (id: string, category: 'business' | 'personal') => {
-    await categorizeTrip(id, category);
+  const handleCategorize = async (id: string, category: 'business' | 'personal', notes?: string) => {
+    if (notes) {
+      await updateTrip(id, { category, notes });
+    } else {
+      await categorizeTrip(id, category);
+    }
     toast.success(`Trip marked as ${category}`);
   };
 
   const handleDelete = async (id: string) => {
     await deleteTrip(id);
     toast.success('Trip deleted');
+  };
+
+  const handleUpdate = async (id: string, updates: Partial<ComponentTrip>) => {
+    // Map from component format (camelCase) to DB format (snake_case)
+    const dbUpdates: Partial<DBTrip> = {};
+    if (updates.kilometres !== undefined) dbUpdates.kilometres = updates.kilometres;
+    if (updates.startLocation !== undefined) dbUpdates.start_location = updates.startLocation;
+    if (updates.endLocation !== undefined) dbUpdates.end_location = updates.endLocation;
+    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+    if (updates.date !== undefined) dbUpdates.date = updates.date;
+    if (updates.startTime !== undefined) dbUpdates.start_time = updates.startTime;
+    if (updates.endTime !== undefined) dbUpdates.end_time = updates.endTime;
+    
+    await updateTrip(id, dbUpdates);
+    toast.success('Trip updated');
   };
 
   const handleAddTrip = async (tripData: {
@@ -43,7 +63,7 @@ export default function Trips() {
   };
 
   // Convert DB trip format to component format
-  const mapTripForCard = (trip: Trip) => ({
+  const mapTripForCard = (trip: DBTrip): ComponentTrip => ({
     id: trip.id,
     date: trip.date,
     startTime: trip.start_time,
@@ -53,6 +73,7 @@ export default function Trips() {
     kilometres: trip.kilometres,
     category: trip.category,
     createdAt: trip.created_at,
+    notes: trip.notes,
   });
 
   if (loading) {
@@ -103,6 +124,7 @@ export default function Trips() {
                 key={trip.id}
                 trip={mapTripForCard(trip)}
                 onCategorize={handleCategorize}
+                onUpdate={handleUpdate}
                 showSwipeHint={index === 0}
               />
             ))
@@ -116,7 +138,7 @@ export default function Trips() {
             </div>
           ) : (
             categorizedTrips.map((trip) => (
-              <TripCard key={trip.id} trip={mapTripForCard(trip)} onDelete={handleDelete} />
+              <TripCard key={trip.id} trip={mapTripForCard(trip)} onDelete={handleDelete} onUpdate={handleUpdate} />
             ))
           )}
         </TabsContent>

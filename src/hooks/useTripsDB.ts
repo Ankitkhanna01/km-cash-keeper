@@ -21,6 +21,7 @@ export interface Trip {
   kilometres: number;
   category: 'business' | 'personal' | 'uncategorized';
   created_at: string;
+  notes?: string;
   // CRA-compliant structured address fields
   start_street?: string;
   start_city?: string;

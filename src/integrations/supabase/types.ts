@@ -117,6 +117,7 @@ export type Database = {
           end_time: string
           id: string
           kilometres: number
+          notes: string | null
           start_city: string | null
           start_location: string
           start_postal_code: string | null
@@ -137,6 +138,7 @@ export type Database = {
           end_time: string
           id?: string
           kilometres: number
+          notes?: string | null
           start_city?: string | null
           start_location: string
           start_postal_code?: string | null
@@ -157,6 +159,7 @@ export type Database = {
           end_time?: string
           id?: string
           kilometres?: number
+          notes?: string | null
           start_city?: string | null
           start_location?: string
           start_postal_code?: string | null
