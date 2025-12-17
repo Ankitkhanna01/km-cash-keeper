@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
-import { Loader2, MapPin, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, MapPin, Search } from "lucide-react";
 import { NearbyPlacesSuggestions } from "./NearbyPlacesSuggestions";
 
 export interface AddressComponents {
@@ -23,6 +22,8 @@ interface AddressSuggestion {
   lat: string;
   lon: string;
   address?: AddressComponents;
+  name?: string;
+  type?: string;
 }
 
 export interface AddressResult {
@@ -40,29 +41,19 @@ interface AddressAutocompleteProps {
   id?: string;
 }
 
-type NearbyLocation = { lat: number; lon: number };
-
 export function AddressAutocomplete({ value, onChange, onActiveChange, placeholder, id }: AddressAutocompleteProps) {
-  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputValue, setInputValue] = useState(value);
-  const [nearby, setNearby] = useState<NearbyLocation | null>(null);
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-  const [suppressClicks, setSuppressClicks] = useState(false);
-  const [pendingSuggestion, setPendingSuggestion] = useState<AddressSuggestion | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<AddressSuggestion[]>([]);
+  const [showResults, setShowResults] = useState(false);
+  const [nearby, setNearby] = useState<{ lat: number; lon: number } | null>(null);
   
   // Nearby places state
   const [showNearbyPlaces, setShowNearbyPlaces] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lon: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<number | undefined>(undefined);
-  const suppressTimerRef = useRef<number | undefined>(undefined);
   const geoRequestedRef = useRef(false);
-  const lastSelectAtRef = useRef(0);
   const instanceKeyRef = useRef<string>(
     `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
   );
@@ -71,52 +62,26 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     setInputValue(value);
   }, [value]);
 
+  // Notify parent when active
   useEffect(() => {
-    return () => {
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
-      if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
-    };
-  }, []);
-
-  // Notify parent when the autocomplete dropdown is active
-  useEffect(() => {
-    onActiveChange?.(showSuggestions, instanceKeyRef.current);
+    onActiveChange?.(showResults || showNearbyPlaces, instanceKeyRef.current);
     return () => {
       onActiveChange?.(false, instanceKeyRef.current);
     };
-  }, [showSuggestions, onActiveChange]);
+  }, [showResults, showNearbyPlaces, onActiveChange]);
 
+  // Close results when clicking outside
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
-      const clickedInsideInput = !!containerRef.current?.contains(target);
-      const clickedInsideDropdown = !!dropdownRef.current?.contains(target);
-      if (!clickedInsideInput && !clickedInsideDropdown) {
-        setShowSuggestions(false);
+      if (!containerRef.current?.contains(target)) {
+        setShowResults(false);
       }
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
-
-
-  useLayoutEffect(() => {
-    if (!showSuggestions) return;
-
-    const updateRect = () => {
-      const rect = inputRef.current?.getBoundingClientRect() ?? null;
-      setAnchorRect(rect);
-    };
-
-    updateRect();
-    window.addEventListener("resize", updateRect);
-    document.addEventListener("scroll", updateRect, true);
-    return () => {
-      window.removeEventListener("resize", updateRect);
-      document.removeEventListener("scroll", updateRect, true);
-    };
-  }, [showSuggestions]);
 
   const requestNearby = () => {
     if (geoRequestedRef.current || nearby) return;
@@ -128,110 +93,61 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
       (pos) => {
         setNearby({ lat: pos.coords.latitude, lon: pos.coords.longitude });
       },
-      () => {
-        // ignore; nearby bias is optional
-      },
+      () => {},
       { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 5000 }
     );
   };
 
-  const searchAddress = useCallback(
-    async (query: string) => {
-      if (query.trim().length < 3) {
-        setSuggestions([]);
-        setShowSuggestions(false);
-        return;
+  const handleSearch = async () => {
+    if (!inputValue.trim()) return;
+
+    setIsSearching(true);
+    setShowNearbyPlaces(false);
+    
+    try {
+      // Build viewbox if we have nearby location
+      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(inputValue)}&countrycodes=ca&limit=10&addressdetails=1`;
+      
+      if (nearby) {
+        const viewbox = `${nearby.lon - 0.05},${nearby.lat + 0.05},${nearby.lon + 0.05},${nearby.lat - 0.05}`;
+        url += `&viewbox=${viewbox}&bounded=0`;
       }
 
-      setIsLoading(true);
-      try {
-        // First, try AI-powered smart address parsing
-        let searchQuery = query;
-        try {
-          const { data: smartData } = await supabase.functions.invoke("smart-address", {
-            body: { query, city: nearby ? undefined : "Canada" },
-          });
-          if (smartData?.expanded && smartData.expanded !== query) {
-            searchQuery = smartData.expanded;
-          }
-        } catch (e) {
-          // Fall back to original query if smart parsing fails
-          console.log("Smart address fallback to original query");
-        }
+      const response = await fetch(url);
+      const data = await response.json();
 
-        const { data, error } = await supabase.functions.invoke<AddressSuggestion[]>("geocode", {
-          body: {
-            q: searchQuery,
-            countrycodes: "ca",
-            limit: 6,
-            near: nearby ?? undefined,
-          },
-        });
+      const results: AddressSuggestion[] = data.map((item: any) => ({
+        display_name: item.display_name,
+        lat: item.lat,
+        lon: item.lon,
+        name: item.name || item.display_name.split(',')[0],
+        address: item.address,
+        type: item.type,
+      }));
 
-        if (error) throw error;
-
-        const results = Array.isArray(data) ? data : [];
-        setSuggestions(results);
-        setShowSuggestions(results.length > 0);
-      } catch (error) {
-        console.error("Address search error:", error);
-        setSuggestions([]);
-        setShowSuggestions(false);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [nearby]
-  );
-
-  // Re-search when nearby location becomes available to bias results
-  useEffect(() => {
-    if (!nearby) return;
-    if (inputValue.trim().length < 3) return;
-    searchAddress(inputValue);
-  }, [nearby, inputValue, searchAddress]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    setInputValue(newValue);
-    onChange(newValue);
-
-    if (debounceRef.current) {
-      window.clearTimeout(debounceRef.current);
+      setSearchResults(results);
+      setShowResults(results.length > 0);
+    } catch (err) {
+      console.error("Search failed:", err);
+      setSearchResults([]);
+      setShowResults(false);
+    } finally {
+      setIsSearching(false);
     }
-    debounceRef.current = window.setTimeout(() => {
-      searchAddress(newValue);
-    }, 350);
   };
 
-  const handleSelectSuggestion = (suggestion: AddressSuggestion) => {
-    console.log("AddressAutocomplete select:", suggestion.display_name, suggestion.address);
-
-    const now = Date.now();
-    if (now - lastSelectAtRef.current < 250) return; // avoid double-select (touch + click)
-    lastSelectAtRef.current = now;
-
-    // Immediately update parent with full address and components
-    onChange(
-      suggestion.display_name,
-      Number(suggestion.lat),
-      Number(suggestion.lon),
-      suggestion.address
-    );
+  const handleSelectResult = (result: AddressSuggestion) => {
+    const lat = Number(result.lat);
+    const lon = Number(result.lon);
     
-    setInputValue(suggestion.display_name);
-    setShowSuggestions(false);
-    setSuggestions([]);
-    setPendingSuggestion(null);
+    setInputValue(result.display_name);
+    onChange(result.display_name, lat, lon, result.address);
+    setShowResults(false);
+    setSearchResults([]);
     
     // Show nearby places suggestions
-    setSelectedCoords({ lat: Number(suggestion.lat), lon: Number(suggestion.lon) });
+    setSelectedCoords({ lat, lon });
     setShowNearbyPlaces(true);
-    
-    // Brief overlay to prevent ghost clicks
-    setSuppressClicks(true);
-    if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
-    suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 250);
   };
 
   const handleNearbyPlaceSelect = (place: { name: string; address: string; lat: number; lon: number }) => {
@@ -250,110 +166,66 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     setSelectedCoords(null);
   };
 
-  // confirmPendingAddress and cancelPendingAddress removed - selection is now immediate
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setInputValue(newValue);
+    onChange(newValue);
+  };
 
   return (
-    <div ref={containerRef} className="relative">
-      <div className="relative">
-        <Input
-          ref={inputRef}
-          id={id}
-          value={inputValue}
-          onChange={handleInputChange}
-          onFocus={() => {
-            requestNearby();
-            if (suggestions.length > 0) setShowSuggestions(true);
-          }}
-          placeholder={placeholder}
-          className="pr-8"
-          autoComplete="off"
-        />
-        <div className="absolute right-2 top-1/2 -translate-y-1/2">
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : (
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-          )}
+    <div ref={containerRef} className="space-y-2">
+      {/* Search input */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Input
+            id={id}
+            value={inputValue}
+            onChange={handleInputChange}
+            onFocus={requestNearby}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
+            placeholder={placeholder || "Search for an address..."}
+            className="pr-8"
+            autoComplete="off"
+          />
+          <MapPin className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          onClick={handleSearch}
+          disabled={isSearching}
+        >
+          {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+        </Button>
       </div>
 
-      {/* Nearby places suggestions */}
-      {showNearbyPlaces && selectedCoords && (
-        <div className="mt-2">
-          <NearbyPlacesSuggestions
-            lat={selectedCoords.lat}
-            lon={selectedCoords.lon}
-            onSelect={handleNearbyPlaceSelect}
-            onClose={handleNearbyPlacesClose}
-          />
+      {/* Search results */}
+      {showResults && searchResults.length > 0 && (
+        <div className="rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-auto">
+          {searchResults.map((result, index) => (
+            <button
+              key={`${result.lat}-${result.lon}-${index}`}
+              type="button"
+              className="w-full flex items-center gap-2 p-3 border-b border-border last:border-0 hover:bg-accent text-left transition-colors"
+              onClick={() => handleSelectResult(result)}
+            >
+              <MapPin className="h-4 w-4 shrink-0 text-primary" />
+              <span className="text-sm line-clamp-2">{result.display_name}</span>
+            </button>
+          ))}
         </div>
       )}
 
-      {suppressClicks &&
-        createPortal(
-          <div
-            data-address-autocomplete-overlay
-            className="fixed inset-0 bg-transparent"
-            style={{ zIndex: 9998 }}
-            onPointerDownCapture={(e) => {
-              // Swallow the delayed synthetic click after selecting an item (mobile "ghost click")
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          />,
-          document.getElementById("root") ?? document.body
-        )}
-
-      {showSuggestions && suggestions.length > 0 && anchorRect &&
-        createPortal(
-          <div
-            ref={dropdownRef}
-            data-address-autocomplete-dropdown
-            className="rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-auto"
-            style={{
-              position: "fixed",
-              top: Math.round(anchorRect.bottom + 6),
-              left: Math.round(anchorRect.left),
-              width: Math.round(anchorRect.width),
-              zIndex: 9999,
-            }}
-            onPointerDown={(e) => {
-              // Keep the dropdown interaction from being treated as an "outside" click
-              e.stopPropagation();
-            }}
-          >
-            {suggestions.map((suggestion, index) => (
-              <button
-                key={`${suggestion.lat}-${suggestion.lon}-${index}`}
-                type="button"
-                className="w-full flex items-center border-b border-border last:border-0 hover:bg-accent active:bg-accent transition-colors touch-manipulation"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleSelectSuggestion(suggestion);
-                }}
-              >
-                <div className="flex-1 px-3 py-3 text-left text-sm">
-                  <div className="flex items-start gap-2">
-                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span className="line-clamp-2">{suggestion.display_name}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-center w-12 h-full py-3 border-l border-border bg-primary/10">
-                  <Check className="h-5 w-5 text-primary" />
-                </div>
-              </button>
-            ))}
-            </div>,
-            document.getElementById("root") ?? document.body
-          )}
+      {/* Nearby places suggestions */}
+      {showNearbyPlaces && selectedCoords && (
+        <NearbyPlacesSuggestions
+          lat={selectedCoords.lat}
+          lon={selectedCoords.lon}
+          onSelect={handleNearbyPlaceSelect}
+          onClose={handleNearbyPlacesClose}
+        />
+      )}
     </div>
   );
 }
@@ -391,4 +263,3 @@ export function calculateTotalDistance(coordinates: Array<{ lat: number; lon: nu
 function toRad(deg: number): number {
   return deg * (Math.PI / 180);
 }
-
