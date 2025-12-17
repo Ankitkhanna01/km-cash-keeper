@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Download, Mail, Upload, FileJson, FileSpreadsheet, AlertTriangle, Check, X, Loader2 } from 'lucide-react';
+import { Download, Mail, Upload, FileJson, FileSpreadsheet, AlertTriangle, Check, X, Loader2, Bell, BellOff, Clock, Settings } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { useTripsDB } from '@/hooks/useTripsDB';
 import { useExpensesDB } from '@/hooks/useExpensesDB';
 import { useOdometerDB } from '@/hooks/useOdometerDB';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBackupReminder } from '@/hooks/useBackupReminder';
 import { toast } from 'sonner';
 import {
   generateBackupJSON,
@@ -34,6 +35,9 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 export default function Backup() {
   const { user } = useAuth();
@@ -42,23 +46,56 @@ export default function Backup() {
   const { readings, loading: odometerLoading, refetch: refetchOdometer } = useOdometerDB();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const {
+    settings: backupSettings,
+    showReminder,
+    notificationPermission,
+    requestNotificationPermission,
+    sendNotification,
+    markBackupDone,
+    updateSettings,
+    dismissReminder,
+    shouldAutoBackup,
+  } = useBackupReminder();
+
   const [importing, setImporting] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [duplicates, setDuplicates] = useState<DuplicateItem[]>([]);
   const [selectedDuplicates, setSelectedDuplicates] = useState<Record<string, 'existing' | 'imported'>>({});
   const [pendingBackup, setPendingBackup] = useState<BackupData | null>(null);
+  const [autoBackupTriggered, setAutoBackupTriggered] = useState(false);
 
   const loading = tripsLoading || expensesLoading || odometerLoading;
   const today = format(new Date(), 'yyyy-MM-dd');
 
-  const handleDownloadJSON = () => {
+  // Auto-backup trigger
+  useEffect(() => {
+    if (!loading && !autoBackupTriggered && shouldAutoBackup()) {
+      setAutoBackupTriggered(true);
+      handleDownloadJSON(true);
+      sendNotification('Backup Complete', 'Your daily CRA tax data backup has been downloaded.');
+    }
+  }, [loading, autoBackupTriggered, shouldAutoBackup]);
+
+  // Show notification reminder
+  useEffect(() => {
+    if (showReminder && notificationPermission === 'granted') {
+      sendNotification('Backup Reminder', "Don't forget to backup your CRA tax data today!");
+    }
+  }, [showReminder, notificationPermission]);
+
+  const handleDownloadJSON = (isAutoBackup = false) => {
     const json = generateBackupJSON(trips, expenses, readings, user?.email || '');
     downloadFile(json, `cra-backup-${today}.json`, 'application/json');
-    toast.success('JSON backup downloaded');
+    markBackupDone();
+    if (!isAutoBackup) {
+      toast.success('JSON backup downloaded');
+    } else {
+      toast.success('Auto-backup completed');
+    }
   };
 
   const handleDownloadCSV = () => {
-    // Download all CSVs
     const tripsCSV = generateTripsCSV(trips);
     const expensesCSV = generateExpensesCSV(expenses);
     const odometerCSV = generateOdometerCSV(readings);
@@ -66,20 +103,28 @@ export default function Backup() {
     downloadFile(tripsCSV, `cra-trips-${today}.csv`, 'text/csv');
     downloadFile(expensesCSV, `cra-expenses-${today}.csv`, 'text/csv');
     downloadFile(odometerCSV, `cra-odometer-${today}.csv`, 'text/csv');
-    
+    markBackupDone();
     toast.success('CSV files downloaded');
   };
 
   const handleEmailBackup = () => {
-    // First download the JSON
     const json = generateBackupJSON(trips, expenses, readings, user?.email || '');
     downloadFile(json, `cra-backup-${today}.json`, 'application/json');
+    markBackupDone();
     
-    // Then open email client
     setTimeout(() => {
       openEmailWithBackup(json, user?.email || '');
       toast.success('Backup downloaded - attach it to the email');
     }, 500);
+  };
+
+  const handleEnableNotifications = async () => {
+    const permission = await requestNotificationPermission();
+    if (permission === 'granted') {
+      toast.success('Notifications enabled');
+    } else if (permission === 'denied') {
+      toast.error('Notifications blocked. Please enable in browser settings.');
+    }
   };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,13 +141,11 @@ export default function Backup() {
         return;
       }
 
-      // Find duplicates
       const foundDuplicates = findDuplicates(backupData, trips, expenses, readings);
 
       if (foundDuplicates.length > 0) {
         setDuplicates(foundDuplicates);
         setPendingBackup(backupData);
-        // Initialize all duplicates to keep existing
         const initial: Record<string, 'existing' | 'imported'> = {};
         foundDuplicates.forEach((d) => {
           initial[d.id] = 'existing';
@@ -110,7 +153,6 @@ export default function Backup() {
         setSelectedDuplicates(initial);
         setDuplicateDialogOpen(true);
       } else {
-        // No duplicates, import directly
         await importData(backupData, []);
       }
     } catch (error) {
@@ -135,7 +177,6 @@ export default function Backup() {
       const newItems = getNewItems(backupData, duplicates);
       let importedCount = 0;
 
-      // Import new trips
       for (const trip of newItems.trips) {
         const { error } = await supabase.from('trips').insert({
           user_id: user.id,
@@ -159,7 +200,6 @@ export default function Backup() {
         if (!error) importedCount++;
       }
 
-      // Import new expenses
       for (const expense of newItems.expenses) {
         const { error } = await supabase.from('expenses').insert({
           user_id: user.id,
@@ -173,7 +213,6 @@ export default function Backup() {
         if (!error) importedCount++;
       }
 
-      // Import new odometer readings
       for (const reading of newItems.odometerReadings) {
         const { error } = await supabase.from('odometer_readings').insert({
           user_id: user.id,
@@ -184,7 +223,6 @@ export default function Backup() {
         if (!error) importedCount++;
       }
 
-      // Handle duplicates user chose to replace
       for (const dup of duplicatesToReplace) {
         if (dup.type === 'trip') {
           await supabase
@@ -274,12 +312,98 @@ export default function Backup() {
       <PageHeader title="Backup & Restore" />
       
       <div className="p-4 space-y-4 pb-24">
+        {/* Reminder Banner */}
+        {showReminder && (
+          <Alert className="border-yellow-500/50 bg-yellow-500/10">
+            <AlertTriangle className="h-4 w-4 text-yellow-500" />
+            <AlertDescription className="flex items-center justify-between">
+              <span>You haven't backed up today. Back up now to protect your data.</span>
+              <Button size="sm" variant="ghost" onClick={dismissReminder}>
+                <X className="w-4 h-4" />
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            Back up your data daily to protect against data loss. All backups are CRA-compliant and include complete trip logs, expenses, and odometer readings.
+            Back up your data daily to protect against data loss. All backups are CRA-compliant.
           </AlertDescription>
         </Alert>
+
+        {/* Backup Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              Backup Settings
+            </CardTitle>
+            <CardDescription>
+              Configure daily reminders and automatic backups
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Notification Permission */}
+            {notificationPermission !== 'granted' && (
+              <Button onClick={handleEnableNotifications} variant="outline" className="w-full">
+                <Bell className="w-4 h-4 mr-2" />
+                Enable Browser Notifications
+              </Button>
+            )}
+
+            {/* Reminder Toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {backupSettings.reminderEnabled ? (
+                  <Bell className="w-4 h-4 text-primary" />
+                ) : (
+                  <BellOff className="w-4 h-4 text-muted-foreground" />
+                )}
+                <Label htmlFor="reminder-toggle">Daily Reminder</Label>
+              </div>
+              <Switch
+                id="reminder-toggle"
+                checked={backupSettings.reminderEnabled}
+                onCheckedChange={(checked) => updateSettings({ reminderEnabled: checked })}
+              />
+            </div>
+
+            {/* Reminder Time */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-muted-foreground" />
+                <Label htmlFor="reminder-time">Reminder Time</Label>
+              </div>
+              <Input
+                id="reminder-time"
+                type="time"
+                value={backupSettings.reminderTime}
+                onChange={(e) => updateSettings({ reminderTime: e.target.value })}
+                className="w-32"
+              />
+            </div>
+
+            {/* Auto-Backup Toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Download className="w-4 h-4 text-muted-foreground" />
+                <Label htmlFor="auto-backup-toggle">Auto-Download at Reminder Time</Label>
+              </div>
+              <Switch
+                id="auto-backup-toggle"
+                checked={backupSettings.autoBackupEnabled}
+                onCheckedChange={(checked) => updateSettings({ autoBackupEnabled: checked })}
+              />
+            </div>
+
+            {backupSettings.lastBackupDate && (
+              <p className="text-xs text-muted-foreground">
+                Last backup: {backupSettings.lastBackupDate}
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Download Section */}
         <Card>
@@ -293,7 +417,7 @@ export default function Backup() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Button onClick={handleDownloadJSON} className="w-full justify-start" variant="outline">
+            <Button onClick={() => handleDownloadJSON()} className="w-full justify-start" variant="outline">
               <FileJson className="w-4 h-4 mr-2" />
               Download JSON (For App Restore)
             </Button>
@@ -321,7 +445,7 @@ export default function Backup() {
               Download & Open Email
             </Button>
             <p className="text-xs text-muted-foreground mt-2">
-              Downloads the backup file and opens your default email app. Attach the downloaded file before sending.
+              Downloads the backup file and opens your default email app.
             </p>
           </CardContent>
         </Card>
@@ -359,7 +483,7 @@ export default function Backup() {
               Select Backup File
             </Button>
             <p className="text-xs text-muted-foreground mt-2">
-              Only JSON backup files can be restored. Duplicate records will be detected and you can choose which version to keep.
+              Duplicates will be detected and you can choose which to keep.
             </p>
           </CardContent>
         </Card>
@@ -394,7 +518,7 @@ export default function Backup() {
           <DialogHeader>
             <DialogTitle>Duplicate Records Found</DialogTitle>
             <DialogDescription>
-              {duplicates.length} duplicate records found. Choose which version to keep for each.
+              {duplicates.length} duplicates found. Choose which to keep.
             </DialogDescription>
           </DialogHeader>
           
