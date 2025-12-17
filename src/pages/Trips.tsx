@@ -116,7 +116,14 @@ export default function Trips() {
 
       {/* Trip Timeline */}
       <div className="mb-4">
-        <TripTimeline trips={trips} />
+        <TripTimeline 
+          trips={trips} 
+          onUpdate={async (id, updates) => {
+            const dbUpdates: Partial<DBTrip> = { ...updates };
+            await updateTrip(id, dbUpdates);
+            toast.success('Trip updated');
+          }}
+        />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
