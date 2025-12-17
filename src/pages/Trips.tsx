@@ -5,6 +5,7 @@ import { TripCard } from '@/components/trips/TripCard';
 import { AddTripDialog } from '@/components/trips/AddTripDialog';
 import { QuickTripRecorder } from '@/components/trips/QuickTripRecorder';
 import { AdjustDailyKmDialog } from '@/components/trips/AdjustDailyKmDialog';
+import { TripTimeline } from '@/components/trips/TripTimeline';
 import { useTripsDB, Trip as DBTrip } from '@/hooks/useTripsDB';
 import { Trip as ComponentTrip } from '@/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -111,6 +112,11 @@ export default function Trips() {
         <div className="flex justify-end">
           <AdjustDailyKmDialog trips={trips} onAdjustmentsApplied={handleAdjustmentsApplied} />
         </div>
+      </div>
+
+      {/* Trip Timeline */}
+      <div className="mb-4">
+        <TripTimeline trips={trips} />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
