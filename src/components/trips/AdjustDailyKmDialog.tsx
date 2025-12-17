@@ -3,41 +3,24 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Gauge, Loader2, Check, AlertCircle, MapPin, ArrowRight, Route, Scale } from 'lucide-react';
+import { Gauge, Loader2, Check, AlertCircle, MapPin, ArrowRight, Route, Scale, Plus, Minus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Trip } from '@/hooks/useTripsDB';
 import { getLocalDateString } from '@/lib/dateUtils';
 import { Checkbox } from '@/components/ui/checkbox';
 
-interface Adjustment {
+interface RouteResult {
   id: string;
-  adjustment: number;
-  reason: string;
-  calculatedKm?: number;
-  loggedKm?: number;
-  type: 'route' | 'distribution';
+  calculatedKm: number | null;
+  loggedKm: number;
 }
 
-interface SegmentSuggestion {
-  type: 'extend_start' | 'create_gap';
+interface GapResult {
   tripId: string;
   fromLocation: string;
   toLocation: string;
   estimatedKm: number;
-  reason: string;
-}
-
-interface Summary {
-  currentTotal: number;
-  actualTotal: number;
-  difference: number;
-  calculatedTotal?: number;
-  tripsVerified?: number;
-  tripsTotal?: number;
-  routeAdjustmentSum?: number;
-  gapKmTotal?: number;
-  remainingDiff?: number;
 }
 
 interface AdjustDailyKmDialogProps {
@@ -49,28 +32,19 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
   const [open, setOpen] = useState(false);
   const [actualKm, setActualKm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [routeAdjustments, setRouteAdjustments] = useState<Adjustment[]>([]);
-  const [distributionAdjustments, setDistributionAdjustments] = useState<Adjustment[]>([]);
-  const [segmentSuggestions, setSegmentSuggestions] = useState<SegmentSuggestion[]>([]);
-  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
-  const [selectedRouteAdj, setSelectedRouteAdj] = useState<Set<string>>(new Set());
-  const [selectedDistAdj, setSelectedDistAdj] = useState<Set<string>>(new Set());
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [routeResults, setRouteResults] = useState<RouteResult[]>([]);
+  const [gaps, setGaps] = useState<GapResult[]>([]);
+  const [selectedGaps, setSelectedGaps] = useState<Set<string>>(new Set());
+  const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set());
+  const [manualAdjustments, setManualAdjustments] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [analyzed, setAnalyzed] = useState(false);
 
-  // Filter today's trips
   const today = getLocalDateString();
   const todaysTrips = trips.filter(t => t.date === today);
   const currentTotal = todaysTrips.reduce((sum, t) => sum + t.kilometres, 0);
 
   const handleAnalyze = async () => {
-    const actualTotal = parseFloat(actualKm);
-    if (isNaN(actualTotal) || actualTotal <= 0) {
-      toast.error('Please enter a valid kilometre reading');
-      return;
-    }
-
     if (todaysTrips.length === 0) {
       toast.error('No trips logged for today');
       return;
@@ -91,26 +65,21 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
             start_time: t.start_time,
             end_time: t.end_time,
           })),
-          actualTotalKm: actualTotal,
         },
       });
 
       if (fnError) throw fnError;
       if (data.error) throw new Error(data.error);
 
-      const routeAdj = data.adjustments || [];
-      const distAdj = data.distributionAdjustments || [];
-      const segments = data.segmentSuggestions || [];
-      
-      setRouteAdjustments(routeAdj);
-      setDistributionAdjustments(distAdj);
-      setSegmentSuggestions(segments);
-      setSummary(data.summary || null);
+      setRouteResults(data.routeResults || []);
+      setGaps(data.gaps || []);
       setAnalyzed(true);
       
-      // Pre-select all by default
-      setSelectedRouteAdj(new Set(routeAdj.map((a: Adjustment) => a.id)));
-      setSelectedDistAdj(new Set(distAdj.map((a: Adjustment) => a.id)));
+      // Pre-select route corrections where there's a significant difference
+      const routesToSelect = (data.routeResults || [])
+        .filter((r: RouteResult) => r.calculatedKm !== null && Math.abs(r.calculatedKm - r.loggedKm) > 0.3)
+        .map((r: RouteResult) => r.id);
+      setSelectedRoutes(new Set(routesToSelect));
     } catch (err: any) {
       console.error('Adjust KM error:', err);
       setError(err.message || 'Failed to analyze trips');
@@ -121,85 +90,99 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
   };
 
   const resetState = () => {
-    setRouteAdjustments([]);
-    setDistributionAdjustments([]);
-    setSegmentSuggestions([]);
-    setSelectedSuggestions(new Set());
-    setSelectedRouteAdj(new Set());
-    setSelectedDistAdj(new Set());
-    setSummary(null);
+    setRouteResults([]);
+    setGaps([]);
+    setSelectedGaps(new Set());
+    setSelectedRoutes(new Set());
+    setManualAdjustments({});
     setAnalyzed(false);
   };
 
-  const toggleSuggestion = (tripId: string) => {
-    const newSelected = new Set(selectedSuggestions);
+  const toggleGap = (tripId: string) => {
+    const newSelected = new Set(selectedGaps);
     if (newSelected.has(tripId)) newSelected.delete(tripId);
     else newSelected.add(tripId);
-    setSelectedSuggestions(newSelected);
+    setSelectedGaps(newSelected);
   };
 
-  const toggleRouteAdj = (tripId: string) => {
-    const newSelected = new Set(selectedRouteAdj);
+  const toggleRoute = (tripId: string) => {
+    const newSelected = new Set(selectedRoutes);
     if (newSelected.has(tripId)) newSelected.delete(tripId);
     else newSelected.add(tripId);
-    setSelectedRouteAdj(newSelected);
+    setSelectedRoutes(newSelected);
   };
 
-  const toggleDistAdj = (tripId: string) => {
-    const newSelected = new Set(selectedDistAdj);
-    if (newSelected.has(tripId)) newSelected.delete(tripId);
-    else newSelected.add(tripId);
-    setSelectedDistAdj(newSelected);
+  const adjustManual = (tripId: string, delta: number) => {
+    setManualAdjustments(prev => ({
+      ...prev,
+      [tripId]: (prev[tripId] || 0) + delta,
+    }));
   };
+
+  // Calculate projected total
+  const calculateProjectedTotal = () => {
+    let projected = currentTotal;
+    
+    // Route corrections
+    for (const route of routeResults) {
+      if (selectedRoutes.has(route.id) && route.calculatedKm !== null) {
+        projected += (route.calculatedKm - route.loggedKm);
+      }
+    }
+    
+    // Gap additions
+    for (const gap of gaps) {
+      if (selectedGaps.has(gap.tripId)) {
+        projected += gap.estimatedKm;
+      }
+    }
+    
+    // Manual adjustments
+    for (const [, adj] of Object.entries(manualAdjustments)) {
+      projected += adj;
+    }
+    
+    return Math.round(projected * 10) / 10;
+  };
+
+  const projectedTotal = analyzed ? calculateProjectedTotal() : currentTotal;
+  const targetKm = parseFloat(actualKm) || 0;
+  const remainingDiff = targetKm - projectedTotal;
 
   const handleApplyAdjustments = () => {
     const updates: Array<{ id: string; kilometres: number; start_location?: string }> = [];
-    const appliedIds = new Set<string>();
 
-    // Apply selected route adjustments
-    for (const adj of routeAdjustments) {
-      if (selectedRouteAdj.has(adj.id)) {
-        const trip = todaysTrips.find(t => t.id === adj.id);
-        if (trip) {
-          const newKm = trip.kilometres + adj.adjustment;
-          updates.push({ id: adj.id, kilometres: Math.max(0.1, newKm) });
-          appliedIds.add(adj.id);
+    for (const trip of todaysTrips) {
+      let newKm = trip.kilometres;
+      let startLocation: string | undefined;
+
+      // Apply route correction
+      if (selectedRoutes.has(trip.id)) {
+        const route = routeResults.find(r => r.id === trip.id);
+        if (route?.calculatedKm !== null) {
+          newKm = route.calculatedKm;
         }
       }
-    }
 
-    // Apply selected distribution adjustments
-    for (const adj of distributionAdjustments) {
-      if (selectedDistAdj.has(adj.id)) {
-        const existingUpdate = updates.find(u => u.id === adj.id);
-        if (existingUpdate) {
-          existingUpdate.kilometres = Math.max(0.1, existingUpdate.kilometres + adj.adjustment);
-        } else {
-          const trip = todaysTrips.find(t => t.id === adj.id);
-          if (trip) {
-            updates.push({ id: adj.id, kilometres: Math.max(0.1, trip.kilometres + adj.adjustment) });
-          }
-        }
+      // Apply gap (extends trip start)
+      const gap = gaps.find(g => g.tripId === trip.id);
+      if (gap && selectedGaps.has(trip.id)) {
+        newKm += gap.estimatedKm;
+        startLocation = gap.fromLocation;
       }
-    }
 
-    // Apply selected segment suggestions
-    for (const suggestion of segmentSuggestions) {
-      if (selectedSuggestions.has(suggestion.tripId)) {
-        const existingUpdate = updates.find(u => u.id === suggestion.tripId);
-        if (existingUpdate) {
-          existingUpdate.start_location = suggestion.fromLocation;
-          existingUpdate.kilometres += suggestion.estimatedKm;
-        } else {
-          const trip = todaysTrips.find(t => t.id === suggestion.tripId);
-          if (trip) {
-            updates.push({
-              id: suggestion.tripId,
-              kilometres: trip.kilometres + suggestion.estimatedKm,
-              start_location: suggestion.fromLocation,
-            });
-          }
-        }
+      // Apply manual adjustment
+      if (manualAdjustments[trip.id]) {
+        newKm += manualAdjustments[trip.id];
+      }
+
+      // Only add if changed
+      if (newKm !== trip.kilometres || startLocation) {
+        updates.push({
+          id: trip.id,
+          kilometres: Math.max(0.1, Math.round(newKm * 10) / 10),
+          ...(startLocation && { start_location: startLocation }),
+        });
       }
     }
 
@@ -207,7 +190,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
       onAdjustmentsApplied(updates);
       toast.success(`Updated ${updates.length} trip(s)!`);
     } else {
-      toast.info('No changes selected');
+      toast.info('No changes to apply');
     }
 
     handleOpenChange(false);
@@ -222,27 +205,8 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
     }
   };
 
-  const difference = parseFloat(actualKm) - currentTotal;
-  const hasChanges = selectedRouteAdj.size > 0 || selectedDistAdj.size > 0 || selectedSuggestions.size > 0;
-
-  // Calculate what total will be after selected changes
-  const calculateProjectedTotal = () => {
-    let projected = currentTotal;
-    
-    for (const adj of routeAdjustments) {
-      if (selectedRouteAdj.has(adj.id)) projected += adj.adjustment;
-    }
-    for (const adj of distributionAdjustments) {
-      if (selectedDistAdj.has(adj.id)) projected += adj.adjustment;
-    }
-    for (const seg of segmentSuggestions) {
-      if (selectedSuggestions.has(seg.tripId)) projected += seg.estimatedKm;
-    }
-    
-    return projected;
-  };
-
-  const projectedTotal = analyzed ? calculateProjectedTotal() : currentTotal;
+  const difference = targetKm - currentTotal;
+  const hasChanges = selectedRoutes.size > 0 || selectedGaps.size > 0 || Object.keys(manualAdjustments).length > 0;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -256,10 +220,10 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Route className="w-5 h-5 text-primary" />
-            Route-Verified KM Adjustment
+            Adjust KM to Match Odometer
           </DialogTitle>
           <DialogDescription id="adjust-km-description">
-            Match your logged trips to your car's odometer for CRA compliance.
+            Verify routes and distribute KM to match your car's trip meter.
           </DialogDescription>
         </DialogHeader>
 
@@ -273,18 +237,18 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
 
           {/* Input for actual KM */}
           <div className="space-y-2">
-            <Label htmlFor="actual-km">Your car's trip meter reading (km)</Label>
+            <Label htmlFor="actual-km">Your car's trip meter (km)</Label>
             <Input
               id="actual-km"
               type="number"
               step="0.1"
               value={actualKm}
               onChange={(e) => setActualKm(e.target.value)}
-              placeholder="Enter actual km driven today"
+              placeholder="e.g. 47.9"
             />
-            {actualKm && !isNaN(parseFloat(actualKm)) && (
+            {actualKm && !isNaN(targetKm) && (
               <p className={`text-sm ${difference > 0 ? 'text-green-500' : difference < 0 ? 'text-orange-500' : 'text-muted-foreground'}`}>
-                Difference: {difference > 0 ? '+' : ''}{difference.toFixed(1)} km
+                Need to {difference > 0 ? 'add' : 'remove'}: {Math.abs(difference).toFixed(1)} km
               </p>
             )}
           </div>
@@ -293,24 +257,17 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
           {!analyzed && (
             <Button
               onClick={handleAnalyze}
-              disabled={loading || !actualKm || todaysTrips.length === 0}
+              disabled={loading || todaysTrips.length === 0}
               className="w-full gap-2"
             >
               {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Calculating routes...
-                </>
+                <><Loader2 className="w-4 h-4 animate-spin" />Verifying routes...</>
               ) : (
-                <>
-                  <Route className="w-4 h-4" />
-                  Calculate Route Distances
-                </>
+                <><Route className="w-4 h-4" />Verify Routes</>
               )}
             </Button>
           )}
 
-          {/* Error state */}
           {error && (
             <div className="p-3 rounded-lg bg-destructive/10 text-destructive flex items-start gap-2">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -318,168 +275,157 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
             </div>
           )}
 
-          {/* Summary info */}
-          {summary && summary.tripsVerified !== undefined && (
-            <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm space-y-1">
-              <div className="flex items-center gap-2 text-blue-600">
-                <Route className="w-4 h-4" />
-                <span className="font-medium">Analysis Complete</span>
+          {/* Progress indicator */}
+          {analyzed && targetKm > 0 && (
+            <div className="p-3 rounded-lg bg-secondary/30 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Current:</span>
+                <span>{currentTotal.toFixed(1)} km</span>
               </div>
-              <p className="text-muted-foreground text-xs">
-                Verified {summary.tripsVerified}/{summary.tripsTotal} trips via OpenStreetMap
-              </p>
-              {summary.remainingDiff !== undefined && Math.abs(summary.remainingDiff) >= 0.2 && (
-                <p className="text-xs text-orange-600">
-                  {summary.remainingDiff > 0 ? '+' : ''}{summary.remainingDiff} km from alternate routes
+              <div className="flex justify-between text-sm font-medium">
+                <span>After changes:</span>
+                <span className={projectedTotal === targetKm ? 'text-green-500' : 'text-primary'}>{projectedTotal.toFixed(1)} km</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Target:</span>
+                <span>{targetKm.toFixed(1)} km</span>
+              </div>
+              {Math.abs(remainingDiff) >= 0.1 && (
+                <p className={`text-xs ${remainingDiff > 0 ? 'text-orange-500' : 'text-orange-500'}`}>
+                  Still need to {remainingDiff > 0 ? 'add' : 'remove'}: {Math.abs(remainingDiff).toFixed(1)} km
+                </p>
+              )}
+              {Math.abs(remainingDiff) < 0.1 && (
+                <p className="text-xs text-green-500 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Matches target!
                 </p>
               )}
             </div>
           )}
 
-          {/* Projected total after changes */}
-          {analyzed && hasChanges && (
-            <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">After changes:</span>
-                <span className="font-bold text-green-600">{projectedTotal.toFixed(1)} km</span>
-              </div>
-              <div className="flex justify-between items-center text-xs text-muted-foreground">
-                <span>Target:</span>
-                <span>{actualKm} km</span>
-              </div>
-            </div>
-          )}
-
-          {/* Gap Suggestions */}
-          {segmentSuggestions.length > 0 && (
+          {/* Gaps detected */}
+          {gaps.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-medium flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-orange-500" />
-                Gaps detected ({segmentSuggestions.reduce((s, g) => s + g.estimatedKm, 0).toFixed(1)} km)
+                Gaps between trips
               </p>
-              <div className="space-y-2 max-h-32 overflow-y-auto">
-                {segmentSuggestions.map((suggestion) => {
-                  const trip = todaysTrips.find(t => t.id === suggestion.tripId);
-                  if (!trip) return null;
-                  return (
-                    <div key={suggestion.tripId} className="p-2 rounded bg-orange-500/10 border border-orange-500/20">
-                      <div className="flex items-start gap-2">
-                        <Checkbox
-                          id={`gap-${suggestion.tripId}`}
-                          checked={selectedSuggestions.has(suggestion.tripId)}
-                          onCheckedChange={() => toggleSuggestion(suggestion.tripId)}
-                        />
-                        <label htmlFor={`gap-${suggestion.tripId}`} className="flex-1 text-xs cursor-pointer">
-                          <div className="flex items-center gap-1 text-muted-foreground">
-                            <span className="truncate max-w-[100px]">{suggestion.fromLocation.split(',')[0]}</span>
-                            <ArrowRight className="w-3 h-3 shrink-0" />
-                            <span className="truncate max-w-[100px]">{trip.start_location.split(',')[0]}</span>
-                          </div>
-                          <span className="text-orange-600 font-medium">+{suggestion.estimatedKm} km</span>
-                        </label>
-                      </div>
+              <div className="space-y-2 max-h-28 overflow-y-auto">
+                {gaps.map((gap) => (
+                  <div key={gap.tripId} className="p-2 rounded bg-orange-500/10 border border-orange-500/20">
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id={`gap-${gap.tripId}`}
+                        checked={selectedGaps.has(gap.tripId)}
+                        onCheckedChange={() => toggleGap(gap.tripId)}
+                      />
+                      <label htmlFor={`gap-${gap.tripId}`} className="flex-1 text-xs cursor-pointer">
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <span className="truncate max-w-[100px]">{gap.fromLocation.split(',')[0]}</span>
+                          <ArrowRight className="w-3 h-3 shrink-0" />
+                          <span className="truncate max-w-[100px]">{gap.toLocation.split(',')[0]}</span>
+                        </div>
+                        <span className="text-orange-600 font-medium">+{gap.estimatedKm} km</span>
+                      </label>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Route-based corrections */}
-          {routeAdjustments.length > 0 && (
+          {/* Route corrections */}
+          {routeResults.filter(r => r.calculatedKm !== null && Math.abs(r.calculatedKm - r.loggedKm) > 0.3).length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-medium flex items-center gap-2">
                 <Route className="w-4 h-4 text-primary" />
-                Route corrections ({routeAdjustments.reduce((s, a) => s + a.adjustment, 0).toFixed(1)} km)
+                Route corrections
               </p>
-              <div className="space-y-2 max-h-32 overflow-y-auto">
-                {routeAdjustments.map((adj) => {
-                  const trip = todaysTrips.find(t => t.id === adj.id);
-                  if (!trip) return null;
-                  return (
-                    <div key={adj.id} className="p-2 rounded bg-secondary/30">
-                      <div className="flex items-start gap-2">
-                        <Checkbox
-                          id={`route-${adj.id}`}
-                          checked={selectedRouteAdj.has(adj.id)}
-                          onCheckedChange={() => toggleRouteAdj(adj.id)}
-                        />
-                        <label htmlFor={`route-${adj.id}`} className="flex-1 text-xs cursor-pointer">
-                          <span className="truncate block">{trip.start_location.split(',')[0]} → {trip.end_location.split(',')[0]}</span>
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <span>{adj.loggedKm} km</span>
-                            <ArrowRight className="w-3 h-3" />
-                            <span className="text-primary">{adj.calculatedKm} km</span>
-                          </div>
-                          <span className={adj.adjustment > 0 ? 'text-green-500' : 'text-orange-500'}>
-                            {adj.adjustment > 0 ? '+' : ''}{adj.adjustment} km
-                          </span>
-                        </label>
+              <div className="space-y-2 max-h-28 overflow-y-auto">
+                {routeResults
+                  .filter(r => r.calculatedKm !== null && Math.abs(r.calculatedKm - r.loggedKm) > 0.3)
+                  .map((route) => {
+                    const trip = todaysTrips.find(t => t.id === route.id);
+                    if (!trip) return null;
+                    const diff = route.calculatedKm! - route.loggedKm;
+                    return (
+                      <div key={route.id} className="p-2 rounded bg-secondary/30">
+                        <div className="flex items-start gap-2">
+                          <Checkbox
+                            id={`route-${route.id}`}
+                            checked={selectedRoutes.has(route.id)}
+                            onCheckedChange={() => toggleRoute(route.id)}
+                          />
+                          <label htmlFor={`route-${route.id}`} className="flex-1 text-xs cursor-pointer">
+                            <span className="truncate block">{trip.start_location.split(',')[0]} → {trip.end_location.split(',')[0]}</span>
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <span>{route.loggedKm} km</span>
+                              <ArrowRight className="w-3 h-3" />
+                              <span className="text-primary">{route.calculatedKm} km</span>
+                            </div>
+                            <span className={diff > 0 ? 'text-green-500' : 'text-orange-500'}>
+                              {diff > 0 ? '+' : ''}{diff.toFixed(1)} km
+                            </span>
+                          </label>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             </div>
           )}
 
-          {/* Distribution adjustments (for alternate routes) */}
-          {distributionAdjustments.length > 0 && (
+          {/* Manual distribution */}
+          {analyzed && (
             <div className="space-y-2">
               <p className="text-sm font-medium flex items-center gap-2">
                 <Scale className="w-4 h-4 text-purple-500" />
-                Alternate route distribution ({distributionAdjustments.reduce((s, a) => s + a.adjustment, 0).toFixed(1)} km)
+                Manual adjustments
               </p>
               <p className="text-xs text-muted-foreground">
-                KM from routes not matching standard paths:
+                Add/remove KM to individual trips:
               </p>
-              <div className="space-y-2 max-h-32 overflow-y-auto">
-                {distributionAdjustments.map((adj) => {
-                  const trip = todaysTrips.find(t => t.id === adj.id);
-                  if (!trip) return null;
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {todaysTrips.map((trip) => {
+                  const adj = manualAdjustments[trip.id] || 0;
                   return (
-                    <div key={`dist-${adj.id}`} className="p-2 rounded bg-purple-500/10 border border-purple-500/20">
-                      <div className="flex items-start gap-2">
-                        <Checkbox
-                          id={`dist-${adj.id}`}
-                          checked={selectedDistAdj.has(adj.id)}
-                          onCheckedChange={() => toggleDistAdj(adj.id)}
-                        />
-                        <label htmlFor={`dist-${adj.id}`} className="flex-1 text-xs cursor-pointer">
-                          <span className="truncate block">{trip.start_location.split(',')[0]} → {trip.end_location.split(',')[0]}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-muted-foreground">{trip.kilometres} km</span>
-                            <ArrowRight className="w-3 h-3" />
-                            <span className="text-purple-600">{(trip.kilometres + adj.adjustment).toFixed(1)} km</span>
-                          </div>
-                          <span className={adj.adjustment > 0 ? 'text-green-500' : 'text-orange-500'}>
-                            {adj.adjustment > 0 ? '+' : ''}{adj.adjustment} km
-                          </span>
-                        </label>
+                    <div key={trip.id} className="p-2 rounded bg-secondary/20 flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs truncate">{trip.start_location.split(',')[0]} → {trip.end_location.split(',')[0]}</p>
+                        <p className="text-xs text-muted-foreground">{trip.kilometres} km</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => adjustManual(trip.id, -0.5)}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className={`text-xs w-12 text-center font-medium ${adj > 0 ? 'text-green-500' : adj < 0 ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                          {adj > 0 ? '+' : ''}{adj.toFixed(1)}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => adjustManual(trip.id, 0.5)}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {/* No changes needed */}
-          {analyzed && routeAdjustments.length === 0 && distributionAdjustments.length === 0 && segmentSuggestions.length === 0 && (
-            <div className="p-3 rounded-lg bg-green-500/10 text-green-600 flex items-center gap-2">
-              <Check className="w-4 h-4" />
-              <p className="text-sm">Trip distances match your odometer!</p>
             </div>
           )}
 
           {/* Action buttons */}
           {analyzed && (
             <div className="flex gap-2 pt-2">
-              <Button 
-                variant="outline" 
-                onClick={resetState} 
-                className="flex-1"
-              >
+              <Button variant="outline" onClick={resetState} className="flex-1">
                 Re-analyze
               </Button>
               <Button 
@@ -488,7 +434,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
                 disabled={!hasChanges}
               >
                 <Check className="w-4 h-4" />
-                Apply Selected
+                Apply Changes
               </Button>
             </div>
           )}
