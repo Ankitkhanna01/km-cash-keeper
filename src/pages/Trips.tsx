@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { TripCard } from '@/components/trips/TripCard';
 import { AddTripDialog } from '@/components/trips/AddTripDialog';
 import { QuickTripRecorder } from '@/components/trips/QuickTripRecorder';
+import { AdjustDailyKmDialog } from '@/components/trips/AdjustDailyKmDialog';
 import { useTripsDB, Trip as DBTrip } from '@/hooks/useTripsDB';
 import { Trip as ComponentTrip } from '@/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -44,6 +45,12 @@ export default function Trips() {
     
     await updateTrip(id, dbUpdates);
     toast.success('Trip updated');
+  };
+
+  const handleAdjustmentsApplied = async (updates: Array<{ id: string; kilometres: number }>) => {
+    for (const update of updates) {
+      await updateTrip(update.id, { kilometres: update.kilometres });
+    }
   };
 
   const handleAddTrip = async (tripData: {
@@ -95,8 +102,11 @@ export default function Trips() {
       />
 
       {/* Quick Trip Recorder */}
-      <div className="mb-4">
+      <div className="mb-4 space-y-3">
         <QuickTripRecorder onTripComplete={handleAddTrip} />
+        <div className="flex justify-end">
+          <AdjustDailyKmDialog trips={trips} onAdjustmentsApplied={handleAdjustmentsApplied} />
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

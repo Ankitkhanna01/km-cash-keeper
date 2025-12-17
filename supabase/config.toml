@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.smart-address]
 verify_jwt = false
+
+[functions.adjust-km]
+verify_jwt = true
