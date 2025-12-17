@@ -31,31 +31,40 @@ interface SegmentSuggestion {
   reason: string;
 }
 
-// Geocode address using Nominatim
+// Cache for geocoded addresses
+const geocodeCache = new Map<string, { lat: number; lon: number } | null>();
+
+// Geocode address using Nominatim with caching
 async function geocodeAddress(address: string): Promise<{ lat: number; lon: number } | null> {
+  if (geocodeCache.has(address)) {
+    return geocodeCache.get(address) || null;
+  }
+
   try {
     const encoded = encodeURIComponent(address);
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&limit=1`,
       {
-        headers: {
-          'User-Agent': 'KMCashKeeper/1.0',
-        },
+        headers: { 'User-Agent': 'KMCashKeeper/1.0' },
       }
     );
     
-    if (!response.ok) return null;
+    if (!response.ok) {
+      geocodeCache.set(address, null);
+      return null;
+    }
     
     const data = await response.json();
     if (data && data.length > 0) {
-      return {
-        lat: parseFloat(data[0].lat),
-        lon: parseFloat(data[0].lon),
-      };
+      const result = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+      geocodeCache.set(address, result);
+      return result;
     }
+    geocodeCache.set(address, null);
     return null;
   } catch (error) {
     console.error('Geocoding error:', error);
+    geocodeCache.set(address, null);
     return null;
   }
 }
@@ -66,20 +75,16 @@ async function getRouteDistance(
   end: { lat: number; lon: number }
 ): Promise<number | null> {
   try {
-    // OSRM expects lon,lat order
     const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=false`;
     
     const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'KMCashKeeper/1.0',
-      },
+      headers: { 'User-Agent': 'KMCashKeeper/1.0' },
     });
     
     if (!response.ok) return null;
     
     const data = await response.json();
     if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-      // OSRM returns distance in meters
       return data.routes[0].distance / 1000;
     }
     return null;
@@ -93,6 +98,49 @@ async function getRouteDistance(
 function parseTimeToMinutes(timeStr: string): number {
   const [hours, minutes] = timeStr.split(':').map(Number);
   return hours * 60 + (minutes || 0);
+}
+
+// Process a single trip
+async function processTrip(trip: Trip): Promise<{
+  trip: Trip;
+  startCoords: { lat: number; lon: number } | null;
+  endCoords: { lat: number; lon: number } | null;
+  calculatedKm: number | null;
+  discrepancy: number | null;
+}> {
+  const startCoords = await geocodeAddress(trip.start_location);
+  const endCoords = await geocodeAddress(trip.end_location);
+  
+  let calculatedKm: number | null = null;
+  let discrepancy: number | null = null;
+  
+  if (startCoords && endCoords) {
+    calculatedKm = await getRouteDistance(startCoords, endCoords);
+    if (calculatedKm !== null) {
+      discrepancy = trip.kilometres - calculatedKm;
+      console.log(`${trip.start_location.split(',')[0]} → ${trip.end_location.split(',')[0]}: Logged ${trip.kilometres.toFixed(1)} km, Route ${calculatedKm.toFixed(1)} km`);
+    }
+  }
+  
+  return { trip, startCoords, endCoords, calculatedKm, discrepancy };
+}
+
+// Process trips in batches with concurrency limit
+async function processTripsBatched(trips: Trip[], batchSize: number = 5) {
+  const results: Awaited<ReturnType<typeof processTrip>>[] = [];
+  
+  for (let i = 0; i < trips.length; i += batchSize) {
+    const batch = trips.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(processTrip));
+    results.push(...batchResults);
+    
+    // Small delay between batches to be respectful to APIs
+    if (i + batchSize < trips.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  
+  return results;
 }
 
 serve(async (req) => {
@@ -116,8 +164,7 @@ serve(async (req) => {
     const currentTotalKm = trips.reduce((sum, t) => sum + t.kilometres, 0);
     const difference = actualTotalKm - currentTotalKm;
 
-    console.log(`Current total: ${currentTotalKm} km, Actual: ${actualTotalKm} km, Difference: ${difference} km`);
-    console.log(`Processing ${trips.length} trips for route verification...`);
+    console.log(`Processing ${trips.length} trips. Current: ${currentTotalKm.toFixed(1)} km, Target: ${actualTotalKm} km, Diff: ${difference.toFixed(1)} km`);
 
     // If difference is negligible, return no adjustments
     if (Math.abs(difference) < 0.1) {
@@ -125,56 +172,14 @@ serve(async (req) => {
         JSON.stringify({ 
           adjustments: [],
           segmentSuggestions: [],
-          summary: {
-            currentTotal: currentTotalKm,
-            actualTotal: actualTotalKm,
-            difference: 0
-          }
+          summary: { currentTotal: currentTotalKm, actualTotal: actualTotalKm, difference: 0 }
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Calculate actual route distances for each trip
-    const tripAnalysis: Array<{
-      trip: Trip;
-      startCoords: { lat: number; lon: number } | null;
-      endCoords: { lat: number; lon: number } | null;
-      calculatedKm: number | null;
-      discrepancy: number | null;
-    }> = [];
-
-    for (const trip of trips) {
-      console.log(`Analyzing trip: ${trip.start_location} → ${trip.end_location}`);
-      
-      // Geocode start and end locations
-      const startCoords = await geocodeAddress(trip.start_location);
-      const endCoords = await geocodeAddress(trip.end_location);
-      
-      let calculatedKm: number | null = null;
-      let discrepancy: number | null = null;
-      
-      if (startCoords && endCoords) {
-        calculatedKm = await getRouteDistance(startCoords, endCoords);
-        if (calculatedKm !== null) {
-          discrepancy = trip.kilometres - calculatedKm;
-          console.log(`  Logged: ${trip.kilometres.toFixed(1)} km, Calculated: ${calculatedKm.toFixed(1)} km, Discrepancy: ${discrepancy.toFixed(1)} km`);
-        }
-      } else {
-        console.log(`  Could not geocode addresses`);
-      }
-      
-      tripAnalysis.push({
-        trip,
-        startCoords,
-        endCoords,
-        calculatedKm,
-        discrepancy,
-      });
-      
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
+    // Process all trips in parallel batches
+    const tripAnalysis = await processTripsBatched(trips, 5);
 
     // Build adjustments based on actual route calculations
     const adjustments: Adjustment[] = [];
@@ -195,9 +200,7 @@ serve(async (req) => {
             adjustment: Math.round(diff * 10) / 10,
             calculatedKm: Math.round(analysis.calculatedKm * 10) / 10,
             loggedKm: analysis.trip.kilometres,
-            reason: diff > 0 
-              ? `Route calculation shows ${analysis.calculatedKm.toFixed(1)} km (logged ${analysis.trip.kilometres.toFixed(1)} km)`
-              : `Route calculation shows ${analysis.calculatedKm.toFixed(1)} km (logged ${analysis.trip.kilometres.toFixed(1)} km)`,
+            reason: `Route: ${analysis.calculatedKm.toFixed(1)} km (logged ${analysis.trip.kilometres.toFixed(1)} km)`,
           });
         }
       }
@@ -209,44 +212,37 @@ serve(async (req) => {
       parseTimeToMinutes(a.trip.start_time) - parseTimeToMinutes(b.trip.start_time)
     );
 
-    for (let i = 1; i < sortedAnalysis.length; i++) {
-      const prev = sortedAnalysis[i - 1];
-      const curr = sortedAnalysis[i];
+    // Process gap detection in parallel
+    const gapPromises = sortedAnalysis.slice(1).map(async (curr, idx) => {
+      const prev = sortedAnalysis[idx];
       
-      // Check if current trip's start doesn't match previous trip's end
       if (prev.endCoords && curr.startCoords) {
         const gapDistance = await getRouteDistance(prev.endCoords, curr.startCoords);
         
         if (gapDistance !== null && gapDistance > 0.5) {
-          console.log(`Gap detected: ${prev.trip.end_location} → ${curr.trip.start_location} = ${gapDistance.toFixed(1)} km`);
-          
-          segmentSuggestions.push({
+          console.log(`Gap: ${prev.trip.end_location.split(',')[0]} → ${curr.trip.start_location.split(',')[0]} = ${gapDistance.toFixed(1)} km`);
+          const suggestion: SegmentSuggestion = {
             type: 'extend_start',
             tripId: curr.trip.id,
             fromLocation: prev.trip.end_location,
             toLocation: curr.trip.start_location,
             estimatedKm: Math.round(gapDistance * 10) / 10,
-            reason: `Route shows ${gapDistance.toFixed(1)} km between previous trip end and this trip start`,
-          });
+            reason: `${gapDistance.toFixed(1)} km gap from previous trip`,
+          };
+          return suggestion;
         }
       }
-    }
+      return null;
+    });
 
-    // Calculate remaining difference after route-based adjustments
-    const adjustmentSum = adjustments.reduce((sum, a) => sum + a.adjustment, 0);
-    const remainingDiff = difference - adjustmentSum;
-
-    console.log(`Route adjustments sum: ${adjustmentSum.toFixed(1)} km`);
-    console.log(`Remaining difference: ${remainingDiff.toFixed(1)} km`);
-
-    // If there's still a significant remaining difference, distribute it
-    if (Math.abs(remainingDiff) > 0.5 && tripsWithRoutes > 0) {
-      // Find trips that couldn't be route-verified and add note
-      const unverifiedTrips = tripAnalysis.filter(a => a.calculatedKm === null);
-      if (unverifiedTrips.length > 0) {
-        console.log(`${unverifiedTrips.length} trips could not be route-verified`);
+    const gapResults = await Promise.all(gapPromises);
+    for (const result of gapResults) {
+      if (result !== null) {
+        segmentSuggestions.push(result);
       }
     }
+
+    console.log(`Completed: ${tripsWithRoutes}/${trips.length} verified, ${adjustments.length} adjustments, ${segmentSuggestions.length} gaps`);
 
     return new Response(
       JSON.stringify({ 
