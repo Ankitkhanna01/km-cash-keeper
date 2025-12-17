@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, MapPin, Check } from "lucide-react";
+import { NearbyPlacesSuggestions } from "./NearbyPlacesSuggestions";
 
 export interface AddressComponents {
   house_number?: string;
@@ -50,6 +51,10 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const [suppressClicks, setSuppressClicks] = useState(false);
   const [pendingSuggestion, setPendingSuggestion] = useState<AddressSuggestion | null>(null);
+  
+  // Nearby places state
+  const [showNearbyPlaces, setShowNearbyPlaces] = useState(false);
+  const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lon: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -207,7 +212,6 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     lastSelectAtRef.current = now;
 
     // Immediately update parent with full address and components
-    // This ensures the full display_name and address components are captured
     onChange(
       suggestion.display_name,
       Number(suggestion.lat),
@@ -218,12 +222,32 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     setInputValue(suggestion.display_name);
     setShowSuggestions(false);
     setSuggestions([]);
-    setPendingSuggestion(null); // No longer need confirmation bar
+    setPendingSuggestion(null);
+    
+    // Show nearby places suggestions
+    setSelectedCoords({ lat: Number(suggestion.lat), lon: Number(suggestion.lon) });
+    setShowNearbyPlaces(true);
     
     // Brief overlay to prevent ghost clicks
     setSuppressClicks(true);
     if (suppressTimerRef.current) window.clearTimeout(suppressTimerRef.current);
     suppressTimerRef.current = window.setTimeout(() => setSuppressClicks(false), 250);
+  };
+
+  const handleNearbyPlaceSelect = (place: { name: string; address: string; lat: number; lon: number }) => {
+    const displayName = place.name ? `${place.name}, ${place.address}` : place.address;
+    setInputValue(displayName);
+    onChange(displayName, place.lat, place.lon, {
+      amenity: place.name,
+      road: place.address,
+    });
+    setShowNearbyPlaces(false);
+    setSelectedCoords(null);
+  };
+
+  const handleNearbyPlacesClose = () => {
+    setShowNearbyPlaces(false);
+    setSelectedCoords(null);
   };
 
   // confirmPendingAddress and cancelPendingAddress removed - selection is now immediate
@@ -253,7 +277,17 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         </div>
       </div>
 
-      {/* Confirmation bar removed - selection is now immediate on click */}
+      {/* Nearby places suggestions */}
+      {showNearbyPlaces && selectedCoords && (
+        <div className="mt-2">
+          <NearbyPlacesSuggestions
+            lat={selectedCoords.lat}
+            lon={selectedCoords.lon}
+            onSelect={handleNearbyPlaceSelect}
+            onClose={handleNearbyPlacesClose}
+          />
+        </div>
+      )}
 
       {suppressClicks &&
         createPortal(
