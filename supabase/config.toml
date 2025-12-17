@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.adjust-km]
 verify_jwt = true
+
+[functions.nearby-places]
+verify_jwt = false

@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Play, Square, MapPin, Plus, Clock, Loader2, Navigation } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Play, Square, MapPin, Plus, Clock, Loader2, Navigation, MessageSquare } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { calculateTotalDistance } from './AddressAutocomplete';
 import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
+import { TripPurposeDialog, TripPurpose } from './TripPurposeDialog';
 
 interface StopLocation {
   address: string;
@@ -30,8 +32,16 @@ interface QuickTripRecorderProps {
     kilometres: number;
     category: 'business' | 'personal' | 'uncategorized';
     waypoints?: Waypoint[];
+    notes?: string;
   }) => void;
 }
+
+const PURPOSE_LABELS: Record<TripPurpose, string> = {
+  pickup: 'Picking up food',
+  dropoff: 'Dropping off delivery',
+  hotzone: 'Going to hot zone',
+  other: 'Other',
+};
 
 export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
@@ -40,6 +50,10 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [comments, setComments] = useState('');
+  const [showCommentsField, setShowCommentsField] = useState(false);
+  const [showPurposeDialog, setShowPurposeDialog] = useState(false);
+  const [pendingEndLocation, setPendingEndLocation] = useState<StopLocation | null>(null);
   const lastWaypointTime = useRef<number>(0);
 
   // Timer effect
@@ -145,12 +159,13 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
         lon: longitude,
         time: getLocalTimeString(),
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Location error:', error);
       if (!silent) {
-        if (error.code === 1) {
+        const geoError = error as GeolocationPositionError;
+        if (geoError.code === 1) {
           toast.error('Location permission denied');
-        } else if (error.code === 2) {
+        } else if (geoError.code === 2) {
           toast.error('Unable to determine location');
         } else {
           toast.error('Failed to get location');
@@ -169,6 +184,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       setStops([]);
       setWaypoints([]);
       setElapsedTime(0);
+      setComments('');
       lastWaypointTime.current = Date.now();
       setIsRecording(true);
       toast.success('Trip started! Open app anytime to track your route.');
@@ -187,32 +203,49 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     const endLocation = await getCurrentLocation();
     if (!endLocation || !startLocation) return;
 
+    setPendingEndLocation(endLocation);
+    setShowPurposeDialog(true);
+  };
+
+  const handlePurposeSelected = (purpose: TripPurpose, customReason?: string) => {
+    if (!pendingEndLocation || !startLocation) return;
+
+    setShowPurposeDialog(false);
+
     // Build coordinates including waypoints for more accurate distance
     const allCoords = [
       { lat: startLocation.lat, lon: startLocation.lon },
       ...waypoints.map(w => ({ lat: w.lat, lon: w.lon })),
       ...stops.map(s => ({ lat: s.lat, lon: s.lon })),
-      { lat: endLocation.lat, lon: endLocation.lon },
+      { lat: pendingEndLocation.lat, lon: pendingEndLocation.lon },
     ];
 
-    // Sort by time to get proper route order (waypoints have times)
     const kilometres = calculateTotalDistance(allCoords);
 
     // Build end location string
-    const allStopAddresses = [...stops.map(s => s.address), endLocation.address];
+    const allStopAddresses = [...stops.map(s => s.address), pendingEndLocation.address];
     const endLocationStr = allStopAddresses.length > 1
       ? allStopAddresses.join(' → ')
-      : endLocation.address;
+      : pendingEndLocation.address;
+
+    // Build notes with purpose and comments
+    const purposeText = purpose === 'other' && customReason 
+      ? customReason 
+      : PURPOSE_LABELS[purpose];
+    const notesText = comments.trim() 
+      ? `${purposeText} | ${comments.trim()}`
+      : purposeText;
 
     onTripComplete({
       date: getLocalDateString(),
       start_time: startLocation.time,
-      end_time: endLocation.time,
+      end_time: pendingEndLocation.time,
       start_location: startLocation.address,
       end_location: endLocationStr,
       kilometres,
       category: 'uncategorized',
       waypoints: waypoints,
+      notes: notesText,
     });
 
     // Reset state
@@ -221,6 +254,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setStops([]);
     setWaypoints([]);
     setElapsedTime(0);
+    setComments('');
+    setPendingEndLocation(null);
+    setShowCommentsField(false);
     toast.success(`Trip recorded with ${waypoints.length} route points!`);
   };
 
@@ -230,6 +266,8 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setStops([]);
     setWaypoints([]);
     setElapsedTime(0);
+    setComments('');
+    setShowCommentsField(false);
     toast.info('Trip cancelled');
   };
 
@@ -256,86 +294,115 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   }
 
   return (
-    <Card className="border-primary/50 bg-primary/5">
-      <CardContent className="p-4 space-y-4">
-        {/* Timer and Status */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-            <span className="text-sm font-medium">Recording Trip</span>
-          </div>
-          <div className="flex items-center gap-1 text-lg font-mono">
-            <Clock className="w-4 h-4" />
-            {formatElapsedTime(elapsedTime)}
-          </div>
-        </div>
-
-        {/* Waypoints indicator */}
-        {waypoints.length > 0 && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
-            <Navigation className="w-3 h-3" />
-            <span>{waypoints.length} route point{waypoints.length !== 1 ? 's' : ''} captured</span>
-          </div>
-        )}
-
-        {/* Start Location */}
-        <div className="flex items-start gap-2 text-sm">
-          <MapPin className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-xs text-muted-foreground">Started at {startLocation?.time}</p>
-            <p className="line-clamp-1">{startLocation?.address}</p>
-          </div>
-        </div>
-
-        {/* Stops */}
-        {stops.map((stop, index) => (
-          <div key={index} className="flex items-start gap-2 text-sm pl-1">
-            <div className="w-2 h-2 bg-primary rounded-full mt-1.5 shrink-0" />
-            <div>
-              <p className="text-xs text-muted-foreground">Stop {index + 1} at {stop.time}</p>
-              <p className="line-clamp-1">{stop.address}</p>
+    <>
+      <Card className="border-primary/50 bg-primary/5">
+        <CardContent className="p-4 space-y-4">
+          {/* Timer and Status */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+              <span className="text-sm font-medium">Recording Trip</span>
+            </div>
+            <div className="flex items-center gap-1 text-lg font-mono">
+              <Clock className="w-4 h-4" />
+              {formatElapsedTime(elapsedTime)}
             </div>
           </div>
-        ))}
 
-        {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            variant="outline"
-            onClick={handleAddStop}
-            disabled={gettingLocation}
-            className="gap-1"
-          >
-            {gettingLocation ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Plus className="w-4 h-4" />
-            )}
-            Add Stop
-          </Button>
-          <Button
-            onClick={handleEndTrip}
-            disabled={gettingLocation}
-            className="gap-1 bg-red-600 hover:bg-red-700"
-          >
-            {gettingLocation ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Square className="w-4 h-4" />
-            )}
-            End Trip
-          </Button>
-        </div>
+          {/* Waypoints indicator */}
+          {waypoints.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
+              <Navigation className="w-3 h-3" />
+              <span>{waypoints.length} route point{waypoints.length !== 1 ? 's' : ''} captured</span>
+            </div>
+          )}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleCancelTrip}
-          className="w-full text-muted-foreground"
-        >
-          Cancel Trip
-        </Button>
-      </CardContent>
-    </Card>
+          {/* Start Location */}
+          <div className="flex items-start gap-2 text-sm">
+            <MapPin className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs text-muted-foreground">Started at {startLocation?.time}</p>
+              <p className="line-clamp-1">{startLocation?.address}</p>
+            </div>
+          </div>
+
+          {/* Stops */}
+          {stops.map((stop, index) => (
+            <div key={index} className="flex items-start gap-2 text-sm pl-1">
+              <div className="w-2 h-2 bg-primary rounded-full mt-1.5 shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Stop {index + 1} at {stop.time}</p>
+                <p className="line-clamp-1">{stop.address}</p>
+              </div>
+            </div>
+          ))}
+
+          {/* Comments toggle and field */}
+          {!showCommentsField ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowCommentsField(true)}
+              className="w-full gap-2 text-muted-foreground"
+            >
+              <MessageSquare className="w-4 h-4" />
+              Add comments
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <Textarea
+                placeholder="Add notes about this trip..."
+                value={comments}
+                onChange={(e) => setComments(e.target.value)}
+                className="min-h-[60px] text-sm"
+              />
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              onClick={handleAddStop}
+              disabled={gettingLocation}
+              className="gap-1"
+            >
+              {gettingLocation ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              Add Stop
+            </Button>
+            <Button
+              onClick={handleEndTrip}
+              disabled={gettingLocation}
+              className="gap-1 bg-red-600 hover:bg-red-700"
+            >
+              {gettingLocation ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
+              End Trip
+            </Button>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCancelTrip}
+            className="w-full text-muted-foreground"
+          >
+            Cancel Trip
+          </Button>
+        </CardContent>
+      </Card>
+
+      <TripPurposeDialog 
+        open={showPurposeDialog} 
+        onSelect={handlePurposeSelected}
+      />
+    </>
   );
 }

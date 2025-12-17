@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Gauge, Loader2, Check, AlertCircle, MapPin, ArrowRight, Route, Scale, Plus, Minus } from 'lucide-react';
+import { Gauge, Loader2, Check, AlertCircle, MapPin, ArrowRight, Route, Scale, Plus, Minus, Wand2, Calendar } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Trip } from '@/hooks/useTripsDB';
-import { getLocalDateString } from '@/lib/dateUtils';
+import { getLocalDateString, formatDateForDisplay } from '@/lib/dateUtils';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { format, parse } from 'date-fns';
 
 interface RouteResult {
   id: string;
@@ -30,6 +33,7 @@ interface AdjustDailyKmDialogProps {
 
 export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDailyKmDialogProps) {
   const [open, setOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [actualKm, setActualKm] = useState('');
   const [loading, setLoading] = useState(false);
   const [routeResults, setRouteResults] = useState<RouteResult[]>([]);
@@ -40,13 +44,16 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
   const [error, setError] = useState<string | null>(null);
   const [analyzed, setAnalyzed] = useState(false);
 
-  const today = getLocalDateString();
-  const todaysTrips = trips.filter(t => t.date === today);
-  const currentTotal = todaysTrips.reduce((sum, t) => sum + t.kilometres, 0);
+  const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+  const selectedTrips = useMemo(() => 
+    trips.filter(t => t.date === selectedDateStr),
+    [trips, selectedDateStr]
+  );
+  const currentTotal = selectedTrips.reduce((sum, t) => sum + t.kilometres, 0);
 
   const handleAnalyze = async () => {
-    if (todaysTrips.length === 0) {
-      toast.error('No trips logged for today');
+    if (selectedTrips.length === 0) {
+      toast.error(`No trips logged for ${formatDateForDisplay(selectedDateStr)}`);
       return;
     }
 
@@ -57,7 +64,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
     try {
       const { data, error: fnError } = await supabase.functions.invoke('adjust-km', {
         body: {
-          trips: todaysTrips.map(t => ({
+          trips: selectedTrips.map(t => ({
             id: t.id,
             start_location: t.start_location,
             end_location: t.end_location,
@@ -80,10 +87,11 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
         .filter((r: RouteResult) => r.calculatedKm !== null && Math.abs(r.calculatedKm - r.loggedKm) > 0.3)
         .map((r: RouteResult) => r.id);
       setSelectedRoutes(new Set(routesToSelect));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Adjust KM error:', err);
-      setError(err.message || 'Failed to analyze trips');
-      toast.error(err.message || 'Failed to analyze trips');
+      const message = err instanceof Error ? err.message : 'Failed to analyze trips';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -119,6 +127,41 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
     }));
   };
 
+  const setManualKm = (tripId: string, value: string) => {
+    const trip = selectedTrips.find(t => t.id === tripId);
+    if (!trip) return;
+    
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+      // Clear manual adjustment
+      setManualAdjustments(prev => {
+        const newAdj = { ...prev };
+        delete newAdj[tripId];
+        return newAdj;
+      });
+    } else {
+      // Calculate the base km (after route corrections)
+      let baseKm = trip.kilometres;
+      if (selectedRoutes.has(tripId)) {
+        const route = routeResults.find(r => r.id === tripId);
+        if (route?.calculatedKm !== null) {
+          baseKm = route.calculatedKm;
+        }
+      }
+      // Gap additions
+      const gap = gaps.find(g => g.tripId === tripId);
+      if (gap && selectedGaps.has(tripId)) {
+        baseKm += gap.estimatedKm;
+      }
+      
+      // Calculate adjustment needed to reach target
+      setManualAdjustments(prev => ({
+        ...prev,
+        [tripId]: numValue - baseKm,
+      }));
+    }
+  };
+
   // Calculate projected total
   const calculateProjectedTotal = () => {
     let projected = currentTotal;
@@ -149,10 +192,66 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
   const targetKm = parseFloat(actualKm) || 0;
   const remainingDiff = targetKm - projectedTotal;
 
+  // Auto-distribute remaining KM proportionally
+  const handleAutoDistribute = () => {
+    if (selectedTrips.length === 0 || Math.abs(remainingDiff) < 0.1) return;
+
+    const tripWeights = selectedTrips.map(trip => ({
+      id: trip.id,
+      weight: trip.kilometres,
+    }));
+
+    const totalWeight = tripWeights.reduce((sum, t) => sum + t.weight, 0);
+    if (totalWeight === 0) return;
+
+    const newAdjustments = { ...manualAdjustments };
+    let distributed = 0;
+
+    tripWeights.forEach((tw, index) => {
+      if (index === tripWeights.length - 1) {
+        // Last trip gets remainder to avoid rounding errors
+        newAdjustments[tw.id] = (newAdjustments[tw.id] || 0) + (remainingDiff - distributed);
+      } else {
+        const share = Math.round((tw.weight / totalWeight) * remainingDiff * 10) / 10;
+        newAdjustments[tw.id] = (newAdjustments[tw.id] || 0) + share;
+        distributed += share;
+      }
+    });
+
+    setManualAdjustments(newAdjustments);
+    toast.success('KM distributed proportionally');
+  };
+
+  // Get the final KM for a trip (after all adjustments)
+  const getFinalKm = (trip: Trip) => {
+    let km = trip.kilometres;
+    
+    // Route correction
+    if (selectedRoutes.has(trip.id)) {
+      const route = routeResults.find(r => r.id === trip.id);
+      if (route?.calculatedKm !== null) {
+        km = route.calculatedKm;
+      }
+    }
+    
+    // Gap addition
+    const gap = gaps.find(g => g.tripId === trip.id);
+    if (gap && selectedGaps.has(trip.id)) {
+      km += gap.estimatedKm;
+    }
+    
+    // Manual adjustment
+    if (manualAdjustments[trip.id]) {
+      km += manualAdjustments[trip.id];
+    }
+    
+    return Math.round(km * 10) / 10;
+  };
+
   const handleApplyAdjustments = () => {
     const updates: Array<{ id: string; kilometres: number; start_location?: string }> = [];
 
-    for (const trip of todaysTrips) {
+    for (const trip of selectedTrips) {
       let newKm = trip.kilometres;
       let startLocation: string | undefined;
 
@@ -202,6 +301,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
       resetState();
       setError(null);
       setActualKm('');
+      setSelectedDate(new Date());
     }
   };
 
@@ -228,11 +328,37 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
         </DialogHeader>
 
         <div className="space-y-4 pt-2">
-          {/* Today's summary */}
+          {/* Date selector */}
+          <div className="space-y-2">
+            <Label>Select date to analyze</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Calendar className="w-4 h-4" />
+                  {formatDateForDisplay(selectedDateStr)}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarComponent
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(date) => {
+                    if (date) {
+                      setSelectedDate(date);
+                      resetState();
+                    }
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Day's summary */}
           <div className="p-3 rounded-lg bg-secondary/50">
-            <p className="text-sm text-muted-foreground">Today's logged trips</p>
+            <p className="text-sm text-muted-foreground">{formatDateForDisplay(selectedDateStr)} logged trips</p>
             <p className="text-2xl font-bold">{currentTotal.toFixed(1)} km</p>
-            <p className="text-xs text-muted-foreground">{todaysTrips.length} trip(s)</p>
+            <p className="text-xs text-muted-foreground">{selectedTrips.length} trip(s)</p>
           </div>
 
           {/* Input for actual KM */}
@@ -257,7 +383,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
           {!analyzed && (
             <Button
               onClick={handleAnalyze}
-              disabled={loading || todaysTrips.length === 0}
+              disabled={loading || selectedTrips.length === 0}
               className="w-full gap-2"
             >
               {loading ? (
@@ -291,9 +417,20 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
                 <span>{targetKm.toFixed(1)} km</span>
               </div>
               {Math.abs(remainingDiff) >= 0.1 && (
-                <p className={`text-xs ${remainingDiff > 0 ? 'text-orange-500' : 'text-orange-500'}`}>
-                  Still need to {remainingDiff > 0 ? 'add' : 'remove'}: {Math.abs(remainingDiff).toFixed(1)} km
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className={`text-xs ${remainingDiff > 0 ? 'text-orange-500' : 'text-orange-500'}`}>
+                    Still need to {remainingDiff > 0 ? 'add' : 'remove'}: {Math.abs(remainingDiff).toFixed(1)} km
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAutoDistribute}
+                    className="gap-1 h-7 text-xs"
+                  >
+                    <Wand2 className="w-3 h-3" />
+                    Auto-distribute
+                  </Button>
+                </div>
               )}
               {Math.abs(remainingDiff) < 0.1 && (
                 <p className="text-xs text-green-500 flex items-center gap-1">
@@ -345,7 +482,7 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
                 {routeResults
                   .filter(r => r.calculatedKm !== null && Math.abs(r.calculatedKm - r.loggedKm) > 0.3)
                   .map((route) => {
-                    const trip = todaysTrips.find(t => t.id === route.id);
+                    const trip = selectedTrips.find(t => t.id === route.id);
                     if (!trip) return null;
                     const diff = route.calculatedKm! - route.loggedKm;
                     return (
@@ -383,37 +520,51 @@ export function AdjustDailyKmDialog({ trips, onAdjustmentsApplied }: AdjustDaily
                 Manual adjustments
               </p>
               <p className="text-xs text-muted-foreground">
-                Add/remove KM to individual trips:
+                Add/remove KM or type final KM directly:
               </p>
               <div className="space-y-2 max-h-40 overflow-y-auto">
-                {todaysTrips.map((trip) => {
+                {selectedTrips.map((trip) => {
                   const adj = manualAdjustments[trip.id] || 0;
+                  const finalKm = getFinalKm(trip);
                   return (
-                    <div key={trip.id} className="p-2 rounded bg-secondary/20 flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs truncate">{trip.start_location.split(',')[0]} → {trip.end_location.split(',')[0]}</p>
-                        <p className="text-xs text-muted-foreground">{trip.kilometres} km</p>
+                    <div key={trip.id} className="p-2 rounded bg-secondary/20 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs truncate">{trip.start_location.split(',')[0]} → {trip.end_location.split(',')[0]}</p>
+                          <p className="text-xs text-muted-foreground">Original: {trip.kilometres} km</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => adjustManual(trip.id, -0.5)}
+                          >
+                            <Minus className="w-3 h-3" />
+                          </Button>
+                          <span className={`text-xs w-12 text-center font-medium ${adj > 0 ? 'text-green-500' : adj < 0 ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                            {adj > 0 ? '+' : ''}{adj.toFixed(1)}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => adjustManual(trip.id, 0.5)}
+                          >
+                            <Plus className="w-3 h-3" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => adjustManual(trip.id, -0.5)}
-                        >
-                          <Minus className="w-3 h-3" />
-                        </Button>
-                        <span className={`text-xs w-12 text-center font-medium ${adj > 0 ? 'text-green-500' : adj < 0 ? 'text-orange-500' : 'text-muted-foreground'}`}>
-                          {adj > 0 ? '+' : ''}{adj.toFixed(1)}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => adjustManual(trip.id, 0.5)}
-                        >
-                          <Plus className="w-3 h-3" />
-                        </Button>
+                      {/* Direct KM input */}
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs shrink-0">Final KM:</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={finalKm}
+                          onChange={(e) => setManualKm(trip.id, e.target.value)}
+                          className="h-7 text-xs"
+                        />
                       </div>
                     </div>
                   );
