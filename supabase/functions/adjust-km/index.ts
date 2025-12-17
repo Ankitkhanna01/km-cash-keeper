@@ -18,6 +18,8 @@ interface Adjustment {
   id: string;
   adjustment: number;
   reason: string;
+  calculatedKm?: number;
+  loggedKm?: number;
 }
 
 interface SegmentSuggestion {
@@ -29,84 +31,68 @@ interface SegmentSuggestion {
   reason: string;
 }
 
+// Geocode address using Nominatim
+async function geocodeAddress(address: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const encoded = encodeURIComponent(address);
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&limit=1`,
+      {
+        headers: {
+          'User-Agent': 'KMCashKeeper/1.0',
+        },
+      }
+    );
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lon: parseFloat(data[0].lon),
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    return null;
+  }
+}
+
+// Calculate route distance using OSRM
+async function getRouteDistance(
+  start: { lat: number; lon: number },
+  end: { lat: number; lon: number }
+): Promise<number | null> {
+  try {
+    // OSRM expects lon,lat order
+    const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=false`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'KMCashKeeper/1.0',
+      },
+    });
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      // OSRM returns distance in meters
+      return data.routes[0].distance / 1000;
+    }
+    return null;
+  } catch (error) {
+    console.error('OSRM routing error:', error);
+    return null;
+  }
+}
+
 // Parse time string (HH:MM) to minutes since midnight
 function parseTimeToMinutes(timeStr: string): number {
   const [hours, minutes] = timeStr.split(':').map(Number);
   return hours * 60 + (minutes || 0);
-}
-
-// Calculate trip duration in minutes
-function getTripDuration(trip: Trip): number {
-  const startMinutes = parseTimeToMinutes(trip.start_time);
-  const endMinutes = parseTimeToMinutes(trip.end_time);
-  // Handle overnight trips
-  return endMinutes >= startMinutes ? endMinutes - startMinutes : (1440 - startMinutes) + endMinutes;
-}
-
-// Calculate heuristic weight for a trip (longer duration + longer distance = more likely to have inaccuracy)
-function calculateTripWeight(trip: Trip, allTrips: Trip[]): number {
-  const duration = getTripDuration(trip);
-  const km = trip.kilometres;
-  
-  // Base weight on distance (60%) and duration (40%)
-  const totalKm = allTrips.reduce((sum, t) => sum + t.kilometres, 0);
-  const totalDuration = allTrips.reduce((sum, t) => sum + getTripDuration(t), 0);
-  
-  const kmWeight = totalKm > 0 ? km / totalKm : 1 / allTrips.length;
-  const durationWeight = totalDuration > 0 ? duration / totalDuration : 1 / allTrips.length;
-  
-  return kmWeight * 0.6 + durationWeight * 0.4;
-}
-
-// Detect potential missed segments between trips
-function detectMissedSegments(trips: Trip[], difference: number): SegmentSuggestion[] {
-  const suggestions: SegmentSuggestion[] = [];
-  
-  // Sort trips by start time
-  const sortedTrips = [...trips].sort((a, b) => 
-    parseTimeToMinutes(a.start_time) - parseTimeToMinutes(b.start_time)
-  );
-  
-  // Only check for gaps if we're missing KM (difference > 0)
-  if (difference <= 0.5) return suggestions;
-  
-  for (let i = 1; i < sortedTrips.length; i++) {
-    const prevTrip = sortedTrips[i - 1];
-    const currTrip = sortedTrips[i];
-    
-    // Check if current trip's start doesn't match previous trip's end
-    const prevEnd = prevTrip.end_location.toLowerCase().trim();
-    const currStart = currTrip.start_location.toLowerCase().trim();
-    
-    // Simple location comparison (check if they're different)
-    const locationsMatch = prevEnd === currStart || 
-      prevEnd.includes(currStart.split(',')[0]) || 
-      currStart.includes(prevEnd.split(',')[0]);
-    
-    if (!locationsMatch) {
-      // Calculate time gap
-      const prevEndTime = parseTimeToMinutes(prevTrip.end_time);
-      const currStartTime = parseTimeToMinutes(currTrip.start_time);
-      const timeGap = currStartTime - prevEndTime;
-      
-      // If there's a time gap and locations don't match, suggest extending start
-      if (timeGap >= 0) {
-        // Estimate that the missing segment could account for part of the difference
-        const estimatedGapKm = Math.min(difference * 0.5, 5); // Cap at 5km or half the difference
-        
-        suggestions.push({
-          type: 'extend_start',
-          tripId: currTrip.id,
-          fromLocation: prevTrip.end_location,
-          toLocation: currTrip.start_location,
-          estimatedKm: estimatedGapKm,
-          reason: `Trip may have started from "${prevTrip.end_location.split(',')[0]}" instead of "${currTrip.start_location.split(',')[0]}"`
-        });
-      }
-    }
-  }
-  
-  return suggestions;
 }
 
 serve(async (req) => {
@@ -131,10 +117,7 @@ serve(async (req) => {
     const difference = actualTotalKm - currentTotalKm;
 
     console.log(`Current total: ${currentTotalKm} km, Actual: ${actualTotalKm} km, Difference: ${difference} km`);
-
-    // Detect potential missed segments
-    const segmentSuggestions = detectMissedSegments(trips, difference);
-    console.log(`Found ${segmentSuggestions.length} potential missed segments`);
+    console.log(`Processing ${trips.length} trips for route verification...`);
 
     // If difference is negligible, return no adjustments
     if (Math.abs(difference) < 0.1) {
@@ -152,83 +135,130 @@ serve(async (req) => {
       );
     }
 
-    // Calculate weights for each trip using heuristic approach
-    const tripWeights = trips.map(trip => ({
-      trip,
-      weight: calculateTripWeight(trip, trips)
-    }));
+    // Calculate actual route distances for each trip
+    const tripAnalysis: Array<{
+      trip: Trip;
+      startCoords: { lat: number; lon: number } | null;
+      endCoords: { lat: number; lon: number } | null;
+      calculatedKm: number | null;
+      discrepancy: number | null;
+    }> = [];
 
-    // Normalize weights to ensure they sum to 1
-    const totalWeight = tripWeights.reduce((sum, tw) => sum + tw.weight, 0);
-    const normalizedWeights = tripWeights.map(tw => ({
-      ...tw,
-      normalizedWeight: tw.weight / totalWeight
-    }));
-
-    // Distribute the difference based on weights
-    let remainingDifference = difference;
-    const adjustments: Adjustment[] = [];
-
-    // Sort by weight descending to assign larger adjustments to more likely candidates
-    normalizedWeights.sort((a, b) => b.normalizedWeight - a.normalizedWeight);
-
-    for (let i = 0; i < normalizedWeights.length; i++) {
-      const { trip, normalizedWeight } = normalizedWeights[i];
-      const duration = getTripDuration(trip);
+    for (const trip of trips) {
+      console.log(`Analyzing trip: ${trip.start_location} → ${trip.end_location}`);
       
-      let adjustment: number;
-      if (i === normalizedWeights.length - 1) {
-        // Last trip gets the remainder to ensure exact total
-        adjustment = Math.round(remainingDifference * 10) / 10;
+      // Geocode start and end locations
+      const startCoords = await geocodeAddress(trip.start_location);
+      const endCoords = await geocodeAddress(trip.end_location);
+      
+      let calculatedKm: number | null = null;
+      let discrepancy: number | null = null;
+      
+      if (startCoords && endCoords) {
+        calculatedKm = await getRouteDistance(startCoords, endCoords);
+        if (calculatedKm !== null) {
+          discrepancy = trip.kilometres - calculatedKm;
+          console.log(`  Logged: ${trip.kilometres.toFixed(1)} km, Calculated: ${calculatedKm.toFixed(1)} km, Discrepancy: ${discrepancy.toFixed(1)} km`);
+        }
       } else {
-        // Proportional adjustment based on weight
-        adjustment = Math.round(normalizedWeight * difference * 10) / 10;
-        remainingDifference -= adjustment;
+        console.log(`  Could not geocode addresses`);
       }
+      
+      tripAnalysis.push({
+        trip,
+        startCoords,
+        endCoords,
+        calculatedKm,
+        discrepancy,
+      });
+      
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
 
-      // Skip tiny adjustments
-      if (Math.abs(adjustment) < 0.1) {
-        adjustment = 0;
-      }
+    // Build adjustments based on actual route calculations
+    const adjustments: Adjustment[] = [];
+    let totalCalculatedKm = 0;
+    let tripsWithRoutes = 0;
 
-      // Generate reason based on trip characteristics
-      let reason = "";
-      if (adjustment > 0) {
-        if (trip.kilometres > 3 && duration > 15) {
-          reason = `Longer route (${trip.kilometres.toFixed(1)}km, ${duration}min) - likely took alternate roads`;
-        } else if (duration > 20) {
-          reason = `Extended duration (${duration}min) suggests traffic detours`;
-        } else {
-          reason = `Adjusted based on route distance`;
+    for (const analysis of tripAnalysis) {
+      if (analysis.calculatedKm !== null) {
+        totalCalculatedKm += analysis.calculatedKm;
+        tripsWithRoutes++;
+        
+        const diff = analysis.calculatedKm - analysis.trip.kilometres;
+        
+        // Only suggest adjustment if there's a meaningful difference (> 0.3 km)
+        if (Math.abs(diff) > 0.3) {
+          adjustments.push({
+            id: analysis.trip.id,
+            adjustment: Math.round(diff * 10) / 10,
+            calculatedKm: Math.round(analysis.calculatedKm * 10) / 10,
+            loggedKm: analysis.trip.kilometres,
+            reason: diff > 0 
+              ? `Route calculation shows ${analysis.calculatedKm.toFixed(1)} km (logged ${analysis.trip.kilometres.toFixed(1)} km)`
+              : `Route calculation shows ${analysis.calculatedKm.toFixed(1)} km (logged ${analysis.trip.kilometres.toFixed(1)} km)`,
+          });
         }
-      } else if (adjustment < 0) {
-        if (trip.kilometres > 5) {
-          reason = `Shorter actual route than GPS estimated`;
-        } else {
-          reason = `Minor distance correction`;
-        }
-      }
-
-      if (adjustment !== 0) {
-        adjustments.push({
-          id: trip.id,
-          adjustment,
-          reason
-        });
       }
     }
 
-    // Filter out zero adjustments
-    const finalAdjustments = adjustments.filter(a => a.adjustment !== 0);
+    // Detect potential missed segments between trips
+    const segmentSuggestions: SegmentSuggestion[] = [];
+    const sortedAnalysis = [...tripAnalysis].sort((a, b) => 
+      parseTimeToMinutes(a.trip.start_time) - parseTimeToMinutes(b.trip.start_time)
+    );
+
+    for (let i = 1; i < sortedAnalysis.length; i++) {
+      const prev = sortedAnalysis[i - 1];
+      const curr = sortedAnalysis[i];
+      
+      // Check if current trip's start doesn't match previous trip's end
+      if (prev.endCoords && curr.startCoords) {
+        const gapDistance = await getRouteDistance(prev.endCoords, curr.startCoords);
+        
+        if (gapDistance !== null && gapDistance > 0.5) {
+          console.log(`Gap detected: ${prev.trip.end_location} → ${curr.trip.start_location} = ${gapDistance.toFixed(1)} km`);
+          
+          segmentSuggestions.push({
+            type: 'extend_start',
+            tripId: curr.trip.id,
+            fromLocation: prev.trip.end_location,
+            toLocation: curr.trip.start_location,
+            estimatedKm: Math.round(gapDistance * 10) / 10,
+            reason: `Route shows ${gapDistance.toFixed(1)} km between previous trip end and this trip start`,
+          });
+        }
+      }
+    }
+
+    // Calculate remaining difference after route-based adjustments
+    const adjustmentSum = adjustments.reduce((sum, a) => sum + a.adjustment, 0);
+    const remainingDiff = difference - adjustmentSum;
+
+    console.log(`Route adjustments sum: ${adjustmentSum.toFixed(1)} km`);
+    console.log(`Remaining difference: ${remainingDiff.toFixed(1)} km`);
+
+    // If there's still a significant remaining difference, distribute it
+    if (Math.abs(remainingDiff) > 0.5 && tripsWithRoutes > 0) {
+      // Find trips that couldn't be route-verified and add note
+      const unverifiedTrips = tripAnalysis.filter(a => a.calculatedKm === null);
+      if (unverifiedTrips.length > 0) {
+        console.log(`${unverifiedTrips.length} trips could not be route-verified`);
+      }
+    }
 
     return new Response(
       JSON.stringify({ 
-        adjustments: finalAdjustments,
+        adjustments,
         segmentSuggestions,
         summary: {
           currentTotal: currentTotalKm,
           actualTotal: actualTotalKm,
-          difference
+          difference,
+          calculatedTotal: Math.round(totalCalculatedKm * 10) / 10,
+          tripsVerified: tripsWithRoutes,
+          tripsTotal: trips.length,
         }
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
