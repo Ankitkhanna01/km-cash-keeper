@@ -80,8 +80,10 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   // Nearby places state
   const [showStartNearby, setShowStartNearby] = useState(false);
   const [showEndNearby, setShowEndNearby] = useState(false);
+  const [showStopNearby, setShowStopNearby] = useState(false);
   const [pendingStartCoords, setPendingStartCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [pendingStartTime, setPendingStartTime] = useState<string>('');
+  const [pendingStopLocation, setPendingStopLocation] = useState<StopLocation | null>(null);
 
   // Load persisted state on mount
   useEffect(() => {
@@ -290,9 +292,31 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const handleAddStop = async () => {
     const location = await getCurrentLocation();
     if (location) {
-      setStops(prev => [...prev, location]);
+      setPendingStopLocation(location);
+      setShowStopNearby(true);
+    }
+  };
+
+  const handleStopNearbySelect = (place: NearbyPlace) => {
+    setShowStopNearby(false);
+    const location: StopLocation = {
+      address: place.name ? `${place.name}, ${place.address}` : place.address,
+      lat: place.lat,
+      lon: place.lon,
+      time: pendingStopLocation?.time || getLocalTimeString(),
+    };
+    setStops(prev => [...prev, location]);
+    setPendingStopLocation(null);
+    toast.success(`Stop ${stops.length + 1} added`);
+  };
+
+  const handleStopNearbyClose = () => {
+    setShowStopNearby(false);
+    if (pendingStopLocation) {
+      setStops(prev => [...prev, pendingStopLocation]);
       toast.success(`Stop ${stops.length + 1} added`);
     }
+    setPendingStopLocation(null);
   };
 
   const handleEndTrip = async () => {
@@ -408,6 +432,31 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
           </CardContent>
         </Card>
       </div>
+    );
+  }
+
+  // Show nearby places for stop location selection
+  if (showStopNearby && pendingStopLocation) {
+    return (
+      <>
+        <Card className="border-primary/50 bg-primary/5">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-2 text-sm mb-3">
+              <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Adding stop at</p>
+                <p className="line-clamp-1">{pendingStopLocation.address}</p>
+              </div>
+            </div>
+            <NearbyPlacesSuggestions
+              lat={pendingStopLocation.lat}
+              lon={pendingStopLocation.lon}
+              onSelect={handleStopNearbySelect}
+              onClose={handleStopNearbyClose}
+            />
+          </CardContent>
+        </Card>
+      </>
     );
   }
 
