@@ -2,20 +2,25 @@ import { useState, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Trip } from '@/types';
 import { format } from 'date-fns';
-import { MapPin, Clock, Car, Briefcase, Home, Trash2 } from 'lucide-react';
+import { MapPin, Clock, Car, Briefcase, Home, Trash2, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { EditTripDialog } from './EditTripDialog';
 
 interface TripCardProps {
   trip: Trip;
-  onCategorize?: (id: string, category: 'business' | 'personal') => void;
+  onCategorize?: (id: string, category: 'business' | 'personal', notes?: string) => void;
   onDelete?: (id: string) => void;
+  onUpdate?: (id: string, updates: Partial<Trip>) => void;
   showSwipeHint?: boolean;
 }
 
-export function TripCard({ trip, onCategorize, onDelete, showSwipeHint }: TripCardProps) {
+export function TripCard({ trip, onCategorize, onDelete, onUpdate, showSwipeHint }: TripCardProps) {
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [notes, setNotes] = useState(trip.notes || '');
+  const [showNotesInput, setShowNotesInput] = useState(false);
   const startX = useRef(0);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -37,11 +42,23 @@ export function TripCard({ trip, onCategorize, onDelete, showSwipeHint }: TripCa
     setIsSwiping(false);
 
     if (swipeOffset > 60 && onCategorize) {
-      onCategorize(trip.id, 'business');
+      onCategorize(trip.id, 'business', notes.trim() || undefined);
     } else if (swipeOffset < -60 && onCategorize) {
-      onCategorize(trip.id, 'personal');
+      onCategorize(trip.id, 'personal', notes.trim() || undefined);
     }
     setSwipeOffset(0);
+  };
+
+  const handleCategoryClick = (category: 'business' | 'personal') => {
+    if (onCategorize) {
+      onCategorize(trip.id, category, notes.trim() || undefined);
+    }
+  };
+
+  const handleUpdate = (id: string, updates: Partial<Trip>) => {
+    if (onUpdate) {
+      onUpdate(id, updates);
+    }
   };
 
   const getCategoryBadge = () => {
@@ -119,6 +136,9 @@ export function TripCard({ trip, onCategorize, onDelete, showSwipeHint }: TripCa
             </div>
             <div className="flex items-center gap-2">
               {getCategoryBadge()}
+              {onUpdate && (
+                <EditTripDialog trip={trip} onSave={handleUpdate} />
+              )}
               {onDelete && trip.category !== 'uncategorized' && (
                 <Button
                   variant="ghost"
@@ -155,6 +175,63 @@ export function TripCard({ trip, onCategorize, onDelete, showSwipeHint }: TripCa
               <span>{trip.startTime} - {trip.endTime}</span>
             </div>
           </div>
+
+          {/* Show notes if exists */}
+          {trip.notes && trip.category !== 'uncategorized' && (
+            <div className="mt-3 pt-3 border-t border-border">
+              <div className="flex items-start gap-2 text-sm">
+                <MessageSquare className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                <p className="text-muted-foreground">{trip.notes}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Notes input for uncategorized trips */}
+          {trip.category === 'uncategorized' && (
+            <div className="mt-3 pt-3 border-t border-border space-y-3">
+              {!showNotesInput ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowNotesInput(true)}
+                  className="text-muted-foreground w-full justify-start"
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Add notes before categorizing...
+                </Button>
+              ) : (
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add notes or comments..."
+                  rows={2}
+                  className="text-sm"
+                />
+              )}
+              
+              {/* Category buttons for desktop/easier access */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleCategoryClick('business')}
+                  className="flex-1 text-primary border-primary/30 hover:bg-primary/10"
+                >
+                  <Briefcase className="w-4 h-4 mr-1" />
+                  Business
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleCategoryClick('personal')}
+                  className="flex-1"
+                >
+                  <Home className="w-4 h-4 mr-1" />
+                  Personal
+                </Button>
+              </div>
+            </div>
+          )}
 
           {showSwipeHint && trip.category === 'uncategorized' && (
             <p className="text-xs text-center text-muted-foreground mt-3 animate-pulse">
