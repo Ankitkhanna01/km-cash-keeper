@@ -47,9 +47,13 @@ export default function Trips() {
     toast.success('Trip updated');
   };
 
-  const handleAdjustmentsApplied = async (updates: Array<{ id: string; kilometres: number }>) => {
+  const handleAdjustmentsApplied = async (updates: Array<{ id: string; kilometres: number; start_location?: string }>) => {
     for (const update of updates) {
-      await updateTrip(update.id, { kilometres: update.kilometres });
+      const tripUpdate: Partial<DBTrip> = { kilometres: update.kilometres };
+      if (update.start_location) {
+        tripUpdate.start_location = update.start_location;
+      }
+      await updateTrip(update.id, tripUpdate);
     }
   };
 
