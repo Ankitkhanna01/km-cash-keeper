@@ -1,7 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Expense, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS } from '@/types';
-import { format } from 'date-fns';
+import { formatDateForDisplay } from '@/lib/dateUtils';
 import { Trash2 } from 'lucide-react';
 
 interface ExpenseCardProps {
@@ -24,7 +24,7 @@ export function ExpenseCard({ expense, onDelete }: ExpenseCardProps) {
                 {EXPENSE_CATEGORY_LABELS[expense.category]}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {format(new Date(expense.date), 'MMM d, yyyy')}
+                {formatDateForDisplay(expense.date)}
               </p>
             </div>
           </div>

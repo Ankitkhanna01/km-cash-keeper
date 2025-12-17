@@ -1,5 +1,6 @@
 import { useLocalStorage } from './useLocalStorage';
 import { Expense, ExpenseCategory } from '@/types';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 const generateId = () => {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -29,7 +30,7 @@ export function useExpenses() {
   };
 
   const getExpensesByYear = (year: number) => {
-    return expenses.filter((expense) => new Date(expense.date).getFullYear() === year);
+    return expenses.filter((expense) => parseLocalDate(expense.date).getFullYear() === year);
   };
 
   const getExpensesByCategory = (category: ExpenseCategory, year?: number) => {

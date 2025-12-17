@@ -4,6 +4,7 @@ import { ExpenseCard } from '@/components/expenses/ExpenseCard';
 import { AddExpenseDialog } from '@/components/expenses/AddExpenseDialog';
 import { CategorySummary } from '@/components/expenses/CategorySummary';
 import { useExpensesDB, Expense } from '@/hooks/useExpensesDB';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
@@ -12,7 +13,7 @@ export default function Expenses() {
 
   const currentYear = new Date().getFullYear();
   const yearExpenses = expenses.filter(
-    (e) => new Date(e.date).getFullYear() === currentYear
+    (e) => parseLocalDate(e.date).getFullYear() === currentYear
   );
   const categoryTotals = getTotalByCategory(currentYear);
 

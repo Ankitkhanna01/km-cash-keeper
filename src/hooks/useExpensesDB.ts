@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { ExpenseCategory } from '@/types';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 export interface Expense {
   id: string;
@@ -118,7 +119,7 @@ export function useExpensesDB() {
   };
 
   const getExpensesByYear = (year: number) => {
-    return expenses.filter(expense => new Date(expense.date).getFullYear() === year);
+    return expenses.filter(expense => parseLocalDate(expense.date).getFullYear() === year);
   };
 
   const getTotalByCategory = (year?: number) => {
