@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Play, Square, MapPin, Plus, Clock, Loader2 } from 'lucide-react';
+import { Play, Square, MapPin, Plus, Clock, Loader2, Navigation } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { calculateTotalDistance } from './AddressAutocomplete';
@@ -9,6 +9,12 @@ import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
 
 interface StopLocation {
   address: string;
+  lat: number;
+  lon: number;
+  time: string;
+}
+
+interface Waypoint {
   lat: number;
   lon: number;
   time: string;
@@ -23,6 +29,7 @@ interface QuickTripRecorderProps {
     end_location: string;
     kilometres: number;
     category: 'business' | 'personal' | 'uncategorized';
+    waypoints?: Waypoint[];
   }) => void;
 }
 
@@ -30,8 +37,10 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [startLocation, setStartLocation] = useState<StopLocation | null>(null);
   const [stops, setStops] = useState<StopLocation[]>([]);
+  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const lastWaypointTime = useRef<number>(0);
 
   // Timer effect
   useEffect(() => {
@@ -44,6 +53,54 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     return () => clearInterval(interval);
   }, [isRecording, startLocation]);
 
+  // Auto-capture GPS when app becomes visible during recording
+  const captureWaypoint = useCallback(async () => {
+    if (!navigator.geolocation) return;
+    
+    // Throttle: at least 30 seconds between auto-captures
+    const now = Date.now();
+    if (now - lastWaypointTime.current < 30000) return;
+    
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 5000,
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+      lastWaypointTime.current = now;
+      
+      setWaypoints(prev => [...prev, {
+        lat: latitude,
+        lon: longitude,
+        time: getLocalTimeString(),
+      }]);
+      
+      // Subtle feedback
+      toast.success('Route point captured', { duration: 1500 });
+    } catch (error) {
+      // Silent fail for auto-capture
+      console.log('Auto waypoint capture skipped:', error);
+    }
+  }, []);
+
+  // Listen for visibility changes when recording
+  useEffect(() => {
+    if (!isRecording) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        captureWaypoint();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isRecording, captureWaypoint]);
+
   const formatElapsedTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -54,13 +111,13 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const getCurrentLocation = async (): Promise<StopLocation | null> => {
+  const getCurrentLocation = async (silent = false): Promise<StopLocation | null> => {
     if (!navigator.geolocation) {
-      toast.error('Geolocation not supported');
+      if (!silent) toast.error('Geolocation not supported');
       return null;
     }
 
-    setGettingLocation(true);
+    if (!silent) setGettingLocation(true);
 
     try {
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -90,16 +147,18 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       };
     } catch (error: any) {
       console.error('Location error:', error);
-      if (error.code === 1) {
-        toast.error('Location permission denied');
-      } else if (error.code === 2) {
-        toast.error('Unable to determine location');
-      } else {
-        toast.error('Failed to get location');
+      if (!silent) {
+        if (error.code === 1) {
+          toast.error('Location permission denied');
+        } else if (error.code === 2) {
+          toast.error('Unable to determine location');
+        } else {
+          toast.error('Failed to get location');
+        }
       }
       return null;
     } finally {
-      setGettingLocation(false);
+      if (!silent) setGettingLocation(false);
     }
   };
 
@@ -108,9 +167,11 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     if (location) {
       setStartLocation(location);
       setStops([]);
+      setWaypoints([]);
       setElapsedTime(0);
+      lastWaypointTime.current = Date.now();
       setIsRecording(true);
-      toast.success('Trip started!');
+      toast.success('Trip started! Open app anytime to track your route.');
     }
   };
 
@@ -126,13 +187,15 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     const endLocation = await getCurrentLocation();
     if (!endLocation || !startLocation) return;
 
-    // Calculate total distance
+    // Build coordinates including waypoints for more accurate distance
     const allCoords = [
       { lat: startLocation.lat, lon: startLocation.lon },
+      ...waypoints.map(w => ({ lat: w.lat, lon: w.lon })),
       ...stops.map(s => ({ lat: s.lat, lon: s.lon })),
       { lat: endLocation.lat, lon: endLocation.lon },
     ];
 
+    // Sort by time to get proper route order (waypoints have times)
     const kilometres = calculateTotalDistance(allCoords);
 
     // Build end location string
@@ -149,20 +212,23 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       end_location: endLocationStr,
       kilometres,
       category: 'uncategorized',
+      waypoints: waypoints,
     });
 
     // Reset state
     setIsRecording(false);
     setStartLocation(null);
     setStops([]);
+    setWaypoints([]);
     setElapsedTime(0);
-    toast.success('Trip recorded!');
+    toast.success(`Trip recorded with ${waypoints.length} route points!`);
   };
 
   const handleCancelTrip = () => {
     setIsRecording(false);
     setStartLocation(null);
     setStops([]);
+    setWaypoints([]);
     setElapsedTime(0);
     toast.info('Trip cancelled');
   };
@@ -203,6 +269,14 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
             {formatElapsedTime(elapsedTime)}
           </div>
         </div>
+
+        {/* Waypoints indicator */}
+        {waypoints.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
+            <Navigation className="w-3 h-3" />
+            <span>{waypoints.length} route point{waypoints.length !== 1 ? 's' : ''} captured</span>
+          </div>
+        )}
 
         {/* Start Location */}
         <div className="flex items-start gap-2 text-sm">
