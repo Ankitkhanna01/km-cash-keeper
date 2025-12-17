@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Loader2, MapPin, Search } from "lucide-react";
-import { NearbyPlacesSuggestions } from "./NearbyPlacesSuggestions";
+import { Loader2, MapPin, Search, Store, Home, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface AddressComponents {
   house_number?: string;
@@ -19,11 +19,11 @@ export interface AddressComponents {
 
 interface AddressSuggestion {
   display_name: string;
-  lat: string;
-  lon: string;
+  name: string;
+  lat: number;
+  lon: number;
   address?: AddressComponents;
-  name?: string;
-  type?: string;
+  type: 'restaurant' | 'residential' | 'other';
 }
 
 export interface AddressResult {
@@ -41,16 +41,15 @@ interface AddressAutocompleteProps {
   id?: string;
 }
 
+const RESULTS_PER_PAGE = 5;
+
 export function AddressAutocomplete({ value, onChange, onActiveChange, placeholder, id }: AddressAutocompleteProps) {
   const [inputValue, setInputValue] = useState(value);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<AddressSuggestion[]>([]);
   const [showResults, setShowResults] = useState(false);
-  const [nearby, setNearby] = useState<{ lat: number; lon: number } | null>(null);
-  
-  // Nearby places state
-  const [showNearbyPlaces, setShowNearbyPlaces] = useState(false);
-  const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [page, setPage] = useState(0);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const geoRequestedRef = useRef(false);
@@ -64,11 +63,11 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
   // Notify parent when active
   useEffect(() => {
-    onActiveChange?.(showResults || showNearbyPlaces, instanceKeyRef.current);
+    onActiveChange?.(showResults, instanceKeyRef.current);
     return () => {
       onActiveChange?.(false, instanceKeyRef.current);
     };
-  }, [showResults, showNearbyPlaces, onActiveChange]);
+  }, [showResults, onActiveChange]);
 
   // Close results when clicking outside
   useEffect(() => {
@@ -83,33 +82,45 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
 
-  const requestNearby = () => {
-    if (geoRequestedRef.current || nearby) return;
+  const requestLocation = () => {
+    if (geoRequestedRef.current || userLocation) return;
     geoRequestedRef.current = true;
 
     if (!navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setNearby({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
       },
       () => {},
       { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 5000 }
     );
   };
 
+  const getPlaceType = (type?: string): 'restaurant' | 'residential' | 'other' => {
+    if (!type) return 'other';
+    if (['restaurant', 'cafe', 'fast_food', 'bar', 'pub', 'food_court'].includes(type)) {
+      return 'restaurant';
+    }
+    if (['house', 'residential', 'apartments', 'building', 'detached', 'terrace'].includes(type)) {
+      return 'residential';
+    }
+    return 'other';
+  };
+
   const handleSearch = async () => {
-    if (!inputValue.trim()) return;
+    const query = inputValue.trim();
+    if (!query) return;
 
     setIsSearching(true);
-    setShowNearbyPlaces(false);
-    
+    setPage(0);
+
     try {
-      // Build viewbox if we have nearby location
-      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(inputValue)}&countrycodes=ca&limit=10&addressdetails=1`;
-      
-      if (nearby) {
-        const viewbox = `${nearby.lon - 0.05},${nearby.lat + 0.05},${nearby.lon + 0.05},${nearby.lat - 0.05}`;
+      // Search with Nominatim, biased to user location if available
+      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=20&addressdetails=1`;
+
+      if (userLocation) {
+        const viewbox = `${userLocation.lon - 0.05},${userLocation.lat + 0.05},${userLocation.lon + 0.05},${userLocation.lat - 0.05}`;
         url += `&viewbox=${viewbox}&bounded=0`;
       }
 
@@ -118,11 +129,11 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
       const results: AddressSuggestion[] = data.map((item: any) => ({
         display_name: item.display_name,
-        lat: item.lat,
-        lon: item.lon,
         name: item.name || item.display_name.split(',')[0],
+        lat: parseFloat(item.lat),
+        lon: parseFloat(item.lon),
         address: item.address,
-        type: item.type,
+        type: getPlaceType(item.type),
       }));
 
       setSearchResults(results);
@@ -137,33 +148,14 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   };
 
   const handleSelectResult = (result: AddressSuggestion) => {
-    const lat = Number(result.lat);
-    const lon = Number(result.lon);
+    const displayName = result.name !== result.display_name 
+      ? `${result.name}, ${result.display_name.split(',').slice(1).join(',').trim()}`
+      : result.display_name;
     
-    setInputValue(result.display_name);
-    onChange(result.display_name, lat, lon, result.address);
+    setInputValue(displayName);
+    onChange(displayName, result.lat, result.lon, result.address);
     setShowResults(false);
     setSearchResults([]);
-    
-    // Show nearby places suggestions
-    setSelectedCoords({ lat, lon });
-    setShowNearbyPlaces(true);
-  };
-
-  const handleNearbyPlaceSelect = (place: { name: string; address: string; lat: number; lon: number }) => {
-    const displayName = place.name ? `${place.name}, ${place.address}` : place.address;
-    setInputValue(displayName);
-    onChange(displayName, place.lat, place.lon, {
-      amenity: place.name,
-      road: place.address,
-    });
-    setShowNearbyPlaces(false);
-    setSelectedCoords(null);
-  };
-
-  const handleNearbyPlacesClose = () => {
-    setShowNearbyPlaces(false);
-    setSelectedCoords(null);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -171,6 +163,28 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     setInputValue(newValue);
     onChange(newValue);
   };
+
+  const handleClear = () => {
+    setInputValue('');
+    onChange('');
+    setShowResults(false);
+    setSearchResults([]);
+  };
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'restaurant':
+        return <Store className="w-4 h-4 text-orange-500 shrink-0" />;
+      case 'residential':
+        return <Home className="w-4 h-4 text-green-500 shrink-0" />;
+      default:
+        return <MapPin className="w-4 h-4 text-primary shrink-0" />;
+    }
+  };
+
+  const displayedResults = searchResults.slice(page * RESULTS_PER_PAGE, (page + 1) * RESULTS_PER_PAGE);
+  const hasNext = (page + 1) * RESULTS_PER_PAGE < searchResults.length;
+  const hasPrev = page > 0;
 
   return (
     <div ref={containerRef} className="space-y-2">
@@ -181,13 +195,20 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
             id={id}
             value={inputValue}
             onChange={handleInputChange}
-            onFocus={requestNearby}
+            onFocus={requestLocation}
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
             placeholder={placeholder || "Search for an address..."}
-            className="pr-8"
+            className="pr-16"
             autoComplete="off"
           />
-          <MapPin className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {inputValue && (
+              <button type="button" onClick={handleClear} className="p-1 hover:bg-accent rounded">
+                <X className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+          </div>
         </div>
         <Button
           type="button"
@@ -202,29 +223,56 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
       {/* Search results */}
       {showResults && searchResults.length > 0 && (
-        <div className="rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-auto">
-          {searchResults.map((result, index) => (
+        <div className="rounded-md border border-border bg-popover shadow-lg p-2 space-y-1">
+          <p className="text-xs text-muted-foreground px-2">
+            {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
+          </p>
+          
+          {displayedResults.map((result, index) => (
             <button
               key={`${result.lat}-${result.lon}-${index}`}
               type="button"
-              className="w-full flex items-center gap-2 p-3 border-b border-border last:border-0 hover:bg-accent text-left transition-colors"
+              className="w-full flex items-center gap-2 p-2 rounded hover:bg-accent text-left transition-colors"
               onClick={() => handleSelectResult(result)}
             >
-              <MapPin className="h-4 w-4 shrink-0 text-primary" />
-              <span className="text-sm line-clamp-2">{result.display_name}</span>
+              {getIcon(result.type)}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{result.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{result.display_name}</p>
+              </div>
             </button>
           ))}
-        </div>
-      )}
 
-      {/* Nearby places suggestions */}
-      {showNearbyPlaces && selectedCoords && (
-        <NearbyPlacesSuggestions
-          lat={selectedCoords.lat}
-          lon={selectedCoords.lon}
-          onSelect={handleNearbyPlaceSelect}
-          onClose={handleNearbyPlacesClose}
-        />
+          {searchResults.length > RESULTS_PER_PAGE && (
+            <div className="flex items-center justify-between pt-2 border-t border-border">
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => setPage(p => p - 1)}
+                disabled={!hasPrev}
+                className="gap-1 h-7"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Prev
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {page * RESULTS_PER_PAGE + 1}-{Math.min((page + 1) * RESULTS_PER_PAGE, searchResults.length)} of {searchResults.length}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => setPage(p => p + 1)}
+                disabled={!hasNext}
+                className="gap-1 h-7"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
