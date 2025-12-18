@@ -53,6 +53,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
   const containerRef = useRef<HTMLDivElement>(null);
   const geoRequestedRef = useRef(false);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const instanceKeyRef = useRef<string>(
     `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
   );
@@ -82,6 +83,15 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
 
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
   const requestLocation = () => {
     if (geoRequestedRef.current || userLocation) return;
     geoRequestedRef.current = true;
@@ -108,15 +118,17 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     return 'other';
   };
 
-  const handleSearch = async () => {
-    const query = inputValue.trim();
-    if (!query || !isValidSearchQuery(query)) return;
+  const searchAddress = async (query: string) => {
+    if (!query || !isValidSearchQuery(query)) {
+      setSearchResults([]);
+      setShowResults(false);
+      return;
+    }
 
     setIsSearching(true);
     setPage(0);
 
     try {
-      // Search with Nominatim, biased to user location if available
       let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=20&addressdetails=1`;
 
       if (userLocation && isValidCoordinate(userLocation.lat, userLocation.lon)) {
@@ -162,6 +174,20 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     const newValue = e.target.value;
     setInputValue(newValue);
     onChange(newValue);
+
+    // Debounced autocomplete search
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    if (newValue.trim().length >= 3) {
+      debounceRef.current = setTimeout(() => {
+        searchAddress(newValue.trim());
+      }, 400);
+    } else {
+      setSearchResults([]);
+      setShowResults(false);
+    }
   };
 
   const handleClear = () => {
@@ -196,7 +222,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
             value={inputValue}
             onChange={handleInputChange}
             onFocus={requestLocation}
-            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchAddress(inputValue.trim()))}
             placeholder={placeholder || "Search for an address..."}
             className="pr-16"
             autoComplete="off"
@@ -214,7 +240,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
           type="button"
           variant="secondary"
           size="icon"
-          onClick={handleSearch}
+          onClick={() => searchAddress(inputValue.trim())}
           disabled={isSearching}
         >
           {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
