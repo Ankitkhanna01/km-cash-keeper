@@ -184,6 +184,63 @@ async function searchNominatim(query: string, countrycodes: string, near?: Nearb
   }
 }
 
+// HERE API fallback - only use when OSM services fail (5k free requests/month limit)
+async function searchHERE(query: string, near?: Nearby, limit = 10): Promise<any[]> {
+  const hereApiKey = Deno.env.get("HERE_API_KEY");
+  if (!hereApiKey) {
+    console.log("No HERE_API_KEY for fallback");
+    return [];
+  }
+
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      apiKey: hereApiKey,
+      limit: String(limit),
+      in: 'countryCode:CAN',
+    });
+    
+    if (near) {
+      params.set('at', `${near.lat},${near.lon}`);
+    }
+
+    console.log(`HERE fallback: ${query}`);
+    const response = await fetchWithTimeout(
+      `https://geocode.search.hereapi.com/v1/geocode?${params.toString()}`,
+      { headers: { Accept: "application/json" } },
+      5000
+    );
+    
+    if (!response.ok) {
+      console.error(`HERE API error: ${response.status}`);
+      return [];
+    }
+    
+    const data = await response.json();
+    return (data.items || []).map((item: any) => {
+      const addr = item.address || {};
+      return {
+        display_name: item.title || addr.label,
+        name: item.title,
+        lat: String(item.position?.lat),
+        lon: String(item.position?.lng),
+        type: item.resultType,
+        address: {
+          house_number: addr.houseNumber,
+          road: addr.street,
+          city: addr.city,
+          state: addr.state,
+          postcode: addr.postalCode,
+        },
+        source: 'here',
+      };
+    });
+  } catch (err) {
+    console.error(`HERE error: ${err}`);
+    return [];
+  }
+}
+
 // AI-powered address lookup using Lovable AI
 async function lookupAddressWithAI(query: string, near?: Nearby): Promise<string | null> {
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
@@ -465,6 +522,16 @@ serve(async (req) => {
         console.log(`Trying street: ${streetAddr}`);
         const streetResults = await searchNominatim(streetAddr, countrycodes, near, limit);
         allResults = streetResults;
+      }
+    }
+
+    // Last resort: try HERE API (limited to 5k requests/month)
+    if (allResults.length === 0) {
+      console.log("OSM returned no results, trying HERE fallback...");
+      const hereResults = await searchHERE(enhancedQuery, near, limit);
+      if (hereResults.length > 0) {
+        console.log(`HERE found ${hereResults.length} results`);
+        allResults = hereResults;
       }
     }
 
