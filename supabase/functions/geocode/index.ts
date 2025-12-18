@@ -37,12 +37,6 @@ function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
 
-function buildViewbox(near: Nearby, kmRadius = 50) {
-  const latDelta = kmRadius / 111;
-  const lonDelta = kmRadius / (111 * Math.cos((near.lat * Math.PI) / 180) || 1);
-  return `${near.lon - lonDelta},${near.lat + latDelta},${near.lon + lonDelta},${near.lat - latDelta}`;
-}
-
 // Expand province abbreviations
 function expandProvinces(query: string): string {
   let expanded = query;
@@ -53,79 +47,23 @@ function expandProvinces(query: string): string {
   return expanded;
 }
 
-// Extract street address from query (removes business names, unit numbers, postal codes)
+// Check if query likely contains a business name
+function looksLikeBusinessSearch(query: string): boolean {
+  // Has text before a street number
+  return /^[A-Za-z].*\d+\s+[A-Za-z]/.test(query) || 
+         // Or is just a business name (no numbers)
+         !/\d/.test(query);
+}
+
+// Extract street address portion
 function extractStreetAddress(query: string): string | null {
-  // Match Canadian street address pattern: number + street name
-  const streetMatch = query.match(/(\d+)\s+([A-Za-z]+(?:\s+[A-Za-z]+)*\s+(?:Ave(?:nue)?|St(?:reet)?|Rd|Road|Dr(?:ive)?|Blvd|Boulevard|Cr(?:escent)?|Crt|Court|Way|Lane|Ln|Pl(?:ace)?|Terr(?:ace)?|Circle|Cir))/i);
-  
-  if (streetMatch) {
-    return streetMatch[0].trim();
-  }
-  return null;
-}
-
-// Extract city from query
-function extractCity(query: string): string | null {
-  // Common Victoria area cities/municipalities
-  const cities = ['Victoria', 'Saanich', 'Oak Bay', 'Esquimalt', 'Langford', 'Colwood', 'Sidney', 'View Royal', 'Metchosin', 'Sooke', 'Central Saanich', 'North Saanich', 'Highlands'];
-  
-  const lowerQuery = query.toLowerCase();
-  for (const city of cities) {
-    if (lowerQuery.includes(city.toLowerCase())) {
-      return city;
-    }
-  }
-  return null;
-}
-
-// Generate search variations from query
-function generateSearchVariations(originalQuery: string): string[] {
-  const variations: string[] = [];
-  const query = expandProvinces(originalQuery);
-  
-  // 1. Original query (with province expansion)
-  variations.push(query);
-  
-  // 2. Try without unit/suite numbers
-  const withoutUnit = query.replace(/\s*(unit|suite|apt|apartment|#)\s*\d+[a-z]?\s*/gi, ' ').replace(/\s+/g, ' ').trim();
-  if (withoutUnit !== query) {
-    variations.push(withoutUnit);
-  }
-  
-  // 3. Try without postal code
-  const withoutPostal = query.replace(/\s*[A-Za-z]\d[A-Za-z]\s*\d[A-Za-z]\d\s*/g, ' ').replace(/\s+/g, ' ').trim();
-  if (withoutPostal !== query && !variations.includes(withoutPostal)) {
-    variations.push(withoutPostal);
-  }
-  
-  // 4. Extract just the street address + city
-  const streetAddr = extractStreetAddress(query);
-  const city = extractCity(query);
-  if (streetAddr && city) {
-    const streetWithCity = `${streetAddr}, ${city}`;
-    if (!variations.includes(streetWithCity)) {
-      variations.push(streetWithCity);
-    }
-    // Also try just street address
-    if (!variations.includes(streetAddr)) {
-      variations.push(streetAddr);
-    }
-  }
-  
-  // 5. Remove business names (text before the street number)
-  const businessRemoved = query.replace(/^[^0-9]+(?=\d+\s+[A-Za-z])/i, '').trim();
-  if (businessRemoved !== query && !variations.includes(businessRemoved)) {
-    // Insert at position 1 (high priority)
-    variations.splice(1, 0, businessRemoved);
-  }
-  
-  return variations.filter(v => v.length >= 3);
+  const match = query.match(/(\d+)\s+([A-Za-z].*)/);
+  return match ? match[0] : null;
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
@@ -133,67 +71,128 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-async function queryNominatim(query: string, countrycodes: string, limit: number, viewbox?: string): Promise<any[]> {
-  const params = new URLSearchParams();
-  params.set("format", "json");
-  params.set("addressdetails", "1");
-  params.set("q", query);
-  params.set("limit", String(limit));
-  params.set("countrycodes", countrycodes);
-  
-  if (viewbox) {
-    params.set("viewbox", viewbox);
-    params.set("bounded", "0");
-  }
-
-  const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
-  console.log(`Querying: ${query}`);
-
+// Search Photon (Komoot) - better for POIs/businesses
+async function searchPhoton(query: string, near?: Nearby, limit = 10): Promise<any[]> {
   try {
+    let url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=${limit}&lang=en`;
+    
+    // Add location bias if available
+    if (near) {
+      url += `&lat=${near.lat}&lon=${near.lon}`;
+    }
+    
+    console.log(`Photon search: ${query}`);
+    
+    const response = await fetchWithTimeout(url, {
+      headers: { "User-Agent": "DriverTaxTracker/1.0" },
+    }, 5000);
+    
+    if (!response.ok) return [];
+    
+    const data = await response.json();
+    
+    // Convert Photon format to Nominatim-like format
+    return (data.features || [])
+      .filter((f: any) => f.properties?.country === 'Canada')
+      .map((f: any) => {
+        const props = f.properties || {};
+        const coords = f.geometry?.coordinates || [];
+        
+        // Build display name
+        const parts: string[] = [];
+        if (props.name) parts.push(props.name);
+        if (props.housenumber && props.street) parts.push(`${props.housenumber} ${props.street}`);
+        else if (props.street) parts.push(props.street);
+        if (props.city || props.locality) parts.push(props.city || props.locality);
+        if (props.state) parts.push(props.state);
+        if (props.postcode) parts.push(props.postcode);
+        
+        return {
+          display_name: parts.join(', ') || props.name,
+          name: props.name || (props.housenumber ? `${props.housenumber} ${props.street}` : props.street),
+          lat: String(coords[1]),
+          lon: String(coords[0]),
+          type: props.osm_value || props.type,
+          address: {
+            house_number: props.housenumber,
+            road: props.street,
+            city: props.city || props.locality,
+            state: props.state,
+            postcode: props.postcode,
+            country: props.country,
+          },
+          source: 'photon',
+        };
+      });
+  } catch (err) {
+    console.error(`Photon error: ${err}`);
+    return [];
+  }
+}
+
+// Search Nominatim
+async function searchNominatim(query: string, countrycodes: string, near?: Nearby, limit = 10): Promise<any[]> {
+  try {
+    const params = new URLSearchParams();
+    params.set("format", "json");
+    params.set("addressdetails", "1");
+    params.set("q", query);
+    params.set("limit", String(limit));
+    params.set("countrycodes", countrycodes);
+    
+    if (near) {
+      const kmRadius = 50;
+      const latDelta = kmRadius / 111;
+      const lonDelta = kmRadius / (111 * Math.cos((near.lat * Math.PI) / 180) || 1);
+      params.set("viewbox", `${near.lon - lonDelta},${near.lat + latDelta},${near.lon + lonDelta},${near.lat - latDelta}`);
+      params.set("bounded", "0");
+    }
+
+    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+    console.log(`Nominatim search: ${query}`);
+
     const response = await fetchWithTimeout(url, {
       headers: {
         Accept: "application/json",
         "Accept-Language": "en",
         "User-Agent": "DriverTaxTracker/1.0 (Lovable Cloud)",
       },
-    }, 6000);
+    }, 5000);
 
-    if (!response.ok) {
-      console.error(`Nominatim returned ${response.status}`);
-      return [];
-    }
-
-    return await response.json();
+    if (!response.ok) return [];
+    
+    const results = await response.json();
+    return results.map((r: any) => ({ ...r, source: 'nominatim' }));
   } catch (err) {
-    console.error(`Query failed: ${err}`);
+    console.error(`Nominatim error: ${err}`);
     return [];
   }
 }
 
-// Format Canadian address for display
-function formatCanadianAddress(item: any): any {
+// Format address for display
+function formatAddress(item: any): any {
   const address = item.address || {};
   const parts: string[] = [];
+  
+  if (item.name && !item.name.match(/^\d/)) {
+    parts.push(item.name);
+  }
   
   if (address.house_number && address.road) {
     parts.push(`${address.house_number} ${address.road}`);
   } else if (address.road) {
     parts.push(address.road);
-  } else if (item.name) {
-    parts.push(item.name);
   }
   
   if (address.suburb) parts.push(address.suburb);
   else if (address.neighbourhood) parts.push(address.neighbourhood);
   
-  if (address.city) parts.push(address.city);
-  else if (address.town) parts.push(address.town);
-  else if (address.village) parts.push(address.village);
-  else if (address.municipality) parts.push(address.municipality);
+  const city = address.city || address.town || address.village || address.municipality;
+  if (city) parts.push(city);
   
   if (address.state) {
     const abbr = Object.entries(PROVINCE_ABBREVIATIONS).find(
-      ([, full]) => full.toLowerCase() === address.state.toLowerCase()
+      ([, full]) => full.toLowerCase() === address.state?.toLowerCase()
     );
     parts.push(abbr ? abbr[0].toUpperCase() : address.state);
   }
@@ -204,6 +203,24 @@ function formatCanadianAddress(item: any): any {
     ...item,
     formatted_name: parts.join(', ') || item.display_name,
   };
+}
+
+// Deduplicate results by coordinates
+function deduplicateResults(results: any[]): any[] {
+  const seen = new Map<string, any>();
+  
+  for (const result of results) {
+    const lat = parseFloat(result.lat).toFixed(5);
+    const lon = parseFloat(result.lon).toFixed(5);
+    const key = `${lat},${lon}`;
+    
+    // Prefer Photon results (better business names)
+    if (!seen.has(key) || result.source === 'photon') {
+      seen.set(key, result);
+    }
+  }
+  
+  return Array.from(seen.values());
 }
 
 serve(async (req) => {
@@ -233,38 +250,49 @@ serve(async (req) => {
     const limit = Math.max(1, Math.min(20, Number(body.limit ?? 10)));
     const countrycodes = (body.countrycodes ?? "ca").toLowerCase().trim();
     const hasNearby = !!(body.near && isFiniteNumber(body.near.lat) && isFiniteNumber(body.near.lon));
-    const viewbox = hasNearby && body.near ? buildViewbox(body.near, 50) : undefined;
+    const near = hasNearby ? body.near : undefined;
 
-    // Generate search variations
-    const variations = generateSearchVariations(q);
-    console.log(`Search variations for "${q}":`, variations);
+    const expandedQuery = expandProvinces(q);
+    const isBusinessSearch = looksLikeBusinessSearch(q);
+    
+    console.log(`Query: "${q}" | Business search: ${isBusinessSearch}`);
 
-    let allResults: any[] = [];
-    const seenIds = new Set<string>();
+    // Search both sources in parallel
+    const [photonResults, nominatimResults] = await Promise.all([
+      // Photon is better for business/POI searches
+      searchPhoton(expandedQuery, near, limit),
+      searchNominatim(expandedQuery, countrycodes, near, limit),
+    ]);
 
-    // Try each variation until we get results
-    for (const variation of variations) {
-      const results = await queryNominatim(variation, countrycodes, limit, viewbox);
-      
-      if (Array.isArray(results) && results.length > 0) {
-        // Add unique results
-        for (const result of results) {
-          const id = `${result.lat}-${result.lon}`;
-          if (!seenIds.has(id)) {
-            seenIds.add(id);
-            allResults.push(result);
-          }
-        }
-        
-        // If we have enough results, stop
-        if (allResults.length >= limit) {
-          break;
-        }
+    console.log(`Photon: ${photonResults.length}, Nominatim: ${nominatimResults.length}`);
+
+    // If business search and Photon found nothing, try extracting just the address
+    let extraResults: any[] = [];
+    if (isBusinessSearch && photonResults.length === 0) {
+      const streetAddr = extractStreetAddress(expandedQuery);
+      if (streetAddr) {
+        console.log(`Trying street address: ${streetAddr}`);
+        extraResults = await searchNominatim(streetAddr, countrycodes, near, limit);
       }
     }
 
-    // Format results
-    const formattedData = allResults.slice(0, limit).map(formatCanadianAddress);
+    // Combine and deduplicate (Photon first for better business names)
+    const combined = deduplicateResults([...photonResults, ...nominatimResults, ...extraResults]);
+    
+    // Sort by relevance (exact name matches first)
+    const queryLower = q.toLowerCase();
+    combined.sort((a, b) => {
+      const aName = (a.name || '').toLowerCase();
+      const bName = (b.name || '').toLowerCase();
+      const aMatch = aName.includes(queryLower) || queryLower.includes(aName);
+      const bMatch = bName.includes(queryLower) || queryLower.includes(bName);
+      if (aMatch && !bMatch) return -1;
+      if (bMatch && !aMatch) return 1;
+      return 0;
+    });
+
+    // Format and limit results
+    const formattedData = combined.slice(0, limit).map(formatAddress);
     console.log(`Returning ${formattedData.length} results`);
 
     return new Response(JSON.stringify(formattedData), {
