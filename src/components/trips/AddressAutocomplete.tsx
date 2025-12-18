@@ -103,7 +103,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
       },
       () => {},
-      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 5000 }
+      { enableHighAccuracy: true, maximumAge: 60 * 1000, timeout: 10000 }
     );
   };
 
@@ -116,6 +116,17 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
       return 'residential';
     }
     return 'other';
+  };
+
+  // Calculate distance between two coordinates (Haversine)
+  const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
   const searchAddress = async (query: string) => {
@@ -132,14 +143,15 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
       let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=20&addressdetails=1`;
 
       if (userLocation && isValidCoordinate(userLocation.lat, userLocation.lon)) {
-        const viewbox = `${userLocation.lon - 0.05},${userLocation.lat + 0.05},${userLocation.lon + 0.05},${userLocation.lat - 0.05}`;
+        // Use a larger viewbox for better nearby results
+        const viewbox = `${userLocation.lon - 0.1},${userLocation.lat + 0.1},${userLocation.lon + 0.1},${userLocation.lat - 0.1}`;
         url += `&viewbox=${viewbox}&bounded=0`;
       }
 
       const response = await fetch(url);
       const data = await response.json();
 
-      const results: AddressSuggestion[] = data.map((item: any) => ({
+      let results: AddressSuggestion[] = data.map((item: any) => ({
         display_name: item.display_name,
         name: item.name || item.display_name.split(',')[0],
         lat: parseFloat(item.lat),
@@ -147,6 +159,15 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         address: item.address,
         type: getPlaceType(item.type),
       }));
+
+      // Sort by distance from user location (nearest first)
+      if (userLocation) {
+        results = results.sort((a, b) => {
+          const distA = getDistanceKm(userLocation.lat, userLocation.lon, a.lat, a.lon);
+          const distB = getDistanceKm(userLocation.lat, userLocation.lon, b.lat, b.lon);
+          return distA - distB;
+        });
+      }
 
       setSearchResults(results);
       setShowResults(results.length > 0);
