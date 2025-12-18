@@ -14,7 +14,7 @@ type Body = {
   near?: Nearby;
 };
 
-// Canadian province abbreviations for smart expansion
+// Canadian province abbreviations
 const PROVINCE_ABBREVIATIONS: Record<string, string> = {
   'bc': 'British Columbia',
   'ab': 'Alberta',
@@ -33,18 +33,6 @@ const PROVINCE_ABBREVIATIONS: Record<string, string> = {
   'nu': 'Nunavut',
 };
 
-// Common Canadian city abbreviations
-const CITY_ABBREVIATIONS: Record<string, string> = {
-  'vic': 'Victoria',
-  'van': 'Vancouver',
-  'tor': 'Toronto',
-  'mtl': 'Montreal',
-  'cgy': 'Calgary',
-  'edm': 'Edmonton',
-  'wpg': 'Winnipeg',
-  'ott': 'Ottawa',
-};
-
 function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
@@ -52,45 +40,86 @@ function isFiniteNumber(n: unknown): n is number {
 function buildViewbox(near: Nearby, kmRadius = 50) {
   const latDelta = kmRadius / 111;
   const lonDelta = kmRadius / (111 * Math.cos((near.lat * Math.PI) / 180) || 1);
-
-  const left = near.lon - lonDelta;
-  const right = near.lon + lonDelta;
-  const top = near.lat + latDelta;
-  const bottom = near.lat - latDelta;
-
-  return `${left},${top},${right},${bottom}`;
+  return `${near.lon - lonDelta},${near.lat + latDelta},${near.lon + lonDelta},${near.lat - latDelta}`;
 }
 
-// Expand Canadian abbreviations in query
-function expandCanadianAbbreviations(query: string): string {
-  let expanded = query.toLowerCase();
-  
-  // Expand province abbreviations (check word boundaries)
+// Expand province abbreviations
+function expandProvinces(query: string): string {
+  let expanded = query;
   for (const [abbr, full] of Object.entries(PROVINCE_ABBREVIATIONS)) {
     const regex = new RegExp(`\\b${abbr}\\b`, 'gi');
     expanded = expanded.replace(regex, full);
   }
-  
-  // Expand city abbreviations
-  for (const [abbr, full] of Object.entries(CITY_ABBREVIATIONS)) {
-    const regex = new RegExp(`\\b${abbr}\\b`, 'gi');
-    expanded = expanded.replace(regex, full);
-  }
-  
   return expanded;
 }
 
-// Detect if user is searching near a specific Canadian region
-function detectRegion(near: Nearby): string | null {
-  // Victoria/Vancouver Island region
-  if (near.lat > 48.2 && near.lat < 49.0 && near.lon > -124.0 && near.lon < -123.0) {
-    return 'Victoria, British Columbia';
-  }
-  // Metro Vancouver region
-  if (near.lat > 49.0 && near.lat < 49.5 && near.lon > -123.5 && near.lon < -122.5) {
-    return 'Vancouver, British Columbia';
+// Extract street address from query (removes business names, unit numbers, postal codes)
+function extractStreetAddress(query: string): string | null {
+  // Match Canadian street address pattern: number + street name
+  const streetMatch = query.match(/(\d+)\s+([A-Za-z]+(?:\s+[A-Za-z]+)*\s+(?:Ave(?:nue)?|St(?:reet)?|Rd|Road|Dr(?:ive)?|Blvd|Boulevard|Cr(?:escent)?|Crt|Court|Way|Lane|Ln|Pl(?:ace)?|Terr(?:ace)?|Circle|Cir))/i);
+  
+  if (streetMatch) {
+    return streetMatch[0].trim();
   }
   return null;
+}
+
+// Extract city from query
+function extractCity(query: string): string | null {
+  // Common Victoria area cities/municipalities
+  const cities = ['Victoria', 'Saanich', 'Oak Bay', 'Esquimalt', 'Langford', 'Colwood', 'Sidney', 'View Royal', 'Metchosin', 'Sooke', 'Central Saanich', 'North Saanich', 'Highlands'];
+  
+  const lowerQuery = query.toLowerCase();
+  for (const city of cities) {
+    if (lowerQuery.includes(city.toLowerCase())) {
+      return city;
+    }
+  }
+  return null;
+}
+
+// Generate search variations from query
+function generateSearchVariations(originalQuery: string): string[] {
+  const variations: string[] = [];
+  const query = expandProvinces(originalQuery);
+  
+  // 1. Original query (with province expansion)
+  variations.push(query);
+  
+  // 2. Try without unit/suite numbers
+  const withoutUnit = query.replace(/\s*(unit|suite|apt|apartment|#)\s*\d+[a-z]?\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+  if (withoutUnit !== query) {
+    variations.push(withoutUnit);
+  }
+  
+  // 3. Try without postal code
+  const withoutPostal = query.replace(/\s*[A-Za-z]\d[A-Za-z]\s*\d[A-Za-z]\d\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (withoutPostal !== query && !variations.includes(withoutPostal)) {
+    variations.push(withoutPostal);
+  }
+  
+  // 4. Extract just the street address + city
+  const streetAddr = extractStreetAddress(query);
+  const city = extractCity(query);
+  if (streetAddr && city) {
+    const streetWithCity = `${streetAddr}, ${city}`;
+    if (!variations.includes(streetWithCity)) {
+      variations.push(streetWithCity);
+    }
+    // Also try just street address
+    if (!variations.includes(streetAddr)) {
+      variations.push(streetAddr);
+    }
+  }
+  
+  // 5. Remove business names (text before the street number)
+  const businessRemoved = query.replace(/^[^0-9]+(?=\d+\s+[A-Za-z])/i, '').trim();
+  if (businessRemoved !== query && !variations.includes(businessRemoved)) {
+    // Insert at position 1 (high priority)
+    variations.splice(1, 0, businessRemoved);
+  }
+  
+  return variations.filter(v => v.length >= 3);
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
@@ -98,42 +127,54 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    return response;
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function queryNominatim(params: URLSearchParams, bounded: boolean): Promise<Response> {
-  const url = new URL("https://nominatim.openstreetmap.org/search");
-  url.search = params.toString();
+async function queryNominatim(query: string, countrycodes: string, limit: number, viewbox?: string): Promise<any[]> {
+  const params = new URLSearchParams();
+  params.set("format", "json");
+  params.set("addressdetails", "1");
+  params.set("q", query);
+  params.set("limit", String(limit));
+  params.set("countrycodes", countrycodes);
   
-  if (bounded) {
-    url.searchParams.set("bounded", "1");
-  } else {
-    url.searchParams.set("bounded", "0");
+  if (viewbox) {
+    params.set("viewbox", viewbox);
+    params.set("bounded", "0");
   }
 
-  console.log(`Querying Nominatim (bounded=${bounded}): ${url.searchParams.get("q")}`);
+  const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+  console.log(`Querying: ${query}`);
 
-  return fetchWithTimeout(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      "Accept-Language": "en",
-      "User-Agent": "DriverTaxTracker/1.0 (Lovable Cloud)",
-    },
-  }, 8000); // 8 second timeout
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        Accept: "application/json",
+        "Accept-Language": "en",
+        "User-Agent": "DriverTaxTracker/1.0 (Lovable Cloud)",
+      },
+    }, 6000);
+
+    if (!response.ok) {
+      console.error(`Nominatim returned ${response.status}`);
+      return [];
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error(`Query failed: ${err}`);
+    return [];
+  }
 }
 
-// Format address result for better Canadian display
+// Format Canadian address for display
 function formatCanadianAddress(item: any): any {
   const address = item.address || {};
-  
-  // Build a cleaner display name for Canadian addresses
   const parts: string[] = [];
   
-  // Street address
   if (address.house_number && address.road) {
     parts.push(`${address.house_number} ${address.road}`);
   } else if (address.road) {
@@ -142,25 +183,14 @@ function formatCanadianAddress(item: any): any {
     parts.push(item.name);
   }
   
-  // Neighborhood/suburb
-  if (address.suburb) {
-    parts.push(address.suburb);
-  } else if (address.neighbourhood) {
-    parts.push(address.neighbourhood);
-  }
+  if (address.suburb) parts.push(address.suburb);
+  else if (address.neighbourhood) parts.push(address.neighbourhood);
   
-  // City
-  if (address.city) {
-    parts.push(address.city);
-  } else if (address.town) {
-    parts.push(address.town);
-  } else if (address.village) {
-    parts.push(address.village);
-  } else if (address.municipality) {
-    parts.push(address.municipality);
-  }
+  if (address.city) parts.push(address.city);
+  else if (address.town) parts.push(address.town);
+  else if (address.village) parts.push(address.village);
+  else if (address.municipality) parts.push(address.municipality);
   
-  // Province (use abbreviation for cleaner display)
   if (address.state) {
     const abbr = Object.entries(PROVINCE_ABBREVIATIONS).find(
       ([, full]) => full.toLowerCase() === address.state.toLowerCase()
@@ -168,10 +198,7 @@ function formatCanadianAddress(item: any): any {
     parts.push(abbr ? abbr[0].toUpperCase() : address.state);
   }
   
-  // Postal code
-  if (address.postcode) {
-    parts.push(address.postcode);
-  }
+  if (address.postcode) parts.push(address.postcode);
   
   return {
     ...item,
@@ -194,7 +221,7 @@ serve(async (req) => {
     }
 
     const body = (await req.json().catch(() => ({}))) as Body;
-    let q = (body.q ?? "").trim();
+    const q = (body.q ?? "").trim();
     
     if (q.length < 2) {
       return new Response(JSON.stringify([]), {
@@ -203,79 +230,41 @@ serve(async (req) => {
       });
     }
 
-    // Expand Canadian abbreviations
-    const originalQuery = q;
-    q = expandCanadianAbbreviations(q);
-    console.log(`Query: "${originalQuery}" -> Expanded: "${q}"`);
-
     const limit = Math.max(1, Math.min(20, Number(body.limit ?? 10)));
     const countrycodes = (body.countrycodes ?? "ca").toLowerCase().trim();
-
     const hasNearby = !!(body.near && isFiniteNumber(body.near.lat) && isFiniteNumber(body.near.lon));
-    
-    // If we have nearby coords and query doesn't include city/region, append detected region
-    let searchQuery = q;
-    if (hasNearby && body.near) {
-      const region = detectRegion(body.near);
-      // Only add region if query doesn't already contain a city/province
-      const hasLocation = /victoria|vancouver|saanich|oak bay|esquimalt|langford|sidney|colwood/i.test(q);
-      if (region && !hasLocation) {
-        searchQuery = `${q}, ${region}`;
-        console.log(`Added region context: "${searchQuery}"`);
-      }
-    }
+    const viewbox = hasNearby && body.near ? buildViewbox(body.near, 50) : undefined;
 
-    const params = new URLSearchParams();
-    params.set("format", "json");
-    params.set("addressdetails", "1");
-    params.set("q", searchQuery);
-    params.set("limit", String(limit));
-    params.set("countrycodes", countrycodes);
+    // Generate search variations
+    const variations = generateSearchVariations(q);
+    console.log(`Search variations for "${q}":`, variations);
 
-    if (hasNearby && body.near) {
-      params.set("viewbox", buildViewbox(body.near, 50));
-    }
+    let allResults: any[] = [];
+    const seenIds = new Set<string>();
 
-    let data: any[] = [];
-
-    try {
-      // Try bounded search first if we have nearby coordinates
-      let res = await queryNominatim(params, hasNearby);
+    // Try each variation until we get results
+    for (const variation of variations) {
+      const results = await queryNominatim(variation, countrycodes, limit, viewbox);
       
-      if (res.ok) {
-        data = await res.json();
-      }
-      
-      // If no results, try without region context
-      if (Array.isArray(data) && data.length === 0 && searchQuery !== q) {
-        console.log("No results with region, trying original query");
-        params.set("q", q);
-        res = await queryNominatim(params, hasNearby);
-        if (res.ok) {
-          data = await res.json();
+      if (Array.isArray(results) && results.length > 0) {
+        // Add unique results
+        for (const result of results) {
+          const id = `${result.lat}-${result.lon}`;
+          if (!seenIds.has(id)) {
+            seenIds.add(id);
+            allResults.push(result);
+          }
+        }
+        
+        // If we have enough results, stop
+        if (allResults.length >= limit) {
+          break;
         }
       }
-      
-      // If still no results with bounded search, try unbounded
-      if (Array.isArray(data) && data.length === 0 && hasNearby) {
-        console.log("Bounded search returned no results, trying unbounded");
-        params.delete("viewbox");
-        res = await queryNominatim(params, false);
-        if (res.ok) {
-          data = await res.json();
-        }
-      }
-    } catch (err) {
-      console.error("Search error:", err);
-      // Return empty results on error
-      data = [];
     }
 
-    // Format results for Canadian addresses
-    const formattedData = Array.isArray(data) 
-      ? data.map(formatCanadianAddress)
-      : [];
-
+    // Format results
+    const formattedData = allResults.slice(0, limit).map(formatCanadianAddress);
     console.log(`Returning ${formattedData.length} results`);
 
     return new Response(JSON.stringify(formattedData), {
