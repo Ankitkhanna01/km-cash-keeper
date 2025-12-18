@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { calculateTotalDistance } from './AddressAutocomplete';
 import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
 import { TripPurposeDialog, TripPurpose } from './TripPurposeDialog';
-// NearbyPlacesSuggestions disabled for now
+import { NearbyPlacesSuggestions } from './NearbyPlacesSuggestions';
 
 interface StopLocation {
   address: string;
@@ -460,22 +460,58 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
           )}
 
           {/* Start Location */}
-          <div className="flex items-start gap-2 text-sm">
-            <MapPin className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs text-muted-foreground">Started at {startLocation?.time}</p>
-              <p className="line-clamp-1">{startLocation?.address}</p>
+          <div className="space-y-1">
+            <div className="flex items-start gap-2 text-sm">
+              <MapPin className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-muted-foreground">Started at {startLocation?.time}</p>
+                <p className="line-clamp-2">{startLocation?.address}</p>
+              </div>
             </div>
+            {startLocation && (
+              <NearbyPlacesSuggestions
+                lat={startLocation.lat}
+                lon={startLocation.lon}
+                onSelect={(place) => {
+                  setStartLocation({
+                    ...startLocation,
+                    address: place.name ? `${place.name}, ${place.address}` : place.address,
+                    lat: place.lat,
+                    lon: place.lon,
+                  });
+                  toast.success('Start location updated');
+                }}
+                className="ml-6"
+              />
+            )}
           </div>
 
           {/* Stops */}
           {stops.map((stop, index) => (
-            <div key={index} className="flex items-start gap-2 text-sm pl-1">
-              <div className="w-2 h-2 bg-primary rounded-full mt-1.5 shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Stop {index + 1} at {stop.time}</p>
-                <p className="line-clamp-1">{stop.address}</p>
+            <div key={index} className="space-y-1">
+              <div className="flex items-start gap-2 text-sm pl-1">
+                <div className="w-2 h-2 bg-primary rounded-full mt-1.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground">Stop {index + 1} at {stop.time}</p>
+                  <p className="line-clamp-2">{stop.address}</p>
+                </div>
               </div>
+              <NearbyPlacesSuggestions
+                lat={stop.lat}
+                lon={stop.lon}
+                onSelect={(place) => {
+                  const newStops = [...stops];
+                  newStops[index] = {
+                    ...stop,
+                    address: place.name ? `${place.name}, ${place.address}` : place.address,
+                    lat: place.lat,
+                    lon: place.lon,
+                  };
+                  setStops(newStops);
+                  toast.success(`Stop ${index + 1} updated`);
+                }}
+                className="ml-4"
+              />
             </div>
           ))}
 
