@@ -367,7 +367,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setShowEndLocationPicker(true);
   };
 
-  const handleEndLocationConfirmed = (finalEndLocation: StopLocation) => {
+  const handleEndLocationConfirmed = (finalEndLocation: StopLocation, shouldChainTrip: boolean = false) => {
     if (!startLocation || !selectedPurpose) return;
 
     setShowEndLocationPicker(false);
@@ -412,24 +412,61 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       end_lon: finalEndLocation.lon,
     });
 
-    // Reset state and clear persistence
-    clearPersistedState();
-    setIsRecording(false);
-    setStartLocation(null);
-    setStops([]);
-    setWaypoints([]);
-    setElapsedTime(0);
-    setComments('');
-    setPendingEndLocation(null);
-    setShowCommentsField(false);
-    setSelectedPurpose(null);
-    setSelectedCustomReason(undefined);
-    toast.success(`Trip recorded with ${waypoints.length} route points!`);
+    // Check if we should chain a new trip (for pickup/dropoff)
+    if (shouldChainTrip && (selectedPurpose === 'pickup' || selectedPurpose === 'dropoff')) {
+      // Start a new trip from the same location
+      const newStartLocation: StopLocation = {
+        address: finalEndLocation.address,
+        lat: finalEndLocation.lat,
+        lon: finalEndLocation.lon,
+        time: getLocalTimeString(),
+      };
+      
+      setStartLocation(newStartLocation);
+      setStops([]);
+      setWaypoints([]);
+      setElapsedTime(0);
+      setComments('');
+      setPendingEndLocation(null);
+      setShowCommentsField(false);
+      setSelectedPurpose(null);
+      setSelectedCustomReason(undefined);
+      lastWaypointTime.current = Date.now();
+      startTimestamp.current = Date.now();
+      setIsRecording(true);
+      
+      // Persist the new trip state
+      const state: PersistedTripState = {
+        isRecording: true,
+        startLocation: newStartLocation,
+        stops: [],
+        waypoints: [],
+        comments: '',
+        startTimestamp: startTimestamp.current,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      
+      toast.success('Trip recorded! New trip started from same location.');
+    } else {
+      // Reset state and clear persistence
+      clearPersistedState();
+      setIsRecording(false);
+      setStartLocation(null);
+      setStops([]);
+      setWaypoints([]);
+      setElapsedTime(0);
+      setComments('');
+      setPendingEndLocation(null);
+      setShowCommentsField(false);
+      setSelectedPurpose(null);
+      setSelectedCustomReason(undefined);
+      toast.success(`Trip recorded with ${waypoints.length} route points!`);
+    }
   };
 
   const handleSkipEndLocationPicker = () => {
     if (pendingEndLocation) {
-      handleEndLocationConfirmed(pendingEndLocation);
+      handleEndLocationConfirmed(pendingEndLocation, false);
     }
   };
 
@@ -644,18 +681,19 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
         onSelect={handlePurposeSelected}
       />
 
-      {showEndLocationPicker && pendingEndLocation && (
+      {showEndLocationPicker && pendingEndLocation && selectedPurpose && (
         <EndLocationPicker
           open={showEndLocationPicker}
           endLocation={pendingEndLocation}
-          onSelect={(place) => {
+          purpose={selectedPurpose}
+          onSelect={(place, chainTrip) => {
             const updatedLocation: StopLocation = {
               address: place.name ? `${place.name}, ${place.address}` : place.address,
               lat: place.lat,
               lon: place.lon,
               time: pendingEndLocation.time,
             };
-            handleEndLocationConfirmed(updatedLocation);
+            handleEndLocationConfirmed(updatedLocation, chainTrip);
           }}
           onSkip={handleSkipEndLocationPicker}
         />

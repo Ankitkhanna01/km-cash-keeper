@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MapPin, Building2, Home, Store, Loader2, Search, X, History, Star, Globe, SkipForward } from 'lucide-react';
+import { MapPin, Building2, Home, Store, Loader2, Search, X, History, Star, Globe, SkipForward, Play } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { TripPurpose } from './TripPurposeDialog';
 
 interface NearbyPlace {
   name: string;
@@ -24,11 +25,12 @@ interface EndLocationPickerProps {
     lon: number;
     time: string;
   };
-  onSelect: (place: NearbyPlace) => void;
+  purpose: TripPurpose;
+  onSelect: (place: NearbyPlace, chainTrip: boolean) => void;
   onSkip: () => void;
 }
 
-export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLocationPickerProps) {
+export function EndLocationPicker({ open, endLocation, purpose, onSelect, onSkip }: EndLocationPickerProps) {
   const { user } = useAuth();
   const [places, setPlaces] = useState<NearbyPlace[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,43 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
   const [searching, setSearching] = useState(false);
   const searchDebounce = useRef<NodeJS.Timeout>();
   const initialCoords = useRef({ lat: endLocation.lat, lon: endLocation.lon });
+
+  // Determine if this is a chain trip purpose (pickup or dropoff)
+  const isChainTripPurpose = purpose === 'pickup' || purpose === 'dropoff';
+  
+  // Get purpose-specific labels
+  const getDialogTitle = () => {
+    switch (purpose) {
+      case 'pickup':
+        return 'Which restaurant?';
+      case 'dropoff':
+        return 'Which address?';
+      default:
+        return 'Where did you end up?';
+    }
+  };
+
+  const getDialogDescription = () => {
+    switch (purpose) {
+      case 'pickup':
+        return 'Select the restaurant or search for it';
+      case 'dropoff':
+        return 'Select the delivery address or enter house number';
+      default:
+        return 'Select a nearby place or use your current location';
+    }
+  };
+
+  const getSearchPlaceholder = () => {
+    switch (purpose) {
+      case 'pickup':
+        return 'Restaurant name...';
+      case 'dropoff':
+        return 'House number, unit #...';
+      default:
+        return 'Unit #, business name...';
+    }
+  };
 
   // Fetch nearby places on mount
   useEffect(() => {
@@ -49,19 +88,38 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
       setLoading(true);
       
       try {
+        // For pickup, search for restaurants; for dropoff, search residential
+        const searchQuery = purpose === 'pickup' ? 'restaurant' : undefined;
+        
         const { data, error: fnError } = await supabase.functions.invoke('nearby-places', {
           body: { 
             lat: initialCoords.current.lat, 
             lon: initialCoords.current.lon, 
-            radius: 150,
+            radius: purpose === 'dropoff' ? 100 : 150, // Smaller radius for dropoff
             userId: user?.id,
+            query: searchQuery,
           },
         });
 
         if (cancelled) return;
 
         if (!fnError && data?.places) {
-          setPlaces(data.places);
+          // Filter based on purpose
+          let filteredPlaces = data.places;
+          if (purpose === 'pickup') {
+            // Prioritize restaurants and businesses
+            filteredPlaces = data.places.filter((p: NearbyPlace) => 
+              p.type === 'restaurant' || p.type === 'business'
+            );
+            if (filteredPlaces.length === 0) filteredPlaces = data.places;
+          } else if (purpose === 'dropoff') {
+            // Prioritize residential
+            filteredPlaces = data.places.filter((p: NearbyPlace) => 
+              p.type === 'residential'
+            );
+            if (filteredPlaces.length === 0) filteredPlaces = data.places;
+          }
+          setPlaces(filteredPlaces);
         }
       } catch (e) {
         console.error('Failed to fetch nearby places:', e);
@@ -72,7 +130,7 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
 
     fetchNearby();
     return () => { cancelled = true; };
-  }, [open, user?.id]);
+  }, [open, user?.id, purpose]);
 
   // Debounced search
   useEffect(() => {
@@ -134,7 +192,7 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
     }
   };
 
-  const handleCustomSubmit = async () => {
+  const handleCustomSubmit = async (chainTrip: boolean) => {
     if (!searchQuery.trim()) return;
     
     const isUnitNumber = /^[0-9]+[a-zA-Z]?$/.test(searchQuery.trim());
@@ -172,21 +230,21 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
       address: finalAddress || `Near ${endLocation.lat.toFixed(4)}, ${endLocation.lon.toFixed(4)}`,
       lat: endLocation.lat,
       lon: endLocation.lon,
-      type: isUnitNumber ? 'residential' : 'other',
-    });
+      type: isUnitNumber ? 'residential' : (purpose === 'pickup' ? 'restaurant' : 'other'),
+    }, chainTrip);
   };
 
-  const handleSelectPlace = (place: NearbyPlace) => {
-    onSelect(place);
+  const handleSelectPlace = (place: NearbyPlace, chainTrip: boolean) => {
+    onSelect(place, chainTrip);
   };
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent className="max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>Where did you end up?</DialogTitle>
+          <DialogTitle>{getDialogTitle()}</DialogTitle>
           <DialogDescription>
-            Select a nearby place or use your current location
+            {getDialogDescription()}
           </DialogDescription>
         </DialogHeader>
 
@@ -213,26 +271,40 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
           {/* Nearby places */}
           {!loading && places.length > 0 && !showSearch && (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground font-medium">Nearby places:</p>
+              <p className="text-xs text-muted-foreground font-medium">
+                {purpose === 'pickup' ? 'Nearby restaurants:' : purpose === 'dropoff' ? 'Nearby addresses:' : 'Nearby places:'}
+              </p>
               <div className="grid gap-2 max-h-[200px] overflow-y-auto">
                 {places.map((place, idx) => (
-                  <Button
-                    key={idx}
-                    variant="outline"
-                    onClick={() => handleSelectPlace(place)}
-                    className="h-auto py-2 px-3 justify-start gap-2 text-left"
-                  >
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {getSourceIndicator(place.source)}
-                      {getIcon(place.type)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{place.name}</p>
-                      {place.distance && (
-                        <p className="text-xs text-muted-foreground">{place.distance}m away</p>
-                      )}
-                    </div>
-                  </Button>
+                  <div key={idx} className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => handleSelectPlace(place, false)}
+                      className="flex-1 h-auto py-2 px-3 justify-start gap-2 text-left"
+                    >
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {getSourceIndicator(place.source)}
+                        {getIcon(place.type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{place.name}</p>
+                        {place.distance && (
+                          <p className="text-xs text-muted-foreground">{place.distance}m away</p>
+                        )}
+                      </div>
+                    </Button>
+                    {isChainTripPurpose && (
+                      <Button
+                        variant="default"
+                        size="icon"
+                        onClick={() => handleSelectPlace(place, true)}
+                        className="shrink-0 bg-green-600 hover:bg-green-700"
+                        title="End trip here & start new trip"
+                      >
+                        <Play className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -248,7 +320,7 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
                   className="w-full gap-2 text-muted-foreground"
                 >
                   <Search className="w-4 h-4" />
-                  Search for a different place
+                  {purpose === 'pickup' ? 'Search for restaurant' : purpose === 'dropoff' ? 'Enter house number' : 'Search for a different place'}
                 </Button>
               ) : (
                 <div className="space-y-2">
@@ -257,12 +329,12 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
                       <Input
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Unit #, business name..."
+                        placeholder={getSearchPlaceholder()}
                         className="pr-8"
                         autoFocus
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
-                            handleCustomSubmit();
+                            handleCustomSubmit(false);
                           } else if (e.key === 'Escape') {
                             setShowSearch(false);
                             setSearchQuery('');
@@ -290,31 +362,72 @@ export function EndLocationPicker({ open, endLocation, onSelect, onSkip }: EndLo
                   {searchResults.length > 0 && (
                     <div className="grid gap-2 max-h-[150px] overflow-y-auto">
                       {searchResults.map((place, idx) => (
-                        <Button
-                          key={idx}
-                          variant="outline"
-                          onClick={() => handleSelectPlace(place)}
-                          className="h-auto py-2 px-3 justify-start gap-2 text-left"
-                        >
-                          {getIcon(place.type)}
-                          <span className="text-sm truncate">{place.name}</span>
-                        </Button>
+                        <div key={idx} className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => handleSelectPlace(place, false)}
+                            className="flex-1 h-auto py-2 px-3 justify-start gap-2 text-left"
+                          >
+                            {getIcon(place.type)}
+                            <span className="text-sm truncate">{place.name}</span>
+                          </Button>
+                          {isChainTripPurpose && (
+                            <Button
+                              variant="default"
+                              size="icon"
+                              onClick={() => handleSelectPlace(place, true)}
+                              className="shrink-0 bg-green-600 hover:bg-green-700"
+                              title="End trip here & start new trip"
+                            >
+                              <Play className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
 
-                  {/* Custom submit hint */}
+                  {/* Custom submit buttons */}
                   {searchQuery.trim() && (
-                    <p className="text-xs text-muted-foreground">
-                      Press Enter to use "{searchQuery.trim()}"
-                      {/^[0-9]+[a-zA-Z]?$/.test(searchQuery.trim()) && endLocation.address && (
-                        <> as unit number</>
-                      )}
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Use "{searchQuery.trim()}"
+                        {/^[0-9]+[a-zA-Z]?$/.test(searchQuery.trim()) && endLocation.address && (
+                          <> as unit number</>
+                        )}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleCustomSubmit(false)}
+                          className="flex-1"
+                        >
+                          End Trip
+                        </Button>
+                        {isChainTripPurpose && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleCustomSubmit(true)}
+                            className="flex-1 gap-1 bg-green-600 hover:bg-green-700"
+                          >
+                            <Play className="w-3 h-3" />
+                            End & Start New
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
             </>
+          )}
+
+          {/* Chain trip explanation for pickup/dropoff */}
+          {isChainTripPurpose && !showSearch && (
+            <p className="text-xs text-muted-foreground text-center">
+              Tap <Play className="w-3 h-3 inline text-green-600" /> to end this trip and start a new one from the same location
+            </p>
           )}
 
           {/* Skip button - always visible */}
