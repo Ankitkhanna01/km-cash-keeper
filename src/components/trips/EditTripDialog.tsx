@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Pencil } from 'lucide-react';
 import { Trip } from '@/types';
+import { AddressAutocomplete, AddressComponents } from './AddressAutocomplete';
 
 interface EditTripDialogProps {
   trip: Trip;
@@ -21,6 +22,14 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
   const [date, setDate] = useState(trip.date);
   const [startTime, setStartTime] = useState(trip.startTime);
   const [endTime, setEndTime] = useState(trip.endTime);
+
+  const handleStartLocationChange = (value: string, lat?: number, lon?: number, address?: AddressComponents) => {
+    setStartLocation(value);
+  };
+
+  const handleEndLocationChange = (value: string, lat?: number, lon?: number, address?: AddressComponents) => {
+    setEndLocation(value);
+  };
 
   const handleSave = () => {
     onSave(trip.id, {
@@ -56,9 +65,10 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
           <Pencil className="w-4 h-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Trip</DialogTitle>
+          <DialogDescription>Update trip details below</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 pt-4">
           <div className="grid grid-cols-2 gap-4">
@@ -106,20 +116,20 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
 
           <div className="space-y-2">
             <Label htmlFor="edit-start">Start Location</Label>
-            <Input
+            <AddressAutocomplete
               id="edit-start"
               value={startLocation}
-              onChange={(e) => setStartLocation(e.target.value)}
+              onChange={handleStartLocationChange}
               placeholder="Start address"
             />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="edit-end">End Location</Label>
-            <Input
+            <AddressAutocomplete
               id="edit-end"
               value={endLocation}
-              onChange={(e) => setEndLocation(e.target.value)}
+              onChange={handleEndLocationChange}
               placeholder="End address"
             />
           </div>
