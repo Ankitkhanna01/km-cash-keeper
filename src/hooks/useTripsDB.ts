@@ -32,6 +32,11 @@ export interface Trip {
   end_city?: string;
   end_postal_code?: string;
   end_province?: string;
+  // Coordinates for learning nearby places
+  start_lat?: number;
+  start_lon?: number;
+  end_lat?: number;
+  end_lon?: number;
 }
 
 export interface TripInput extends Omit<Trip, 'id' | 'user_id' | 'created_at'> {
@@ -95,6 +100,7 @@ export function useTripsDB() {
           end_location: tripData.end_location,
           kilometres: tripData.kilometres,
           category: tripData.category,
+          notes: tripData.notes,
           // CRA-compliant structured fields
           start_street: startAddr?.street || null,
           start_city: startAddr?.city || null,
@@ -104,6 +110,11 @@ export function useTripsDB() {
           end_city: endAddr?.city || null,
           end_postal_code: endAddr?.postal_code || null,
           end_province: endAddr?.province || null,
+          // Coordinates for learning
+          start_lat: tripData.start_lat || null,
+          start_lon: tripData.start_lon || null,
+          end_lat: tripData.end_lat || null,
+          end_lon: tripData.end_lon || null,
         })
         .select()
         .single();

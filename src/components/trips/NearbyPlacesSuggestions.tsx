@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MapPin, Building2, Home, Store, Loader2, Search, X, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface NearbyPlace {
   name: string;
@@ -11,6 +12,7 @@ interface NearbyPlace {
   lon: number;
   type: 'restaurant' | 'residential' | 'business' | 'other';
   distance?: number;
+  source?: 'trips' | 'cached' | 'osm';
 }
 
 interface NearbyPlacesSuggestionsProps {
@@ -22,6 +24,7 @@ interface NearbyPlacesSuggestionsProps {
 }
 
 export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', baseAddress = '' }: NearbyPlacesSuggestionsProps) {
+  const { user } = useAuth();
   const [places, setPlaces] = useState<NearbyPlace[]>([]);
   const [hasSelected, setHasSelected] = useState(false);
   const initialCoords = useRef({ lat, lon });
@@ -43,7 +46,12 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
       
       try {
         const { data, error: fnError } = await supabase.functions.invoke('nearby-places', {
-          body: { lat: initialCoords.current.lat, lon: initialCoords.current.lon, radius: 150 },
+          body: { 
+            lat: initialCoords.current.lat, 
+            lon: initialCoords.current.lon, 
+            radius: 150,
+            userId: user?.id,
+          },
         });
 
         if (cancelled) return;
@@ -64,7 +72,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
 
     fetchNearby();
     return () => { cancelled = true; };
-  }, []); // Empty deps - only run once on mount
+  }, [user?.id]); // Include user.id so it fetches with user context
 
   // Debounced search
   useEffect(() => {
@@ -78,7 +86,13 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
       setSearching(true);
       try {
         const { data, error: fnError } = await supabase.functions.invoke('nearby-places', {
-          body: { lat: initialCoords.current.lat, lon: initialCoords.current.lon, radius: 300, query: searchQuery },
+          body: { 
+            lat: initialCoords.current.lat, 
+            lon: initialCoords.current.lon, 
+            radius: 300, 
+            query: searchQuery,
+            userId: user?.id,
+          },
         });
 
         if (!fnError && data?.places) {
@@ -92,7 +106,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
     }, 300);
 
     return () => clearTimeout(searchDebounce.current);
-  }, [searchQuery]);
+  }, [searchQuery, user?.id]);
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -107,7 +121,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
     }
   };
 
-  const handleCustomSubmit = () => {
+  const handleCustomSubmit = async () => {
     if (!searchQuery.trim()) return;
     
     // Check if it looks like a unit/apartment number (just numbers or alphanumeric)
@@ -120,6 +134,26 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
       // Prepend unit number to base address: "306" + "3420 Quadra St" = "306-3420 Quadra St"
       finalName = `Unit ${searchQuery.trim()}`;
       finalAddress = `${searchQuery.trim()}-${baseAddress}`;
+    }
+
+    // Save custom place to cache for future use
+    try {
+      await supabase.functions.invoke('nearby-places', {
+        body: { 
+          lat: initialCoords.current.lat, 
+          lon: initialCoords.current.lon, 
+          radius: 150,
+          userId: user?.id,
+          savePlace: {
+            name: finalName,
+            address: finalAddress || `Near ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+            lat: initialCoords.current.lat,
+            lon: initialCoords.current.lon,
+          },
+        },
+      });
+    } catch (e) {
+      console.log('Failed to save custom place:', e);
     }
     
     setHasSelected(true);
