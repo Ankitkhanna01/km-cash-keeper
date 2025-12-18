@@ -124,7 +124,6 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
               value={startLocation}
               onChange={handleStartLocationChange}
               placeholder="Start address"
-              showNearbyPlaces={true}
             />
           </div>
 
@@ -135,7 +134,6 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
               value={endLocation}
               onChange={handleEndLocationChange}
               placeholder="End address"
-              showNearbyPlaces={true}
             />
           </div>
 
