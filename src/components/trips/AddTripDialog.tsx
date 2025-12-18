@@ -401,6 +401,7 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
                   onChange={handleStartLocationChange}
                   onActiveChange={handleAddressActiveChange}
                   placeholder="Search or use current location"
+                  showNearbyPlaces={true}
                 />
               </div>
               <Button
@@ -448,6 +449,7 @@ export function AddTripDialog({ onAdd, trigger }: AddTripDialogProps) {
                     onChange={(value, lat, lon, addr) => handleStopChange(index, value, lat, lon, addr)}
                     onActiveChange={handleAddressActiveChange}
                     placeholder={index === stops.length - 1 ? "Final destination" : `Stop ${index + 1}`}
+                    showNearbyPlaces={true}
                   />
                 </div>
                 <Button
