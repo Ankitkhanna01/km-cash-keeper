@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { calculateTotalDistance } from './AddressAutocomplete';
 import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
 import { TripPurposeDialog, TripPurpose } from './TripPurposeDialog';
-import { NearbyPlacesSuggestions } from './NearbyPlacesSuggestions';
+// NearbyPlacesSuggestions disabled for now
 
 interface StopLocation {
   address: string;
@@ -252,11 +252,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const handleStartTrip = async () => {
     const location = await getCurrentLocation();
     if (location) {
-      // Show nearby places for start location
-      setPendingStartCoords({ lat: location.lat, lon: location.lon });
-      setPendingStartTime(location.time);
+      // Nearby places disabled - start recording immediately
       setStartLocation(location);
-      setShowStartNearby(true);
+      startRecording();
     }
   };
 
@@ -292,8 +290,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const handleAddStop = async () => {
     const location = await getCurrentLocation();
     if (location) {
-      setPendingStopLocation(location);
-      setShowStopNearby(true);
+      // Nearby places disabled - add stop immediately
+      setStops(prev => [...prev, location]);
+      toast.success(`Stop ${stops.length + 1} added`);
     }
   };
 
@@ -323,8 +322,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     const endLocation = await getCurrentLocation();
     if (!endLocation || !startLocation) return;
 
+    // Nearby places disabled - go directly to purpose dialog
     setPendingEndLocation(endLocation);
-    setShowEndNearby(true);
+    setShowPurposeDialog(true);
   };
 
   const handleEndNearbySelect = (place: NearbyPlace) => {
@@ -410,80 +410,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     toast.info('Trip cancelled');
   };
 
-  // Show nearby places for start location selection
-  if (showStartNearby && pendingStartCoords) {
-    return (
-      <div className="space-y-3">
-        <Card className="border-primary/50 bg-primary/5">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-2 text-sm mb-3">
-              <MapPin className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Starting from</p>
-                <p className="line-clamp-1">{startLocation?.address}</p>
-              </div>
-            </div>
-            <NearbyPlacesSuggestions
-              lat={pendingStartCoords.lat}
-              lon={pendingStartCoords.lon}
-              onSelect={handleStartNearbySelect}
-              onClose={handleStartNearbyClose}
-            />
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Show nearby places for stop location selection
-  if (showStopNearby && pendingStopLocation) {
-    return (
-      <>
-        <Card className="border-primary/50 bg-primary/5">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-2 text-sm mb-3">
-              <MapPin className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Adding stop at</p>
-                <p className="line-clamp-1">{pendingStopLocation.address}</p>
-              </div>
-            </div>
-            <NearbyPlacesSuggestions
-              lat={pendingStopLocation.lat}
-              lon={pendingStopLocation.lon}
-              onSelect={handleStopNearbySelect}
-              onClose={handleStopNearbyClose}
-            />
-          </CardContent>
-        </Card>
-      </>
-    );
-  }
-
-  // Show nearby places for end location selection
-  if (showEndNearby && pendingEndLocation) {
-    return (
-      <>
-        <Card className="border-primary/50 bg-primary/5">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-2 text-sm mb-3">
-              <MapPin className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Ending at</p>
-                <p className="line-clamp-1">{pendingEndLocation.address}</p>
-              </div>
-            </div>
-            <NearbyPlacesSuggestions
-              lat={pendingEndLocation.lat}
-              lon={pendingEndLocation.lon}
-              onSelect={handleEndNearbySelect}
-              onClose={handleEndNearbyClose}
-            />
-          </CardContent>
-        </Card>
-      </>
-    );
-  }
+  // Nearby places UI disabled
 
   if (!isRecording) {
     return (
