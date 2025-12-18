@@ -151,11 +151,80 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     return () => clearInterval(interval);
   }, [isRecording, startLocation]);
 
-  // Auto-capture GPS when app becomes visible during recording
+  // Continuous GPS tracking while recording
+  useEffect(() => {
+    if (!isRecording || !startLocation || !navigator.geolocation) return;
+
+    let watchId: number;
+    let lastLat = startLocation.lat;
+    let lastLon = startLocation.lon;
+    
+    // Calculate distance between two points (in meters)
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+      const R = 6371000; // Earth's radius in meters
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    };
+
+    const handlePosition = (position: GeolocationPosition) => {
+      const { latitude, longitude } = position.coords;
+      
+      // Only add waypoint if moved more than 50 meters from last point
+      const distance = getDistance(lastLat, lastLon, latitude, longitude);
+      if (distance > 50) {
+        lastLat = latitude;
+        lastLon = longitude;
+        
+        setWaypoints(prev => {
+          // Prevent duplicates
+          const lastWp = prev[prev.length - 1];
+          if (lastWp && Math.abs(lastWp.lat - latitude) < 0.0001 && Math.abs(lastWp.lon - longitude) < 0.0001) {
+            return prev;
+          }
+          return [...prev, {
+            lat: latitude,
+            lon: longitude,
+            time: getLocalTimeString(),
+          }];
+        });
+      }
+    };
+
+    const handleError = (error: GeolocationPositionError) => {
+      console.log('GPS tracking error:', error.message);
+    };
+
+    // Start watching position with high accuracy
+    watchId = navigator.geolocation.watchPosition(
+      handlePosition,
+      handleError,
+      {
+        enableHighAccuracy: true,
+        timeout: 30000,
+        maximumAge: 10000, // Accept positions up to 10 seconds old
+      }
+    );
+
+    console.log('Started continuous GPS tracking');
+
+    return () => {
+      if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        console.log('Stopped GPS tracking');
+      }
+    };
+  }, [isRecording, startLocation]);
+
+  // Auto-capture GPS when app becomes visible during recording (backup method)
   const captureWaypoint = useCallback(async () => {
     if (!navigator.geolocation) return;
     
-    // Throttle: at least 30 seconds between auto-captures
+    // Throttle: at least 30 seconds between manual captures
     const now = Date.now();
     if (now - lastWaypointTime.current < 30000) return;
     
@@ -171,21 +240,25 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       const { latitude, longitude } = position.coords;
       lastWaypointTime.current = now;
       
-      setWaypoints(prev => [...prev, {
-        lat: latitude,
-        lon: longitude,
-        time: getLocalTimeString(),
-      }]);
-      
-      // Subtle feedback
-      toast.success('Route point captured', { duration: 1500 });
+      setWaypoints(prev => {
+        // Check if this point is already captured by continuous tracking
+        const lastWp = prev[prev.length - 1];
+        if (lastWp && Math.abs(lastWp.lat - latitude) < 0.0005 && Math.abs(lastWp.lon - longitude) < 0.0005) {
+          return prev; // Skip duplicate
+        }
+        return [...prev, {
+          lat: latitude,
+          lon: longitude,
+          time: getLocalTimeString(),
+        }];
+      });
     } catch (error) {
       // Silent fail for auto-capture
       console.log('Auto waypoint capture skipped:', error);
     }
   }, []);
 
-  // Listen for visibility changes when recording
+  // Listen for visibility changes when recording (backup for when continuous tracking pauses)
   useEffect(() => {
     if (!isRecording) return;
 
@@ -522,13 +595,14 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
             </div>
           </div>
 
-          {/* Waypoints indicator */}
-          {waypoints.length > 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
-              <Navigation className="w-3 h-3" />
-              <span>{waypoints.length} route point{waypoints.length !== 1 ? 's' : ''} captured</span>
-            </div>
-          )}
+          {/* GPS Tracking indicator */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
+            <Navigation className="w-3 h-3 text-green-500 animate-pulse" />
+            <span>GPS tracking active</span>
+            {waypoints.length > 0 && (
+              <span className="text-primary font-medium">• {waypoints.length} point{waypoints.length !== 1 ? 's' : ''}</span>
+            )}
+          </div>
 
           {/* Start Location */}
           <div className="space-y-1">
