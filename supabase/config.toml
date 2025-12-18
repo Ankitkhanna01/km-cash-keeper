@@ -10,10 +10,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.smart-address]
-verify_jwt = false
+verify_jwt = true
 
 [functions.adjust-km]
 verify_jwt = true
 
 [functions.nearby-places]
-verify_jwt = false
+verify_jwt = true
