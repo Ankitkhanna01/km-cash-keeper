@@ -472,6 +472,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
               <NearbyPlacesSuggestions
                 lat={startLocation.lat}
                 lon={startLocation.lon}
+                baseAddress={startLocation.address}
                 onSelect={(place) => {
                   setStartLocation({
                     ...startLocation,
@@ -499,6 +500,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
               <NearbyPlacesSuggestions
                 lat={stop.lat}
                 lon={stop.lon}
+                baseAddress={stop.address}
                 onSelect={(place) => {
                   const newStops = [...stops];
                   newStops[index] = {
