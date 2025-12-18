@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Play, Square, MapPin, Plus, Clock, Loader2, Navigation, MessageSquare, Check, Pencil } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Play, Square, MapPin, Plus, Clock, Loader2, Navigation, MessageSquare, Check, Pencil, SkipForward } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { calculateTotalDistance } from './AddressAutocomplete';
 import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
 import { TripPurposeDialog, TripPurpose } from './TripPurposeDialog';
 import { NearbyPlacesSuggestions } from './NearbyPlacesSuggestions';
+import { EndLocationPicker } from './EndLocationPicker';
 
 interface StopLocation {
   address: string;
@@ -89,6 +91,11 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [pendingStartCoords, setPendingStartCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [pendingStartTime, setPendingStartTime] = useState<string>('');
   const [pendingStopLocation, setPendingStopLocation] = useState<StopLocation | null>(null);
+  
+  // End location nearby places state (shown after purpose selection)
+  const [showEndLocationPicker, setShowEndLocationPicker] = useState(false);
+  const [selectedPurpose, setSelectedPurpose] = useState<TripPurpose | null>(null);
+  const [selectedCustomReason, setSelectedCustomReason] = useState<string | undefined>();
 
   // Load persisted state on mount
   useEffect(() => {
@@ -353,27 +360,38 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     if (!pendingEndLocation || !startLocation) return;
 
     setShowPurposeDialog(false);
+    
+    // Store purpose and show end location picker
+    setSelectedPurpose(purpose);
+    setSelectedCustomReason(customReason);
+    setShowEndLocationPicker(true);
+  };
+
+  const handleEndLocationConfirmed = (finalEndLocation: StopLocation) => {
+    if (!startLocation || !selectedPurpose) return;
+
+    setShowEndLocationPicker(false);
 
     // Build coordinates including waypoints for more accurate distance
     const allCoords = [
       { lat: startLocation.lat, lon: startLocation.lon },
       ...waypoints.map(w => ({ lat: w.lat, lon: w.lon })),
       ...stops.map(s => ({ lat: s.lat, lon: s.lon })),
-      { lat: pendingEndLocation.lat, lon: pendingEndLocation.lon },
+      { lat: finalEndLocation.lat, lon: finalEndLocation.lon },
     ];
 
     const kilometres = calculateTotalDistance(allCoords);
 
     // Build end location string
-    const allStopAddresses = [...stops.map(s => s.address), pendingEndLocation.address];
+    const allStopAddresses = [...stops.map(s => s.address), finalEndLocation.address];
     const endLocationStr = allStopAddresses.length > 1
       ? allStopAddresses.join(' → ')
-      : pendingEndLocation.address;
+      : finalEndLocation.address;
 
     // Build notes with purpose and comments
-    const purposeText = purpose === 'other' && customReason 
-      ? customReason 
-      : PURPOSE_LABELS[purpose];
+    const purposeText = selectedPurpose === 'other' && selectedCustomReason 
+      ? selectedCustomReason 
+      : PURPOSE_LABELS[selectedPurpose];
     const notesText = comments.trim() 
       ? `${purposeText} | ${comments.trim()}`
       : purposeText;
@@ -381,7 +399,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     onTripComplete({
       date: getLocalDateString(),
       start_time: startLocation.time,
-      end_time: pendingEndLocation.time,
+      end_time: finalEndLocation.time,
       start_location: startLocation.address,
       end_location: endLocationStr,
       kilometres,
@@ -390,8 +408,8 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       notes: notesText,
       start_lat: startLocation.lat,
       start_lon: startLocation.lon,
-      end_lat: pendingEndLocation.lat,
-      end_lon: pendingEndLocation.lon,
+      end_lat: finalEndLocation.lat,
+      end_lon: finalEndLocation.lon,
     });
 
     // Reset state and clear persistence
@@ -404,7 +422,15 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setComments('');
     setPendingEndLocation(null);
     setShowCommentsField(false);
+    setSelectedPurpose(null);
+    setSelectedCustomReason(undefined);
     toast.success(`Trip recorded with ${waypoints.length} route points!`);
+  };
+
+  const handleSkipEndLocationPicker = () => {
+    if (pendingEndLocation) {
+      handleEndLocationConfirmed(pendingEndLocation);
+    }
   };
 
   const handleCancelTrip = () => {
@@ -617,6 +643,23 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
         open={showPurposeDialog} 
         onSelect={handlePurposeSelected}
       />
+
+      {showEndLocationPicker && pendingEndLocation && (
+        <EndLocationPicker
+          open={showEndLocationPicker}
+          endLocation={pendingEndLocation}
+          onSelect={(place) => {
+            const updatedLocation: StopLocation = {
+              address: place.name ? `${place.name}, ${place.address}` : place.address,
+              lat: place.lat,
+              lon: place.lon,
+              time: pendingEndLocation.time,
+            };
+            handleEndLocationConfirmed(updatedLocation);
+          }}
+          onSkip={handleSkipEndLocationPicker}
+        />
+      )}
     </>
   );
 }
