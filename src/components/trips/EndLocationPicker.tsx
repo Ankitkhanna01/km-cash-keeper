@@ -234,8 +234,10 @@ export function EndLocationPicker({ open, endLocation, purpose, onSelect, onSkip
     }, chainTrip);
   };
 
-  const handleSelectPlace = (place: NearbyPlace, chainTrip: boolean) => {
-    onSelect(place, chainTrip);
+  const handleSelectPlace = (place: NearbyPlace, explicitChain?: boolean) => {
+    // For pickup/dropoff, always chain unless explicitly set to false
+    const shouldChain = explicitChain !== undefined ? explicitChain : isChainTripPurpose;
+    onSelect(place, shouldChain);
   };
 
   return (
@@ -276,35 +278,24 @@ export function EndLocationPicker({ open, endLocation, purpose, onSelect, onSkip
               </p>
               <div className="grid gap-2 max-h-[200px] overflow-y-auto">
                 {places.map((place, idx) => (
-                  <div key={idx} className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSelectPlace(place, false)}
-                      className="flex-1 h-auto py-2 px-3 justify-start gap-2 text-left"
-                    >
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {getSourceIndicator(place.source)}
-                        {getIcon(place.type)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{place.name}</p>
-                        {place.distance && (
-                          <p className="text-xs text-muted-foreground">{place.distance}m away</p>
-                        )}
-                      </div>
-                    </Button>
-                    {isChainTripPurpose && (
-                      <Button
-                        variant="default"
-                        size="icon"
-                        onClick={() => handleSelectPlace(place, true)}
-                        className="shrink-0 bg-green-600 hover:bg-green-700"
-                        title="End trip here & start new trip"
-                      >
-                        <Play className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
+                  <Button
+                    key={idx}
+                    variant={isChainTripPurpose ? "default" : "outline"}
+                    onClick={() => handleSelectPlace(place)}
+                    className={`w-full h-auto py-2 px-3 justify-start gap-2 text-left ${isChainTripPurpose ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                  >
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {getSourceIndicator(place.source)}
+                      {getIcon(place.type)}
+                      {isChainTripPurpose && <Play className="w-3 h-3" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{place.name}</p>
+                      {place.distance && (
+                        <p className="text-xs text-muted-foreground">{place.distance}m away</p>
+                      )}
+                    </div>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -362,32 +353,21 @@ export function EndLocationPicker({ open, endLocation, purpose, onSelect, onSkip
                   {searchResults.length > 0 && (
                     <div className="grid gap-2 max-h-[150px] overflow-y-auto">
                       {searchResults.map((place, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            onClick={() => handleSelectPlace(place, false)}
-                            className="flex-1 h-auto py-2 px-3 justify-start gap-2 text-left"
-                          >
-                            {getIcon(place.type)}
-                            <span className="text-sm truncate">{place.name}</span>
-                          </Button>
-                          {isChainTripPurpose && (
-                            <Button
-                              variant="default"
-                              size="icon"
-                              onClick={() => handleSelectPlace(place, true)}
-                              className="shrink-0 bg-green-600 hover:bg-green-700"
-                              title="End trip here & start new trip"
-                            >
-                              <Play className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </div>
+                        <Button
+                          key={idx}
+                          variant={isChainTripPurpose ? "default" : "outline"}
+                          onClick={() => handleSelectPlace(place)}
+                          className={`w-full h-auto py-2 px-3 justify-start gap-2 text-left ${isChainTripPurpose ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                        >
+                          {isChainTripPurpose && <Play className="w-3 h-3" />}
+                          {getIcon(place.type)}
+                          <span className="text-sm truncate">{place.name}</span>
+                        </Button>
                       ))}
                     </div>
                   )}
 
-                  {/* Custom submit buttons */}
+                  {/* Custom submit button */}
                   {searchQuery.trim() && (
                     <div className="space-y-2">
                       <p className="text-xs text-muted-foreground">
@@ -396,26 +376,15 @@ export function EndLocationPicker({ open, endLocation, purpose, onSelect, onSkip
                           <> as unit number</>
                         )}
                       </p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleCustomSubmit(false)}
-                          className="flex-1"
-                        >
-                          End Trip
-                        </Button>
-                        {isChainTripPurpose && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleCustomSubmit(true)}
-                            className="flex-1 gap-1 bg-green-600 hover:bg-green-700"
-                          >
-                            <Play className="w-3 h-3" />
-                            End & Start New
-                          </Button>
-                        )}
-                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handleCustomSubmit(isChainTripPurpose)}
+                        className={`w-full gap-1 ${isChainTripPurpose ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                        variant={isChainTripPurpose ? "default" : "outline"}
+                      >
+                        {isChainTripPurpose && <Play className="w-3 h-3" />}
+                        {isChainTripPurpose ? 'End & Start New Trip' : 'End Trip'}
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -426,7 +395,7 @@ export function EndLocationPicker({ open, endLocation, purpose, onSelect, onSkip
           {/* Chain trip explanation for pickup/dropoff */}
           {isChainTripPurpose && !showSearch && (
             <p className="text-xs text-muted-foreground text-center">
-              Tap <Play className="w-3 h-3 inline text-green-600" /> to end this trip and start a new one from the same location
+              Selecting a place will end this trip and start a new one from that location
             </p>
           )}
 
