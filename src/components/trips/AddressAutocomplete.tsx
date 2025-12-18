@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, MapPin, Search, Store, Home, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { isValidCoordinate, isValidSearchQuery } from "@/lib/coordinateUtils";
+import { NearbyPlacesSuggestions } from "./NearbyPlacesSuggestions";
+
 export interface AddressComponents {
   house_number?: string;
   road?: string;
@@ -39,17 +41,22 @@ interface AddressAutocompleteProps {
   onActiveChange?: (active: boolean, instanceKey: string) => void;
   placeholder?: string;
   id?: string;
+  showNearbyPlaces?: boolean;
 }
 
 const RESULTS_PER_PAGE = 5;
 
-export function AddressAutocomplete({ value, onChange, onActiveChange, placeholder, id }: AddressAutocompleteProps) {
+export function AddressAutocomplete({ value, onChange, onActiveChange, placeholder, id, showNearbyPlaces = false }: AddressAutocompleteProps) {
   const [inputValue, setInputValue] = useState(value);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<AddressSuggestion[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [page, setPage] = useState(0);
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  
+  // Nearby places state
+  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [showNearby, setShowNearby] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const geoRequestedRef = useRef(false);
@@ -64,11 +71,11 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
   // Notify parent when active
   useEffect(() => {
-    onActiveChange?.(showResults, instanceKeyRef.current);
+    onActiveChange?.(showResults || showNearby, instanceKeyRef.current);
     return () => {
       onActiveChange?.(false, instanceKeyRef.current);
     };
-  }, [showResults, onActiveChange]);
+  }, [showResults, showNearby, onActiveChange]);
 
   // Close results when clicking outside
   useEffect(() => {
@@ -76,6 +83,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
       const target = event.target as Node;
       if (!containerRef.current?.contains(target)) {
         setShowResults(false);
+        setShowNearby(false);
       }
     };
 
@@ -189,12 +197,33 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     onChange(displayName, result.lat, result.lon, result.address);
     setShowResults(false);
     setSearchResults([]);
+    
+    // Show nearby places if enabled
+    if (showNearbyPlaces && isValidCoordinate(result.lat, result.lon)) {
+      setSelectedLocation({ lat: result.lat, lon: result.lon });
+      setShowNearby(true);
+    }
+  };
+
+  const handleNearbySelect = (place: { name: string; address: string; lat: number; lon: number }) => {
+    const displayName = `${place.name}, ${place.address.split(',').slice(1).join(',').trim()}`;
+    setInputValue(displayName);
+    onChange(displayName, place.lat, place.lon);
+    setShowNearby(false);
+    setSelectedLocation(null);
+  };
+
+  const handleNearbyClose = () => {
+    setShowNearby(false);
+    setSelectedLocation(null);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     setInputValue(newValue);
     onChange(newValue);
+    setShowNearby(false);
+    setSelectedLocation(null);
 
     // Debounced autocomplete search
     if (debounceRef.current) {
@@ -216,6 +245,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     onChange('');
     setShowResults(false);
     setSearchResults([]);
+    setShowNearby(false);
+    setSelectedLocation(null);
   };
 
   const getIcon = (type: string) => {
@@ -320,6 +351,16 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
             </div>
           )}
         </div>
+      )}
+
+      {/* Nearby places suggestions */}
+      {showNearby && selectedLocation && (
+        <NearbyPlacesSuggestions
+          lat={selectedLocation.lat}
+          lon={selectedLocation.lon}
+          onSelect={handleNearbySelect}
+          onClose={handleNearbyClose}
+        />
       )}
     </div>
   );
