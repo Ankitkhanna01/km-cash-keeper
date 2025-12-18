@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MapPin, Building2, Home, Store, Loader2, Search, X, RotateCcw } from 'lucide-react';
+import { MapPin, Building2, Home, Store, Loader2, Search, X, RotateCcw, History, Star, Globe } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -121,6 +121,19 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
     }
   };
 
+  const getSourceIndicator = (source?: string) => {
+    switch (source) {
+      case 'trips':
+        return <span title="From your past trips"><History className="w-2.5 h-2.5 text-blue-500" /></span>;
+      case 'cached':
+        return <span title="Saved place"><Star className="w-2.5 h-2.5 text-yellow-500" /></span>;
+      case 'osm':
+        return <span title="From map"><Globe className="w-2.5 h-2.5 text-muted-foreground/50" /></span>;
+      default:
+        return null;
+    }
+  };
+
   const handleCustomSubmit = async () => {
     if (!searchQuery.trim()) return;
     
@@ -218,6 +231,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
                 onClick={() => handleSelectPlace(place)}
                 className="h-auto py-1 px-2 text-xs gap-1 bg-background/80 hover:bg-primary/10 border-border/50"
               >
+                {getSourceIndicator(place.source)}
                 {getIcon(place.type)}
                 <span className="truncate max-w-[100px]">{place.name}</span>
                 {place.distance && (
