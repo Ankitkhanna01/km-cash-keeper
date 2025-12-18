@@ -56,9 +56,43 @@ function hasNaturalLanguage(query: string): boolean {
   return naturalPatterns.test(query);
 }
 
+function hasExplicitLocation(query: string): boolean {
+  // Check if query already includes a city/province/area name
+  const locationPatterns = /\b(victoria|vancouver|saanich|langford|nanaimo|kamloops|kelowna|surrey|burnaby|richmond|coquitlam|abbotsford|chilliwack|prince george|calgary|edmonton|toronto|montreal|ottawa|bc|british columbia|alberta|ontario|quebec)\b/i;
+  return locationPatterns.test(query);
+}
+
 function extractStreetAddress(query: string): string | null {
   const match = query.match(/(\d+)\s+([A-Za-z].*)/);
   return match ? match[0] : null;
+}
+
+// Reverse geocode coordinates to get city/province
+async function getCityFromCoordinates(lat: number, lon: number): Promise<{ city: string; province: string } | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10`;
+    const response = await fetchWithTimeout(
+      url,
+      { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
+      3000
+    );
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const address = data.address || {};
+    const city = address.city || address.town || address.village || address.municipality || address.county || '';
+    const province = address.state || '';
+    
+    if (city || province) {
+      console.log(`GPS location: ${city}, ${province}`);
+      return { city, province };
+    }
+    return null;
+  } catch (err) {
+    console.error(`Reverse geocode error: ${err}`);
+    return null;
+  }
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
@@ -338,8 +372,21 @@ serve(async (req) => {
     const expandedQuery = expandProvinces(q);
     const isBusinessSearch = looksLikeBusinessSearch(q);
     const isNaturalLanguage = hasNaturalLanguage(q);
+    const hasLocation = hasExplicitLocation(q);
     
-    console.log(`Query: "${q}" | Business: ${isBusinessSearch} | Natural: ${isNaturalLanguage}`);
+    console.log(`Query: "${q}" | Business: ${isBusinessSearch} | Natural: ${isNaturalLanguage} | HasLocation: ${hasLocation}`);
+
+    // If business search without location, try to get city from GPS coordinates
+    let enhancedQuery = expandedQuery;
+    let userCity: { city: string; province: string } | null = null;
+    
+    if (isBusinessSearch && !hasLocation && near) {
+      userCity = await getCityFromCoordinates(near.lat, near.lon);
+      if (userCity && userCity.city) {
+        enhancedQuery = `${expandedQuery} ${userCity.city}`;
+        console.log(`Enhanced query: "${enhancedQuery}"`);
+      }
+    }
 
     // For natural language queries, try AI first as it understands context better
     let allResults: any[] = [];
@@ -347,7 +394,7 @@ serve(async (req) => {
     if (isNaturalLanguage) {
       console.log("Natural language query, trying AI first...");
       
-      const aiAddress = await lookupAddressWithAI(expandedQuery, near);
+      const aiAddress = await lookupAddressWithAI(enhancedQuery, near);
       
       if (aiAddress) {
         const aiGeoResults = await geocodeAIAddress(aiAddress, countrycodes, near);
@@ -375,8 +422,8 @@ serve(async (req) => {
     // Search both map sources in parallel (if no AI results yet or not natural language)
     if (allResults.length === 0) {
       const [photonResults, nominatimResults] = await Promise.all([
-        searchPhoton(expandedQuery, near, limit),
-        searchNominatim(expandedQuery, countrycodes, near, limit),
+        searchPhoton(enhancedQuery, near, limit),
+        searchNominatim(enhancedQuery, countrycodes, near, limit),
       ]);
 
       console.log(`Maps: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
@@ -386,7 +433,7 @@ serve(async (req) => {
       if (isBusinessSearch && allResults.length < 3) {
         console.log("Few map results, trying AI lookup...");
         
-        const aiAddress = await lookupAddressWithAI(expandedQuery, near);
+        const aiAddress = await lookupAddressWithAI(enhancedQuery, near);
         
         if (aiAddress) {
           const aiGeoResults = await geocodeAIAddress(aiAddress, countrycodes, near);
@@ -413,7 +460,7 @@ serve(async (req) => {
 
     // Also try extracting street address as fallback
     if (allResults.length === 0) {
-      const streetAddr = extractStreetAddress(expandedQuery);
+      const streetAddr = extractStreetAddress(enhancedQuery);
       if (streetAddr) {
         console.log(`Trying street: ${streetAddr}`);
         const streetResults = await searchNominatim(streetAddr, countrycodes, near, limit);
