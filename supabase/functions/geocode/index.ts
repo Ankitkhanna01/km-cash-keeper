@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,7 +48,6 @@ function expandProvinces(query: string): string {
 }
 
 function looksLikeBusinessSearch(query: string): boolean {
-  // Business search if it starts with letters and has no street number, or is a name with numbers (like "Fit 4 Less")
   return /^[A-Za-z].*\d+\s+[A-Za-z]/.test(query) || !/\d/.test(query);
 }
 
@@ -59,6 +59,133 @@ function hasExplicitLocation(query: string): boolean {
 function extractStreetAddress(query: string): string | null {
   const match = query.match(/(\d+)\s+([A-Za-z].*)/);
   return match ? match[0] : null;
+}
+
+// Initialize Supabase client for cache operations
+function getSupabaseClient() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+  );
+}
+
+// Search local cache first
+async function searchCache(query: string, near?: Nearby): Promise<any[]> {
+  try {
+    const supabase = getSupabaseClient();
+    const searchTerms = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+    
+    // Search for addresses where any search term matches
+    const { data, error } = await supabase
+      .from('cached_addresses')
+      .select('*')
+      .limit(10);
+    
+    if (error || !data) {
+      console.log(`Cache search error: ${error?.message}`);
+      return [];
+    }
+    
+    // Filter results that match any search term
+    const matches = data.filter((addr: any) => {
+      const displayLower = addr.display_name?.toLowerCase() || '';
+      const cachedTerms = addr.search_terms || [];
+      
+      // Check if query terms match display_name or cached search_terms
+      return searchTerms.some(term => 
+        displayLower.includes(term) || 
+        cachedTerms.some((t: string) => t.includes(term) || term.includes(t))
+      );
+    });
+    
+    if (matches.length > 0) {
+      console.log(`Cache hit: ${matches.length} results`);
+      
+      // Update hit count for matched results
+      for (const match of matches) {
+        await supabase
+          .from('cached_addresses')
+          .update({ hit_count: (match.hit_count || 1) + 1 })
+          .eq('id', match.id);
+      }
+    }
+    
+    return matches.map((addr: any) => ({
+      display_name: addr.display_name,
+      name: addr.display_name.split(',')[0],
+      lat: String(addr.lat),
+      lon: String(addr.lon),
+      type: 'cached',
+      address: {
+        road: addr.street,
+        city: addr.city,
+        state: addr.province,
+        postcode: addr.postal_code,
+      },
+      source: 'cache',
+    }));
+  } catch (err) {
+    console.error(`Cache error: ${err}`);
+    return [];
+  }
+}
+
+// Save HERE results to cache for future use
+async function cacheHEREResults(results: any[], originalQuery: string): Promise<void> {
+  try {
+    const supabase = getSupabaseClient();
+    const searchTerms = originalQuery.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+    
+    for (const result of results) {
+      if (!result.lat || !result.lon) continue;
+      
+      const lat = parseFloat(result.lat);
+      const lon = parseFloat(result.lon);
+      
+      // Check if already cached (within 50m)
+      const { data: existing } = await supabase
+        .from('cached_addresses')
+        .select('id, search_terms')
+        .gte('lat', lat - 0.0005)
+        .lte('lat', lat + 0.0005)
+        .gte('lon', lon - 0.0005)
+        .lte('lon', lon + 0.0005)
+        .limit(1);
+      
+      if (existing && existing.length > 0) {
+        // Update search_terms if new terms found
+        const existingTerms = existing[0].search_terms || [];
+        const newTerms = [...new Set([...existingTerms, ...searchTerms])];
+        
+        await supabase
+          .from('cached_addresses')
+          .update({ search_terms: newTerms })
+          .eq('id', existing[0].id);
+          
+        console.log(`Updated cache entry: ${result.display_name}`);
+      } else {
+        // Insert new cache entry
+        const addr = result.address || {};
+        await supabase
+          .from('cached_addresses')
+          .insert({
+            display_name: result.display_name,
+            street: addr.road || addr.street,
+            city: addr.city,
+            province: addr.state,
+            postal_code: addr.postcode,
+            lat,
+            lon,
+            source: 'here',
+            search_terms: searchTerms,
+          });
+          
+        console.log(`Cached: ${result.display_name}`);
+      }
+    }
+  } catch (err) {
+    console.error(`Cache write error: ${err}`);
+  }
 }
 
 // Reverse geocode coordinates to get city/province
@@ -276,7 +403,8 @@ function deduplicateResults(results: any[]): any[] {
     const lat = parseFloat(result.lat).toFixed(5);
     const lon = parseFloat(result.lon).toFixed(5);
     const key = `${lat},${lon}`;
-    if (!seen.has(key) || result.source === 'here') {
+    // Prioritize: cache > here > others
+    if (!seen.has(key) || result.source === 'cache' || (result.source === 'here' && seen.get(key)?.source !== 'cache')) {
       seen.set(key, result);
     }
   }
@@ -289,7 +417,6 @@ function hasRelevantBusinessMatch(results: any[], query: string): boolean {
   return results.some(r => {
     const name = (r.name || '').toLowerCase();
     const displayName = (r.display_name || '').toLowerCase();
-    // Check if at least 2 query words match in the result name
     const matchCount = queryWords.filter(w => name.includes(w) || displayName.includes(w)).length;
     return matchCount >= Math.min(2, queryWords.length);
   });
@@ -330,7 +457,18 @@ serve(async (req) => {
     
     console.log(`Query: "${q}" | Business: ${isBusinessSearch} | HasLocation: ${hasLocation}`);
 
-    // If business search without location, try to get city from GPS coordinates
+    // 1. Check local cache first
+    const cachedResults = await searchCache(q, near);
+    if (cachedResults.length > 0 && hasRelevantBusinessMatch(cachedResults, q)) {
+      console.log(`Returning ${cachedResults.length} cached results`);
+      const formattedData = cachedResults.slice(0, limit).map(r => formatAddress(r));
+      return new Response(JSON.stringify(formattedData), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
+      });
+    }
+
+    // 2. If business search without location, try to get city from GPS coordinates
     let enhancedQuery = expandedQuery;
     
     if (isBusinessSearch && !hasLocation && near) {
@@ -341,32 +479,36 @@ serve(async (req) => {
       }
     }
 
-    // Search both OSM sources in parallel
+    // 3. Search both OSM sources in parallel
     const [photonResults, nominatimResults] = await Promise.all([
       searchPhoton(enhancedQuery, near, limit),
       searchNominatim(enhancedQuery, countrycodes, near, limit),
     ]);
 
     console.log(`OSM: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
-    let allResults = [...photonResults, ...nominatimResults];
+    let allResults = [...cachedResults, ...photonResults, ...nominatimResults];
 
-    // For business searches: use HERE if OSM returns no results OR doesn't have relevant matches
+    // 4. For business searches: use HERE if OSM returns no results OR doesn't have relevant matches
+    let hereResults: any[] = [];
     if (isBusinessSearch) {
       const hasGoodOSMResults = allResults.length > 0 && hasRelevantBusinessMatch(allResults, q);
       
       if (!hasGoodOSMResults) {
         console.log("OSM didn't find relevant business match, trying HERE...");
-        const hereResults = await searchHERE(enhancedQuery, near, limit);
+        hereResults = await searchHERE(enhancedQuery, near, limit);
         
         if (hereResults.length > 0) {
           console.log(`HERE found ${hereResults.length} results`);
           // Prepend HERE results for business searches
           allResults = [...hereResults, ...allResults];
+          
+          // Cache HERE results for future searches (async, don't await)
+          cacheHEREResults(hereResults, q);
         }
       }
     }
 
-    // Fallback: try extracting street address if no results
+    // 5. Fallback: try extracting street address if no results
     if (allResults.length === 0) {
       const streetAddr = extractStreetAddress(enhancedQuery);
       if (streetAddr) {
@@ -376,23 +518,28 @@ serve(async (req) => {
       }
     }
 
-    // Last resort for any query with no results: try HERE
+    // 6. Last resort for any query with no results: try HERE
     if (allResults.length === 0) {
       console.log("No OSM results, trying HERE as last resort...");
-      const hereResults = await searchHERE(enhancedQuery, near, limit);
+      hereResults = await searchHERE(enhancedQuery, near, limit);
       if (hereResults.length > 0) {
         console.log(`HERE found ${hereResults.length} results`);
         allResults = hereResults;
+        
+        // Cache these results too
+        cacheHEREResults(hereResults, q);
       }
     }
 
-    // Deduplicate and format
+    // 7. Deduplicate and format
     const combined = deduplicateResults(allResults);
     
     // Sort by relevance
     const queryLower = q.toLowerCase();
     combined.sort((a, b) => {
-      // HERE results first for business searches
+      // Cache/HERE results first for business searches
+      if (a.source === 'cache' && b.source !== 'cache') return -1;
+      if (b.source === 'cache' && a.source !== 'cache') return 1;
       if (a.source === 'here' && b.source !== 'here') return -1;
       if (b.source === 'here' && a.source !== 'here') return 1;
       
