@@ -148,20 +148,28 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     setPage(0);
 
     try {
-      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=20&addressdetails=1`;
+      // Use edge function for better Canadian address support
+      const { data, error } = await supabase.functions.invoke('geocode', {
+        body: {
+          q: query,
+          limit: 20,
+          countrycodes: 'ca',
+          near: userLocation && isValidCoordinate(userLocation.lat, userLocation.lon) 
+            ? { lat: userLocation.lat, lon: userLocation.lon }
+            : undefined,
+        },
+      });
 
-      if (userLocation && isValidCoordinate(userLocation.lat, userLocation.lon)) {
-        // Use a larger viewbox for better nearby results
-        const viewbox = `${userLocation.lon - 0.1},${userLocation.lat + 0.1},${userLocation.lon + 0.1},${userLocation.lat - 0.1}`;
-        url += `&viewbox=${viewbox}&bounded=0`;
+      if (error) {
+        console.error("Geocode error:", error);
+        setSearchResults([]);
+        setShowResults(false);
+        return;
       }
 
-      const response = await fetch(url);
-      const data = await response.json();
-
-      let results: AddressSuggestion[] = data.map((item: any) => ({
+      let results: AddressSuggestion[] = (data || []).map((item: any) => ({
         display_name: item.display_name,
-        name: item.name || item.display_name.split(',')[0],
+        name: item.formatted_name || item.name || item.display_name.split(',')[0],
         lat: parseFloat(item.lat),
         lon: parseFloat(item.lon),
         address: item.address,
