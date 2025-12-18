@@ -441,7 +441,11 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   };
 
   const handleEndLocationConfirmed = (finalEndLocation: StopLocation, shouldChainTrip: boolean = false) => {
-    if (!startLocation || !selectedPurpose) return;
+    console.log('handleEndLocationConfirmed called', { shouldChainTrip, selectedPurpose, finalEndLocation: finalEndLocation.address });
+    if (!startLocation || !selectedPurpose) {
+      console.log('Missing data', { startLocation: !!startLocation, selectedPurpose });
+      return;
+    }
 
     setShowEndLocationPicker(false);
 
@@ -486,7 +490,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     });
 
     // Check if we should chain a new trip (for pickup/dropoff)
+    console.log('Checking chain trip', { shouldChainTrip, selectedPurpose, isPickupOrDropoff: selectedPurpose === 'pickup' || selectedPurpose === 'dropoff' });
     if (shouldChainTrip && (selectedPurpose === 'pickup' || selectedPurpose === 'dropoff')) {
+      console.log('Starting chained trip from:', finalEndLocation.address);
       // Start a new trip from the same location
       const newStartLocation: StopLocation = {
         address: finalEndLocation.address,
