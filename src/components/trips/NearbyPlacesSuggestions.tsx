@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, ChevronRight, MapPin, Loader2, Store, Home, Search } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { isValidCoordinate, isValidSearchQuery } from '@/lib/coordinateUtils';
 
 interface NearbyPlace {
   name: string;
@@ -32,6 +33,15 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, onClose }: NearbyP
 
   useEffect(() => {
     const fetchNearbyPlaces = async () => {
+      // Validate coordinates before making API call
+      if (!isValidCoordinate(lat, lon)) {
+        console.error('Invalid coordinates for nearby places');
+        setLoading(false);
+        setAllPlaces([]);
+        setPlaces([]);
+        return;
+      }
+
       setLoading(true);
       try {
         const { data, error } = await supabase.functions.invoke('nearby-places', {
@@ -57,8 +67,15 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, onClose }: NearbyP
   }, [lat, lon]);
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
+    const query = searchQuery.trim();
+    if (!query || !isValidSearchQuery(query)) {
       setSearchResults(null);
+      return;
+    }
+
+    // Validate coordinates before making API call
+    if (!isValidCoordinate(lat, lon)) {
+      console.error('Invalid coordinates for search');
       return;
     }
 
@@ -67,7 +84,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, onClose }: NearbyP
       // Search nearby using Nominatim with viewbox around current location
       const viewbox = `${lon - 0.01},${lat + 0.01},${lon + 0.01},${lat - 0.01}`;
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&viewbox=${viewbox}&bounded=0&limit=10&addressdetails=1`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&viewbox=${viewbox}&bounded=0&limit=10&addressdetails=1`
       );
       const data = await response.json();
 
