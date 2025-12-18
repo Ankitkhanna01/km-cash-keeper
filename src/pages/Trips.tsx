@@ -43,6 +43,7 @@ export default function Trips() {
     if (updates.date !== undefined) dbUpdates.date = updates.date;
     if (updates.startTime !== undefined) dbUpdates.start_time = updates.startTime;
     if (updates.endTime !== undefined) dbUpdates.end_time = updates.endTime;
+    if (updates.category !== undefined) dbUpdates.category = updates.category;
     
     await updateTrip(id, dbUpdates);
     toast.success('Trip updated');
