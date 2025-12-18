@@ -50,6 +50,12 @@ function looksLikeBusinessSearch(query: string): boolean {
   return /^[A-Za-z].*\d+\s+[A-Za-z]/.test(query) || !/\d/.test(query);
 }
 
+function hasNaturalLanguage(query: string): boolean {
+  // Detect queries like "fit 4 less near royal spice" or "starbucks by the mall"
+  const naturalPatterns = /\b(near|by|next to|across from|beside|behind|in front of|close to|around|at the|on the)\b/i;
+  return naturalPatterns.test(query);
+}
+
 function extractStreetAddress(query: string): string | null {
   const match = query.match(/(\d+)\s+([A-Za-z].*)/);
   return match ? match[0] : null;
@@ -168,14 +174,18 @@ async function lookupAddressWithAI(query: string): Promise<string | null> {
           messages: [
             {
               role: "system",
-              content: `You are an address lookup assistant for Canadian businesses. When given a business name and location, respond with ONLY the full street address in this exact format:
+              content: `You are an address lookup assistant for Canadian businesses and locations. When given a business name with hints like "near [landmark]" or just a city, find the actual street address.
+
+IMPORTANT: The user might say things like "Fit 4 Less near Royal Spice" or "Starbucks Victoria downtown" - use your knowledge to find the specific location.
+
+Respond with ONLY the full street address in this exact format:
 "[Street Number] [Street Name], [City], [Province Abbreviation] [Postal Code]"
 
 Examples:
 - "805 Cloverdale Ave, Victoria, BC V8X 5H9"
-- "123 Main St, Vancouver, BC V6B 1A1"
+- "3440 Saanich Rd, Victoria, BC V8P 5A7"
 
-If you don't know the exact address, respond with "UNKNOWN".
+If you cannot determine the exact address, respond with "UNKNOWN".
 Do not include any other text, explanations, or the business name - just the address or UNKNOWN.`
             },
             {
@@ -209,6 +219,26 @@ Do not include any other text, explanations, or the business name - just the add
     console.error(`AI lookup error: ${err}`);
     return null;
   }
+}
+
+// Geocode an AI-found address using both services
+async function geocodeAIAddress(address: string, countrycodes: string, near?: Nearby): Promise<any[]> {
+  // Try Nominatim first
+  const nominatimResults = await searchNominatim(address, countrycodes, near, 5);
+  if (nominatimResults.length > 0) {
+    console.log(`AI address geocoded via Nominatim: ${nominatimResults.length}`);
+    return nominatimResults;
+  }
+  
+  // Fallback to Photon
+  const photonResults = await searchPhoton(address, near, 5);
+  if (photonResults.length > 0) {
+    console.log(`AI address geocoded via Photon: ${photonResults.length}`);
+    return photonResults;
+  }
+  
+  console.log("AI address geocoding failed");
+  return [];
 }
 
 function formatAddress(item: any, originalQuery?: string): any {
@@ -298,42 +328,73 @@ serve(async (req) => {
 
     const expandedQuery = expandProvinces(q);
     const isBusinessSearch = looksLikeBusinessSearch(q);
+    const isNaturalLanguage = hasNaturalLanguage(q);
     
-    console.log(`Query: "${q}" | Business: ${isBusinessSearch}`);
+    console.log(`Query: "${q}" | Business: ${isBusinessSearch} | Natural: ${isNaturalLanguage}`);
 
-    // Search both map sources in parallel
-    const [photonResults, nominatimResults] = await Promise.all([
-      searchPhoton(expandedQuery, near, limit),
-      searchNominatim(expandedQuery, countrycodes, near, limit),
-    ]);
-
-    console.log(`Maps: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
-
-    let allResults = [...photonResults, ...nominatimResults];
-
-    // If business search and no/few results, try AI lookup
-    if (isBusinessSearch && allResults.length < 2) {
-      console.log("Few results, trying AI lookup...");
+    // For natural language queries, try AI first as it understands context better
+    let allResults: any[] = [];
+    
+    if (isNaturalLanguage) {
+      console.log("Natural language query, trying AI first...");
       
       const aiAddress = await lookupAddressWithAI(expandedQuery);
       
       if (aiAddress) {
-        // Now geocode the AI-found address
-        const aiGeoResults = await searchNominatim(aiAddress, countrycodes, near, 5);
+        const aiGeoResults = await geocodeAIAddress(aiAddress, countrycodes, near);
         
         if (aiGeoResults.length > 0) {
-          // Mark as AI-enhanced and add business name
-          const businessName = q.replace(/\s+(victoria|vancouver|saanich|bc|british columbia|canada).*$/i, '').trim();
+          // Extract business name (remove natural language parts)
+          const businessName = q
+            .replace(/\s+(near|by|next to|across from|beside|behind|in front of|close to|around|at the|on the)\s+.*/i, '')
+            .replace(/\s+(victoria|vancouver|saanich|bc|british columbia|canada).*$/i, '')
+            .trim();
           
           const enhancedResults = aiGeoResults.map(r => ({
             ...r,
             source: 'ai_enhanced',
             name: businessName,
-            display_name: `${businessName}, ${r.display_name}`,
+            display_name: `${businessName}, ${aiAddress}`,
           }));
           
-          console.log(`AI enhanced: ${enhancedResults.length} results`);
-          allResults = [...enhancedResults, ...allResults];
+          console.log(`AI enhanced: ${enhancedResults.length} results for "${businessName}"`);
+          allResults = enhancedResults;
+        }
+      }
+    }
+    
+    // Search both map sources in parallel (if no AI results yet or not natural language)
+    if (allResults.length === 0) {
+      const [photonResults, nominatimResults] = await Promise.all([
+        searchPhoton(expandedQuery, near, limit),
+        searchNominatim(expandedQuery, countrycodes, near, limit),
+      ]);
+
+      console.log(`Maps: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
+      allResults = [...photonResults, ...nominatimResults];
+
+      // If business search and no/few results, try AI lookup
+      if (isBusinessSearch && allResults.length < 3) {
+        console.log("Few map results, trying AI lookup...");
+        
+        const aiAddress = await lookupAddressWithAI(expandedQuery);
+        
+        if (aiAddress) {
+          const aiGeoResults = await geocodeAIAddress(aiAddress, countrycodes, near);
+          
+          if (aiGeoResults.length > 0) {
+            const businessName = q.replace(/\s+(victoria|vancouver|saanich|bc|british columbia|canada).*$/i, '').trim();
+            
+            const enhancedResults = aiGeoResults.map(r => ({
+              ...r,
+              source: 'ai_enhanced',
+              name: businessName,
+              display_name: `${businessName}, ${aiAddress}`,
+            }));
+            
+            console.log(`AI enhanced: ${enhancedResults.length} results`);
+            allResults = [...enhancedResults, ...allResults];
+          }
         }
       }
     }
