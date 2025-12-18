@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Pencil } from 'lucide-react';
+import { Pencil, Briefcase, User } from 'lucide-react';
 import { Trip } from '@/types';
 import { AddressAutocomplete, AddressComponents } from './AddressAutocomplete';
 
@@ -22,6 +22,7 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
   const [date, setDate] = useState(trip.date);
   const [startTime, setStartTime] = useState(trip.startTime);
   const [endTime, setEndTime] = useState(trip.endTime);
+  const [category, setCategory] = useState<'business' | 'personal' | 'uncategorized'>(trip.category);
 
   const handleStartLocationChange = (value: string, lat?: number, lon?: number, address?: AddressComponents) => {
     setStartLocation(value);
@@ -40,6 +41,7 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
       date,
       startTime,
       endTime,
+      category,
     });
     setOpen(false);
   };
@@ -54,6 +56,7 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
       setDate(trip.date);
       setStartTime(trip.startTime);
       setEndTime(trip.endTime);
+      setCategory(trip.category);
     }
     setOpen(isOpen);
   };
@@ -132,6 +135,32 @@ export function EditTripDialog({ trip, onSave }: EditTripDialogProps) {
               onChange={handleEndLocationChange}
               placeholder="End address"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Trip Type</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={category === 'business' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setCategory('business')}
+                className="flex-1 gap-2"
+              >
+                <Briefcase className="w-4 h-4" />
+                Business
+              </Button>
+              <Button
+                type="button"
+                variant={category === 'personal' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setCategory('personal')}
+                className="flex-1 gap-2"
+              >
+                <User className="w-4 h-4" />
+                Personal
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-2">
