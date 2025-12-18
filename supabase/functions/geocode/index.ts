@@ -51,8 +51,8 @@ function looksLikeBusinessSearch(query: string): boolean {
 }
 
 function hasNaturalLanguage(query: string): boolean {
-  // Detect queries like "fit 4 less near royal spice" or "starbucks by the mall"
-  const naturalPatterns = /\b(near|by|next to|across from|beside|behind|in front of|close to|around|at the|on the)\b/i;
+  // Detect queries like "fit 4 less near royal spice" or "starbucks opposite staples"
+  const naturalPatterns = /\b(near|by|next to|across from|beside|behind|in front of|close to|around|at the|on the|opposite|across)\b/i;
   return naturalPatterns.test(query);
 }
 
@@ -151,7 +151,7 @@ async function searchNominatim(query: string, countrycodes: string, near?: Nearb
 }
 
 // AI-powered address lookup using Lovable AI
-async function lookupAddressWithAI(query: string): Promise<string | null> {
+async function lookupAddressWithAI(query: string, near?: Nearby): Promise<string | null> {
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) {
     console.log("No LOVABLE_API_KEY for AI lookup");
@@ -159,7 +159,13 @@ async function lookupAddressWithAI(query: string): Promise<string | null> {
   }
 
   try {
-    console.log(`AI lookup: ${query}`);
+    console.log(`AI lookup: ${query}${near ? ` near (${near.lat.toFixed(4)}, ${near.lon.toFixed(4)})` : ''}`);
+    
+    // Build location context for AI
+    let locationHint = "";
+    if (near) {
+      locationHint = `\n\nIMPORTANT: The user is currently located near coordinates (${near.lat.toFixed(5)}, ${near.lon.toFixed(5)}). Find the location of the business that is CLOSEST to these coordinates. For chain businesses with multiple locations, pick the one nearest to the user.`;
+    }
     
     const response = await fetchWithTimeout(
       "https://ai.gateway.lovable.dev/v1/chat/completions",
@@ -174,19 +180,22 @@ async function lookupAddressWithAI(query: string): Promise<string | null> {
           messages: [
             {
               role: "system",
-              content: `You are an address lookup assistant for Canadian businesses and locations. When given a business name with hints like "near [landmark]" or just a city, find the actual street address.
+              content: `You are an address lookup assistant for Canadian businesses and locations. When given a business name with hints like "near [landmark]", "opposite [store]", or just a city/area name, find the actual street address.
 
-IMPORTANT: The user might say things like "Fit 4 Less near Royal Spice" or "Starbucks Victoria downtown" - use your knowledge to find the specific location.
-
-Respond with ONLY the full street address in this exact format:
-"[Street Number] [Street Name], [City], [Province Abbreviation] [Postal Code]"
+IMPORTANT RULES:
+1. The user might say things like "Fit 4 Less near Royal Spice" or "Starbucks opposite Staples" - use your knowledge to find the specific location based on these hints.
+2. For chains with multiple locations, use the landmark/nearby business hint OR the user's GPS coordinates to pick the CORRECT specific location.
+3. Include the unit/suite number if the business has one (e.g., "Unit 104" or "Suite 200").
+4. Respond with ONLY the full street address in this exact format:
+"[Street Number] [Street Name] [Unit if any], [City], [Province Abbreviation] [Postal Code]"
 
 Examples:
-- "805 Cloverdale Ave, Victoria, BC V8X 5H9"
+- "805 Cloverdale Ave Unit 104, Victoria, BC V8X 5H9"
 - "3440 Saanich Rd, Victoria, BC V8P 5A7"
+- "123 Main St Suite 200, Vancouver, BC V6B 1A1"
 
 If you cannot determine the exact address, respond with "UNKNOWN".
-Do not include any other text, explanations, or the business name - just the address or UNKNOWN.`
+Do not include any other text, explanations, or the business name - just the address or UNKNOWN.${locationHint}`
             },
             {
               role: "user",
@@ -242,16 +251,16 @@ async function geocodeAIAddress(address: string, countrycodes: string, near?: Ne
 }
 
 function formatAddress(item: any, originalQuery?: string): any {
+  // For AI-enhanced results, use the already-formatted display_name
+  if (item.source === 'ai_enhanced') {
+    return {
+      ...item,
+      formatted_name: item.display_name,
+    };
+  }
+  
   const address = item.address || {};
   const parts: string[] = [];
-  
-  // If we have the original business name query, prepend it
-  if (originalQuery && item.source === 'ai_enhanced') {
-    const businessName = originalQuery.replace(/\s+(victoria|vancouver|saanich|bc|british columbia).*$/i, '').trim();
-    if (businessName && !item.name?.toLowerCase().includes(businessName.toLowerCase())) {
-      parts.push(businessName);
-    }
-  }
   
   if (item.name && !item.name.match(/^\d/)) {
     parts.push(item.name);
@@ -338,7 +347,7 @@ serve(async (req) => {
     if (isNaturalLanguage) {
       console.log("Natural language query, trying AI first...");
       
-      const aiAddress = await lookupAddressWithAI(expandedQuery);
+      const aiAddress = await lookupAddressWithAI(expandedQuery, near);
       
       if (aiAddress) {
         const aiGeoResults = await geocodeAIAddress(aiAddress, countrycodes, near);
@@ -346,11 +355,11 @@ serve(async (req) => {
         if (aiGeoResults.length > 0) {
           // Extract business name (remove natural language parts)
           const businessName = q
-            .replace(/\s+(near|by|next to|across from|beside|behind|in front of|close to|around|at the|on the)\s+.*/i, '')
+            .replace(/\s+(near|by|next to|across from|beside|behind|in front of|close to|around|at the|on the|opposite)\s+.*/i, '')
             .replace(/\s+(victoria|vancouver|saanich|bc|british columbia|canada).*$/i, '')
             .trim();
           
-          const enhancedResults = aiGeoResults.map(r => ({
+          const enhancedResults = aiGeoResults.slice(0, 1).map(r => ({
             ...r,
             source: 'ai_enhanced',
             name: businessName,
@@ -377,15 +386,18 @@ serve(async (req) => {
       if (isBusinessSearch && allResults.length < 3) {
         console.log("Few map results, trying AI lookup...");
         
-        const aiAddress = await lookupAddressWithAI(expandedQuery);
+        const aiAddress = await lookupAddressWithAI(expandedQuery, near);
         
         if (aiAddress) {
           const aiGeoResults = await geocodeAIAddress(aiAddress, countrycodes, near);
           
           if (aiGeoResults.length > 0) {
-            const businessName = q.replace(/\s+(victoria|vancouver|saanich|bc|british columbia|canada).*$/i, '').trim();
+            const businessName = q
+              .replace(/\s+(near|by|next to|across from|beside|behind|in front of|close to|around|at the|on the|opposite)\s+.*/i, '')
+              .replace(/\s+(victoria|vancouver|saanich|bc|british columbia|canada).*$/i, '')
+              .trim();
             
-            const enhancedResults = aiGeoResults.map(r => ({
+            const enhancedResults = aiGeoResults.slice(0, 1).map(r => ({
               ...r,
               source: 'ai_enhanced',
               name: businessName,
