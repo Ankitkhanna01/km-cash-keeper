@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Play, Square, MapPin, Plus, Clock, Loader2, Navigation, MessageSquare } from 'lucide-react';
+import { Play, Square, MapPin, Plus, Clock, Loader2, Navigation, MessageSquare, Check, Pencil } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { calculateTotalDistance } from './AddressAutocomplete';
@@ -72,6 +72,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [comments, setComments] = useState('');
   const [showCommentsField, setShowCommentsField] = useState(false);
+  const [isEditingComments, setIsEditingComments] = useState(false);
   const [showPurposeDialog, setShowPurposeDialog] = useState(false);
   const [pendingEndLocation, setPendingEndLocation] = useState<StopLocation | null>(null);
   const lastWaypointTime = useRef<number>(0);
@@ -483,20 +484,46 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowCommentsField(true)}
+              onClick={() => {
+                setShowCommentsField(true);
+                setIsEditingComments(true);
+              }}
               className="w-full gap-2 text-muted-foreground"
             >
               <MessageSquare className="w-4 h-4" />
               Add comments
             </Button>
-          ) : (
-            <div className="space-y-2">
+          ) : isEditingComments ? (
+            <div className="flex gap-2 items-start">
               <Textarea
                 placeholder="Add notes about this trip..."
                 value={comments}
                 onChange={(e) => setComments(e.target.value)}
-                className="min-h-[60px] text-sm"
+                className="min-h-[60px] text-sm flex-1"
+                autoFocus
               />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsEditingComments(false)}
+                className="h-8 w-8 shrink-0 text-green-600 hover:text-green-700 hover:bg-green-100"
+              >
+                <Check className="w-4 h-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2 items-start">
+              <div className="flex-1 text-sm text-muted-foreground bg-muted/50 rounded px-2 py-1.5">
+                {comments || <span className="italic">No comments</span>}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsEditingComments(true)}
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <Pencil className="w-3 h-3" />
+              </Button>
             </div>
           )}
 
