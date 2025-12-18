@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      cached_addresses: {
+        Row: {
+          city: string | null
+          created_at: string
+          display_name: string
+          hit_count: number
+          id: string
+          lat: number
+          lon: number
+          postal_code: string | null
+          province: string | null
+          search_terms: string[] | null
+          source: string
+          street: string | null
+        }
+        Insert: {
+          city?: string | null
+          created_at?: string
+          display_name: string
+          hit_count?: number
+          id?: string
+          lat: number
+          lon: number
+          postal_code?: string | null
+          province?: string | null
+          search_terms?: string[] | null
+          source?: string
+          street?: string | null
+        }
+        Update: {
+          city?: string | null
+          created_at?: string
+          display_name?: string
+          hit_count?: number
+          id?: string
+          lat?: number
+          lon?: number
+          postal_code?: string | null
+          province?: string | null
+          search_terms?: string[] | null
+          source?: string
+          street?: string | null
+        }
+        Relationships: []
+      }
       expenses: {
         Row: {
           amount: number
