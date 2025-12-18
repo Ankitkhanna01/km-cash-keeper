@@ -32,7 +32,7 @@ serve(async (req) => {
   }
 
   try {
-    const { lat, lon, radius = 150 } = await req.json();
+    const { lat, lon, radius = 150, query } = await req.json();
 
     if (!lat || !lon) {
       return new Response(
@@ -41,13 +41,66 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Searching nearby places at ${lat}, ${lon} within ${radius}m`);
+    console.log(`Searching nearby places at ${lat}, ${lon} within ${radius}m${query ? `, query: ${query}` : ''}`);
 
     const allPlaces: NearbyPlace[] = [];
     
     // Calculate bounding box (rough approximation: 1 degree ≈ 111km)
     const delta = radius / 111000;
     const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
+
+    // If there's a search query, prioritize searching for that
+    if (query && query.trim()) {
+      try {
+        const searchUrl = `https://nominatim.openstreetmap.org/search?` +
+          `format=json&` +
+          `q=${encodeURIComponent(query)}&` +
+          `viewbox=${viewbox}&` +
+          `bounded=1&` +
+          `limit=5&` +
+          `addressdetails=1`;
+
+        const response = await fetch(searchUrl, {
+          headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          for (const place of data) {
+            const placeLat = parseFloat(place.lat);
+            const placeLon = parseFloat(place.lon);
+            const distance = getDistance(lat, lon, placeLat, placeLon);
+            
+            if (distance <= radius) {
+              const name = place.name || place.display_name?.split(',')[0] || '';
+              const addr = place.address;
+              const address = addr ? 
+                `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
+                '';
+
+              allPlaces.push({
+                name,
+                address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
+                lat: placeLat,
+                lon: placeLon,
+                type: place.class === 'shop' || place.class === 'amenity' ? 'business' : 'other',
+                distance: Math.round(distance),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.log("Error searching:", e);
+      }
+
+      // If query search found results, return them
+      if (allPlaces.length > 0) {
+        return new Response(
+          JSON.stringify({ places: allPlaces.slice(0, 5) }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
     // Search for businesses/POIs using Nominatim
     const businessAmenities = ['restaurant', 'fast_food', 'cafe', 'shop', 'supermarket', 'pharmacy', 'bank'];
@@ -98,7 +151,6 @@ serve(async (req) => {
     }
 
     // Search for nearby house numbers using reverse geocoding around the point
-    // Generate points in a small grid around the location
     const houseSearchPoints = [
       { lat, lon },
       { lat: lat + 0.0001, lon },
