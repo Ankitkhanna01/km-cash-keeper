@@ -216,7 +216,7 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
     
     return matches.map((addr: any) => ({
       display_name: addr.display_name,
-      name: addr.display_name.split(',')[0],
+      name: addr.display_name.split(',')[0].trim(),
       lat: String(addr.lat),
       lon: String(addr.lon),
       type: 'cached',
@@ -225,6 +225,7 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
         city: addr.city,
         state: addr.province,
         postcode: addr.postal_code,
+        full_label: addr.display_name, // Use display_name as full_label for consistent formatting
       },
       source: 'cache',
     }));
@@ -442,8 +443,14 @@ async function searchHERE(query: string, near?: Nearby, limit = 10): Promise<any
     const data = await response.json();
     return (data.items || []).map((item: any) => {
       const addr = item.address || {};
+      // Build full address from HERE data - addr.label has the complete address
+      const fullAddress = addr.label || item.title;
+      // Extract unit/suite if present in the label
+      const unitMatch = fullAddress.match(/Unit\s+\d+|Suite\s+\d+|#\d+/i);
+      const unit = unitMatch ? unitMatch[0] : null;
+      
       return {
-        display_name: item.title || addr.label,
+        display_name: fullAddress,
         name: item.title,
         lat: String(item.position?.lat),
         lon: String(item.position?.lng),
@@ -451,9 +458,11 @@ async function searchHERE(query: string, near?: Nearby, limit = 10): Promise<any
         address: {
           house_number: addr.houseNumber,
           road: addr.street,
+          unit: unit,
           city: addr.city,
           state: addr.state,
           postcode: addr.postalCode,
+          full_label: addr.label,
         },
         source: 'here',
       };
@@ -466,14 +475,40 @@ async function searchHERE(query: string, near?: Nearby, limit = 10): Promise<any
 
 function formatAddress(item: any): any {
   const address = item.address || {};
+  
+  // If we have a full_label from HERE, use it as it's the most complete
+  if (address.full_label) {
+    const result: any = {
+      ...item,
+      formatted_name: address.full_label,
+    };
+    
+    if (item.distance_meters !== undefined) {
+      result.distance_meters = item.distance_meters;
+      result.distance_label = item.distance_meters < 1000 
+        ? `${item.distance_meters}m away` 
+        : `${(item.distance_meters / 1000).toFixed(1)}km away`;
+    }
+    
+    return result;
+  }
+  
+  // Build address from components
   const parts: string[] = [];
   
+  // Add business name if it exists and doesn't start with a number
   if (item.name && !item.name.match(/^\d/)) {
     parts.push(item.name);
   }
   
+  // Build street address with unit if available
+  let streetPart = '';
   if (address.house_number && address.road) {
-    parts.push(`${address.house_number} ${address.road}`);
+    streetPart = `${address.house_number} ${address.road}`;
+    if (address.unit) {
+      streetPart += ` ${address.unit}`;
+    }
+    parts.push(streetPart);
   } else if (address.road) {
     parts.push(address.road);
   }
