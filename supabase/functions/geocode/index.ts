@@ -37,7 +37,6 @@ function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
 
-// Expand province abbreviations
 function expandProvinces(query: string): string {
   let expanded = query;
   for (const [abbr, full] of Object.entries(PROVINCE_ABBREVIATIONS)) {
@@ -47,15 +46,10 @@ function expandProvinces(query: string): string {
   return expanded;
 }
 
-// Check if query likely contains a business name
 function looksLikeBusinessSearch(query: string): boolean {
-  // Has text before a street number
-  return /^[A-Za-z].*\d+\s+[A-Za-z]/.test(query) || 
-         // Or is just a business name (no numbers)
-         !/\d/.test(query);
+  return /^[A-Za-z].*\d+\s+[A-Za-z]/.test(query) || !/\d/.test(query);
 }
 
-// Extract street address portion
 function extractStreetAddress(query: string): string | null {
   const match = query.match(/(\d+)\s+([A-Za-z].*)/);
   return match ? match[0] : null;
@@ -71,34 +65,22 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-// Search Photon (Komoot) - better for POIs/businesses
+// Search Photon (better for POIs)
 async function searchPhoton(query: string, near?: Nearby, limit = 10): Promise<any[]> {
   try {
     let url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=${limit}&lang=en`;
+    if (near) url += `&lat=${near.lat}&lon=${near.lon}`;
     
-    // Add location bias if available
-    if (near) {
-      url += `&lat=${near.lat}&lon=${near.lon}`;
-    }
-    
-    console.log(`Photon search: ${query}`);
-    
-    const response = await fetchWithTimeout(url, {
-      headers: { "User-Agent": "DriverTaxTracker/1.0" },
-    }, 5000);
-    
+    console.log(`Photon: ${query}`);
+    const response = await fetchWithTimeout(url, { headers: { "User-Agent": "DriverTaxTracker/1.0" } }, 5000);
     if (!response.ok) return [];
     
     const data = await response.json();
-    
-    // Convert Photon format to Nominatim-like format
     return (data.features || [])
       .filter((f: any) => f.properties?.country === 'Canada')
       .map((f: any) => {
         const props = f.properties || {};
         const coords = f.geometry?.coordinates || [];
-        
-        // Build display name
         const parts: string[] = [];
         if (props.name) parts.push(props.name);
         if (props.housenumber && props.street) parts.push(`${props.housenumber} ${props.street}`);
@@ -112,14 +94,13 @@ async function searchPhoton(query: string, near?: Nearby, limit = 10): Promise<a
           name: props.name || (props.housenumber ? `${props.housenumber} ${props.street}` : props.street),
           lat: String(coords[1]),
           lon: String(coords[0]),
-          type: props.osm_value || props.type,
+          type: props.osm_value,
           address: {
             house_number: props.housenumber,
             road: props.street,
             city: props.city || props.locality,
             state: props.state,
             postcode: props.postcode,
-            country: props.country,
           },
           source: 'photon',
         };
@@ -133,12 +114,13 @@ async function searchPhoton(query: string, near?: Nearby, limit = 10): Promise<a
 // Search Nominatim
 async function searchNominatim(query: string, countrycodes: string, near?: Nearby, limit = 10): Promise<any[]> {
   try {
-    const params = new URLSearchParams();
-    params.set("format", "json");
-    params.set("addressdetails", "1");
-    params.set("q", query);
-    params.set("limit", String(limit));
-    params.set("countrycodes", countrycodes);
+    const params = new URLSearchParams({
+      format: "json",
+      addressdetails: "1",
+      q: query,
+      limit: String(limit),
+      countrycodes,
+    });
     
     if (near) {
       const kmRadius = 50;
@@ -148,31 +130,98 @@ async function searchNominatim(query: string, countrycodes: string, near?: Nearb
       params.set("bounded", "0");
     }
 
-    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
-    console.log(`Nominatim search: ${query}`);
-
-    const response = await fetchWithTimeout(url, {
-      headers: {
-        Accept: "application/json",
-        "Accept-Language": "en",
-        "User-Agent": "DriverTaxTracker/1.0 (Lovable Cloud)",
-      },
-    }, 5000);
-
+    console.log(`Nominatim: ${query}`);
+    const response = await fetchWithTimeout(
+      `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+      { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
+      5000
+    );
     if (!response.ok) return [];
-    
-    const results = await response.json();
-    return results.map((r: any) => ({ ...r, source: 'nominatim' }));
+    return (await response.json()).map((r: any) => ({ ...r, source: 'nominatim' }));
   } catch (err) {
     console.error(`Nominatim error: ${err}`);
     return [];
   }
 }
 
-// Format address for display
-function formatAddress(item: any): any {
+// AI-powered address lookup using Lovable AI
+async function lookupAddressWithAI(query: string): Promise<string | null> {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) {
+    console.log("No LOVABLE_API_KEY for AI lookup");
+    return null;
+  }
+
+  try {
+    console.log(`AI lookup: ${query}`);
+    
+    const response = await fetchWithTimeout(
+      "https://ai.gateway.lovable.dev/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            {
+              role: "system",
+              content: `You are an address lookup assistant for Canadian businesses. When given a business name and location, respond with ONLY the full street address in this exact format:
+"[Street Number] [Street Name], [City], [Province Abbreviation] [Postal Code]"
+
+Examples:
+- "805 Cloverdale Ave, Victoria, BC V8X 5H9"
+- "123 Main St, Vancouver, BC V6B 1A1"
+
+If you don't know the exact address, respond with "UNKNOWN".
+Do not include any other text, explanations, or the business name - just the address or UNKNOWN.`
+            },
+            {
+              role: "user",
+              content: `What is the street address of "${query}" in Canada?`
+            }
+          ],
+          max_tokens: 100,
+          temperature: 0.1,
+        }),
+      },
+      8000
+    );
+
+    if (!response.ok) {
+      console.error(`AI API error: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim();
+    
+    if (!content || content === "UNKNOWN" || content.length < 10) {
+      console.log("AI couldn't find address");
+      return null;
+    }
+    
+    console.log(`AI found: ${content}`);
+    return content;
+  } catch (err) {
+    console.error(`AI lookup error: ${err}`);
+    return null;
+  }
+}
+
+function formatAddress(item: any, originalQuery?: string): any {
   const address = item.address || {};
   const parts: string[] = [];
+  
+  // If we have the original business name query, prepend it
+  if (originalQuery && item.source === 'ai_enhanced') {
+    const businessName = originalQuery.replace(/\s+(victoria|vancouver|saanich|bc|british columbia).*$/i, '').trim();
+    if (businessName && !item.name?.toLowerCase().includes(businessName.toLowerCase())) {
+      parts.push(businessName);
+    }
+  }
   
   if (item.name && !item.name.match(/^\d/)) {
     parts.push(item.name);
@@ -205,21 +254,16 @@ function formatAddress(item: any): any {
   };
 }
 
-// Deduplicate results by coordinates
 function deduplicateResults(results: any[]): any[] {
   const seen = new Map<string, any>();
-  
   for (const result of results) {
     const lat = parseFloat(result.lat).toFixed(5);
     const lon = parseFloat(result.lon).toFixed(5);
     const key = `${lat},${lon}`;
-    
-    // Prefer Photon results (better business names)
-    if (!seen.has(key) || result.source === 'photon') {
+    if (!seen.has(key) || result.source === 'ai_enhanced') {
       seen.set(key, result);
     }
   }
-  
   return Array.from(seen.values());
 }
 
@@ -255,33 +299,65 @@ serve(async (req) => {
     const expandedQuery = expandProvinces(q);
     const isBusinessSearch = looksLikeBusinessSearch(q);
     
-    console.log(`Query: "${q}" | Business search: ${isBusinessSearch}`);
+    console.log(`Query: "${q}" | Business: ${isBusinessSearch}`);
 
-    // Search both sources in parallel
+    // Search both map sources in parallel
     const [photonResults, nominatimResults] = await Promise.all([
-      // Photon is better for business/POI searches
       searchPhoton(expandedQuery, near, limit),
       searchNominatim(expandedQuery, countrycodes, near, limit),
     ]);
 
-    console.log(`Photon: ${photonResults.length}, Nominatim: ${nominatimResults.length}`);
+    console.log(`Maps: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
 
-    // If business search and Photon found nothing, try extracting just the address
-    let extraResults: any[] = [];
-    if (isBusinessSearch && photonResults.length === 0) {
-      const streetAddr = extractStreetAddress(expandedQuery);
-      if (streetAddr) {
-        console.log(`Trying street address: ${streetAddr}`);
-        extraResults = await searchNominatim(streetAddr, countrycodes, near, limit);
+    let allResults = [...photonResults, ...nominatimResults];
+
+    // If business search and no/few results, try AI lookup
+    if (isBusinessSearch && allResults.length < 2) {
+      console.log("Few results, trying AI lookup...");
+      
+      const aiAddress = await lookupAddressWithAI(expandedQuery);
+      
+      if (aiAddress) {
+        // Now geocode the AI-found address
+        const aiGeoResults = await searchNominatim(aiAddress, countrycodes, near, 5);
+        
+        if (aiGeoResults.length > 0) {
+          // Mark as AI-enhanced and add business name
+          const businessName = q.replace(/\s+(victoria|vancouver|saanich|bc|british columbia|canada).*$/i, '').trim();
+          
+          const enhancedResults = aiGeoResults.map(r => ({
+            ...r,
+            source: 'ai_enhanced',
+            name: businessName,
+            display_name: `${businessName}, ${r.display_name}`,
+          }));
+          
+          console.log(`AI enhanced: ${enhancedResults.length} results`);
+          allResults = [...enhancedResults, ...allResults];
+        }
       }
     }
 
-    // Combine and deduplicate (Photon first for better business names)
-    const combined = deduplicateResults([...photonResults, ...nominatimResults, ...extraResults]);
+    // Also try extracting street address as fallback
+    if (allResults.length === 0) {
+      const streetAddr = extractStreetAddress(expandedQuery);
+      if (streetAddr) {
+        console.log(`Trying street: ${streetAddr}`);
+        const streetResults = await searchNominatim(streetAddr, countrycodes, near, limit);
+        allResults = streetResults;
+      }
+    }
+
+    // Deduplicate and format
+    const combined = deduplicateResults(allResults);
     
-    // Sort by relevance (exact name matches first)
+    // Sort by relevance
     const queryLower = q.toLowerCase();
     combined.sort((a, b) => {
+      // AI-enhanced results first
+      if (a.source === 'ai_enhanced' && b.source !== 'ai_enhanced') return -1;
+      if (b.source === 'ai_enhanced' && a.source !== 'ai_enhanced') return 1;
+      
       const aName = (a.name || '').toLowerCase();
       const bName = (b.name || '').toLowerCase();
       const aMatch = aName.includes(queryLower) || queryLower.includes(aName);
@@ -291,8 +367,7 @@ serve(async (req) => {
       return 0;
     });
 
-    // Format and limit results
-    const formattedData = combined.slice(0, limit).map(formatAddress);
+    const formattedData = combined.slice(0, limit).map(r => formatAddress(r, q));
     console.log(`Returning ${formattedData.length} results`);
 
     return new Response(JSON.stringify(formattedData), {
@@ -304,7 +379,7 @@ serve(async (req) => {
       },
     });
   } catch (e) {
-    console.error("Unexpected error:", e);
+    console.error("Error:", e);
     return new Response(JSON.stringify({ error: "Unexpected error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
