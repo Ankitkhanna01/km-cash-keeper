@@ -61,6 +61,112 @@ function extractStreetAddress(query: string): string | null {
   return match ? match[0] : null;
 }
 
+// Parse "near me" or "near [location]" from query
+function parseNearQuery(query: string): { searchTerm: string; nearType: 'me' | 'location' | null; locationName: string | null } {
+  // Match "near me" pattern
+  const nearMeMatch = query.match(/^(.+?)\s+near\s+me$/i);
+  if (nearMeMatch) {
+    return { searchTerm: nearMeMatch[1].trim(), nearType: 'me', locationName: null };
+  }
+  
+  // Match "near [location]" pattern
+  const nearLocationMatch = query.match(/^(.+?)\s+near\s+(.+)$/i);
+  if (nearLocationMatch) {
+    const locationName = nearLocationMatch[2].trim();
+    // Don't match if it's "near me"
+    if (locationName.toLowerCase() !== 'me') {
+      return { searchTerm: nearLocationMatch[1].trim(), nearType: 'location', locationName };
+    }
+  }
+  
+  return { searchTerm: query, nearType: null, locationName: null };
+}
+
+// Geocode a location name to get coordinates, biased by user's location
+async function geocodeLocation(locationName: string, userLocation?: Nearby): Promise<Nearby | null> {
+  try {
+    const params = new URLSearchParams({
+      format: "json",
+      q: locationName,
+      limit: "5",
+      countrycodes: "ca",
+    });
+    
+    // Bias search towards user's location if available
+    if (userLocation) {
+      const kmRadius = 30;
+      const latDelta = kmRadius / 111;
+      const lonDelta = kmRadius / (111 * Math.cos((userLocation.lat * Math.PI) / 180) || 1);
+      params.set("viewbox", `${userLocation.lon - lonDelta},${userLocation.lat + latDelta},${userLocation.lon + lonDelta},${userLocation.lat - latDelta}`);
+      params.set("bounded", "0");
+    }
+    
+    console.log(`Geocoding location: ${locationName}`);
+    const response = await fetchWithTimeout(
+      `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+      { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
+      5000
+    );
+    
+    if (!response.ok) return null;
+    const data = await response.json();
+    
+    if (data.length > 0) {
+      // If user location available, pick the closest result
+      let best = data[0];
+      if (userLocation && data.length > 1) {
+        let minDist = Infinity;
+        for (const item of data) {
+          const dist = calculateDistanceMeters(
+            userLocation.lat, userLocation.lon,
+            parseFloat(item.lat), parseFloat(item.lon)
+          );
+          if (dist < minDist) {
+            minDist = dist;
+            best = item;
+          }
+        }
+      }
+      const lat = parseFloat(best.lat);
+      const lon = parseFloat(best.lon);
+      console.log(`Location found: ${locationName} -> ${lat}, ${lon} (${best.display_name})`);
+      return { lat, lon };
+    }
+    return null;
+  } catch (err) {
+    console.error(`Geocode location error: ${err}`);
+    return null;
+  }
+}
+
+// Calculate distance between two points in meters (Haversine formula)
+function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// Filter results by distance from a point
+function filterByDistance(results: any[], center: Nearby, maxDistanceMeters: number): any[] {
+  return results.filter(r => {
+    const lat = parseFloat(r.lat);
+    const lon = parseFloat(r.lon);
+    if (isNaN(lat) || isNaN(lon)) return false;
+    const distance = calculateDistanceMeters(center.lat, center.lon, lat, lon);
+    return distance <= maxDistanceMeters;
+  }).map(r => {
+    const lat = parseFloat(r.lat);
+    const lon = parseFloat(r.lon);
+    const distance = calculateDistanceMeters(center.lat, center.lon, lat, lon);
+    return { ...r, distance_meters: Math.round(distance) };
+  }).sort((a, b) => a.distance_meters - b.distance_meters);
+}
+
 // Initialize Supabase client for cache operations
 function getSupabaseClient() {
   return createClient(
@@ -75,11 +181,10 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
     const supabase = getSupabaseClient();
     const searchTerms = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
     
-    // Search for addresses where any search term matches
     const { data, error } = await supabase
       .from('cached_addresses')
       .select('*')
-      .limit(10);
+      .limit(20);
     
     if (error || !data) {
       console.log(`Cache search error: ${error?.message}`);
@@ -91,7 +196,6 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
       const displayLower = addr.display_name?.toLowerCase() || '';
       const cachedTerms = addr.search_terms || [];
       
-      // Check if query terms match display_name or cached search_terms
       return searchTerms.some(term => 
         displayLower.includes(term) || 
         cachedTerms.some((t: string) => t.includes(term) || term.includes(t))
@@ -153,7 +257,6 @@ async function cacheHEREResults(results: any[], originalQuery: string): Promise<
         .limit(1);
       
       if (existing && existing.length > 0) {
-        // Update search_terms if new terms found
         const existingTerms = existing[0].search_terms || [];
         const newTerms = [...new Set([...existingTerms, ...searchTerms])];
         
@@ -164,7 +267,6 @@ async function cacheHEREResults(results: any[], originalQuery: string): Promise<
           
         console.log(`Updated cache entry: ${result.display_name}`);
       } else {
-        // Insert new cache entry
         const addr = result.address || {};
         await supabase
           .from('cached_addresses')
@@ -391,10 +493,20 @@ function formatAddress(item: any): any {
   
   if (address.postcode) parts.push(address.postcode);
   
-  return {
+  // Add distance if available
+  const result: any = {
     ...item,
     formatted_name: parts.join(', ') || item.display_name,
   };
+  
+  if (item.distance_meters !== undefined) {
+    result.distance_meters = item.distance_meters;
+    result.distance_label = item.distance_meters < 1000 
+      ? `${item.distance_meters}m away` 
+      : `${(item.distance_meters / 1000).toFixed(1)}km away`;
+  }
+  
+  return result;
 }
 
 function deduplicateResults(results: any[]): any[] {
@@ -403,7 +515,6 @@ function deduplicateResults(results: any[]): any[] {
     const lat = parseFloat(result.lat).toFixed(5);
     const lon = parseFloat(result.lon).toFixed(5);
     const key = `${lat},${lon}`;
-    // Prioritize: cache > here > others
     if (!seen.has(key) || result.source === 'cache' || (result.source === 'here' && seen.get(key)?.source !== 'cache')) {
       seen.set(key, result);
     }
@@ -449,19 +560,53 @@ serve(async (req) => {
     const limit = Math.max(1, Math.min(20, Number(body.limit ?? 10)));
     const countrycodes = (body.countrycodes ?? "ca").toLowerCase().trim();
     const hasNearby = !!(body.near && isFiniteNumber(body.near.lat) && isFiniteNumber(body.near.lon));
-    const near = hasNearby ? body.near : undefined;
+    const userLocation = hasNearby ? body.near : undefined;
 
-    const expandedQuery = expandProvinces(q);
-    const isBusinessSearch = looksLikeBusinessSearch(q);
-    const hasLocation = hasExplicitLocation(q);
+    // Parse "near me" or "near [location]" queries
+    const { searchTerm, nearType, locationName } = parseNearQuery(q);
     
-    console.log(`Query: "${q}" | Business: ${isBusinessSearch} | HasLocation: ${hasLocation}`);
+    let searchCenter: Nearby | undefined = userLocation;
+    let maxDistance: number | null = null;
+    let actualSearchTerm = q;
+    
+    if (nearType === 'me' && userLocation) {
+      // "near me" - use user's GPS, 300m radius
+      searchCenter = userLocation;
+      maxDistance = 300;
+      actualSearchTerm = searchTerm;
+      console.log(`"Near me" search: "${searchTerm}" within 300m of user location`);
+    } else if (nearType === 'location' && locationName) {
+      // "near [location]" - geocode location first (biased by user GPS), then 500m radius
+      const locationCoords = await geocodeLocation(locationName, userLocation);
+      if (locationCoords) {
+        searchCenter = locationCoords;
+        maxDistance = 1000; // 1km radius for "near [location]"
+        actualSearchTerm = searchTerm;
+        console.log(`"Near ${locationName}" search: "${searchTerm}" within 500m of ${locationCoords.lat}, ${locationCoords.lon}`);
+      } else {
+        console.log(`Could not geocode location: ${locationName}, falling back to normal search`);
+      }
+    }
+
+    const expandedQuery = expandProvinces(actualSearchTerm);
+    const isBusinessSearch = looksLikeBusinessSearch(actualSearchTerm);
+    const hasLocation = hasExplicitLocation(actualSearchTerm);
+    
+    console.log(`Query: "${actualSearchTerm}" | Business: ${isBusinessSearch} | HasLocation: ${hasLocation} | NearType: ${nearType || 'none'}`);
 
     // 1. Check local cache first
-    const cachedResults = await searchCache(q, near);
-    if (cachedResults.length > 0 && hasRelevantBusinessMatch(cachedResults, q)) {
-      console.log(`Returning ${cachedResults.length} cached results`);
-      const formattedData = cachedResults.slice(0, limit).map(r => formatAddress(r));
+    const cachedResults = await searchCache(actualSearchTerm, searchCenter);
+    
+    // If we have a distance filter, apply it to cache results
+    let filteredCache = cachedResults;
+    if (maxDistance && searchCenter && cachedResults.length > 0) {
+      filteredCache = filterByDistance(cachedResults, searchCenter, maxDistance);
+      console.log(`Cache: ${cachedResults.length} total, ${filteredCache.length} within ${maxDistance}m`);
+    }
+    
+    if (filteredCache.length > 0 && hasRelevantBusinessMatch(filteredCache, actualSearchTerm)) {
+      console.log(`Returning ${filteredCache.length} cached results`);
+      const formattedData = filteredCache.slice(0, limit).map(r => formatAddress(r));
       return new Response(JSON.stringify(formattedData), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
@@ -471,8 +616,8 @@ serve(async (req) => {
     // 2. If business search without location, try to get city from GPS coordinates
     let enhancedQuery = expandedQuery;
     
-    if (isBusinessSearch && !hasLocation && near) {
-      const userCity = await getCityFromCoordinates(near.lat, near.lon);
+    if (isBusinessSearch && !hasLocation && searchCenter) {
+      const userCity = await getCityFromCoordinates(searchCenter.lat, searchCenter.lon);
       if (userCity && userCity.city) {
         enhancedQuery = `${expandedQuery} ${userCity.city}`;
         console.log(`Enhanced query: "${enhancedQuery}"`);
@@ -481,29 +626,28 @@ serve(async (req) => {
 
     // 3. Search both OSM sources in parallel
     const [photonResults, nominatimResults] = await Promise.all([
-      searchPhoton(enhancedQuery, near, limit),
-      searchNominatim(enhancedQuery, countrycodes, near, limit),
+      searchPhoton(enhancedQuery, searchCenter, limit * 2), // Get more results for filtering
+      searchNominatim(enhancedQuery, countrycodes, searchCenter, limit * 2),
     ]);
 
     console.log(`OSM: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
-    let allResults = [...cachedResults, ...photonResults, ...nominatimResults];
+    let allResults = [...filteredCache, ...photonResults, ...nominatimResults];
 
     // 4. For business searches: use HERE if OSM returns no results OR doesn't have relevant matches
     let hereResults: any[] = [];
     if (isBusinessSearch) {
-      const hasGoodOSMResults = allResults.length > 0 && hasRelevantBusinessMatch(allResults, q);
+      const hasGoodOSMResults = allResults.length > 0 && hasRelevantBusinessMatch(allResults, actualSearchTerm);
       
       if (!hasGoodOSMResults) {
         console.log("OSM didn't find relevant business match, trying HERE...");
-        hereResults = await searchHERE(enhancedQuery, near, limit);
+        hereResults = await searchHERE(enhancedQuery, searchCenter, limit * 2);
         
         if (hereResults.length > 0) {
           console.log(`HERE found ${hereResults.length} results`);
-          // Prepend HERE results for business searches
           allResults = [...hereResults, ...allResults];
           
           // Cache HERE results for future searches (async, don't await)
-          cacheHEREResults(hereResults, q);
+          cacheHEREResults(hereResults, actualSearchTerm);
         }
       }
     }
@@ -513,7 +657,7 @@ serve(async (req) => {
       const streetAddr = extractStreetAddress(enhancedQuery);
       if (streetAddr) {
         console.log(`Trying street: ${streetAddr}`);
-        const streetResults = await searchNominatim(streetAddr, countrycodes, near, limit);
+        const streetResults = await searchNominatim(streetAddr, countrycodes, searchCenter, limit);
         allResults = streetResults;
       }
     }
@@ -521,22 +665,31 @@ serve(async (req) => {
     // 6. Last resort for any query with no results: try HERE
     if (allResults.length === 0) {
       console.log("No OSM results, trying HERE as last resort...");
-      hereResults = await searchHERE(enhancedQuery, near, limit);
+      hereResults = await searchHERE(enhancedQuery, searchCenter, limit);
       if (hereResults.length > 0) {
         console.log(`HERE found ${hereResults.length} results`);
         allResults = hereResults;
-        
-        // Cache these results too
-        cacheHEREResults(hereResults, q);
+        cacheHEREResults(hereResults, actualSearchTerm);
       }
     }
 
-    // 7. Deduplicate and format
+    // 7. Apply distance filter if "near me" or "near [location]" search
+    if (maxDistance && searchCenter && allResults.length > 0) {
+      allResults = filterByDistance(allResults, searchCenter, maxDistance);
+      console.log(`Filtered to ${allResults.length} results within ${maxDistance}m`);
+    }
+
+    // 8. Deduplicate and format
     const combined = deduplicateResults(allResults);
     
-    // Sort by relevance
-    const queryLower = q.toLowerCase();
+    // Sort by distance if we have distance info, otherwise by relevance
+    const queryLower = actualSearchTerm.toLowerCase();
     combined.sort((a, b) => {
+      // If we have distance, sort by distance first
+      if (a.distance_meters !== undefined && b.distance_meters !== undefined) {
+        return a.distance_meters - b.distance_meters;
+      }
+      
       // Cache/HERE results first for business searches
       if (a.source === 'cache' && b.source !== 'cache') return -1;
       if (b.source === 'cache' && a.source !== 'cache') return 1;
