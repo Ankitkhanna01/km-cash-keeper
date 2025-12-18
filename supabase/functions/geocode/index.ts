@@ -557,15 +557,55 @@ function deduplicateResults(results: any[]): any[] {
   return Array.from(seen.values());
 }
 
-// Check if results contain relevant business matches
+// Check if a word appears as a whole word (not just substring)
+function hasWholeWord(text: string, word: string): boolean {
+  const regex = new RegExp(`\\b${word}\\b`, 'i');
+  return regex.test(text);
+}
+
+// Check if results contain relevant business matches - stricter matching
 function hasRelevantBusinessMatch(results: any[], query: string): boolean {
-  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  return results.some(r => {
+  const queryLower = query.toLowerCase();
+  // Get significant words (length > 2, not numbers)
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w));
+  
+  console.log(`Matching "${query}" | Words: [${queryWords.join(', ')}] | Results: ${results.length}`);
+  
+  if (queryWords.length === 0) return false;
+  
+  // The first significant word is usually the business name - must match as whole word
+  const primaryWord = queryWords[0];
+  
+  const match = results.some(r => {
     const name = (r.name || '').toLowerCase();
     const displayName = (r.display_name || '').toLowerCase();
-    const matchCount = queryWords.filter(w => name.includes(w) || displayName.includes(w)).length;
-    return matchCount >= Math.min(2, queryWords.length);
+    
+    // Primary word MUST be present as a WHOLE WORD in the name
+    const hasPrimary = hasWholeWord(name, primaryWord);
+    if (!hasPrimary) return false;
+    
+    // For multi-word queries, need at least half the words to match (whole word or substring for location words)
+    if (queryWords.length >= 2) {
+      const matchCount = queryWords.filter(w => 
+        hasWholeWord(name, w) || hasWholeWord(displayName, w)
+      ).length;
+      const needed = Math.ceil(queryWords.length / 2);
+      if (matchCount >= needed) {
+        console.log(`Match found: "${name}" | Primary "${primaryWord}" as whole word: ${hasPrimary} | ${matchCount}/${queryWords.length} words`);
+        return true;
+      }
+      return false;
+    }
+    
+    console.log(`Match found: "${name}" has primary word "${primaryWord}"`);
+    return true;
   });
+  
+  if (!match) {
+    console.log(`No match found for "${query}" - will try HERE`);
+  }
+  
+  return match;
 }
 
 serve(async (req) => {
