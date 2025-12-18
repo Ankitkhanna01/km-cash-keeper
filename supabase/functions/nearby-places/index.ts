@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,11 +13,12 @@ interface NearbyPlace {
   lon: number;
   type: 'restaurant' | 'residential' | 'business' | 'other';
   distance?: number;
+  source?: 'trips' | 'cached' | 'osm';
 }
 
 // Calculate distance between two points in meters
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000; // Earth's radius in meters
+  const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -32,7 +34,7 @@ serve(async (req) => {
   }
 
   try {
-    const { lat, lon, radius = 150, query } = await req.json();
+    const { lat, lon, radius = 150, query, userId, savePlace } = await req.json();
 
     if (!lat || !lon) {
       return new Response(
@@ -41,15 +43,139 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Searching nearby places at ${lat}, ${lon} within ${radius}m${query ? `, query: ${query}` : ''}`);
+    console.log(`Nearby places at ${lat}, ${lon} within ${radius}m${query ? `, query: ${query}` : ''}${userId ? `, user: ${userId}` : ''}`);
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // If saving a custom place
+    if (savePlace && savePlace.name) {
+      console.log(`Saving custom place: ${savePlace.name}`);
+      await supabase.from('cached_addresses').upsert({
+        display_name: savePlace.address || savePlace.name,
+        place_name: savePlace.name,
+        lat: savePlace.lat || lat,
+        lon: savePlace.lon || lon,
+        user_id: userId || null,
+        source: 'user_custom',
+        hit_count: 1,
+      }, {
+        onConflict: 'display_name',
+        ignoreDuplicates: false,
+      });
+    }
 
     const allPlaces: NearbyPlace[] = [];
+    const seenKeys = new Set<string>();
     
-    // Calculate bounding box (rough approximation: 1 degree ≈ 111km)
+    const addPlace = (place: NearbyPlace) => {
+      const key = `${place.name.toLowerCase()}-${Math.round(place.lat * 1000)}-${Math.round(place.lon * 1000)}`;
+      if (!seenKeys.has(key) && place.name) {
+        seenKeys.add(key);
+        allPlaces.push(place);
+      }
+    };
+
+    // 1. Check user's past trips first (if userId provided)
+    if (userId) {
+      try {
+        const { data: trips } = await supabase
+          .from('trips')
+          .select('start_location, start_lat, start_lon, end_location, end_lat, end_lon')
+          .eq('user_id', userId)
+          .not('start_lat', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (trips) {
+          for (const trip of trips) {
+            // Check start location
+            if (trip.start_lat && trip.start_lon) {
+              const dist = getDistance(lat, lon, Number(trip.start_lat), Number(trip.start_lon));
+              if (dist <= radius) {
+                addPlace({
+                  name: trip.start_location.split(',')[0].trim(),
+                  address: trip.start_location,
+                  lat: Number(trip.start_lat),
+                  lon: Number(trip.start_lon),
+                  type: 'other',
+                  distance: Math.round(dist),
+                  source: 'trips',
+                });
+              }
+            }
+            // Check end location
+            if (trip.end_lat && trip.end_lon) {
+              const dist = getDistance(lat, lon, Number(trip.end_lat), Number(trip.end_lon));
+              if (dist <= radius) {
+                addPlace({
+                  name: trip.end_location.split(',')[0].split('→').pop()?.trim() || trip.end_location,
+                  address: trip.end_location,
+                  lat: Number(trip.end_lat),
+                  lon: Number(trip.end_lon),
+                  type: 'other',
+                  distance: Math.round(dist),
+                  source: 'trips',
+                });
+              }
+            }
+          }
+        }
+        console.log(`Found ${allPlaces.length} places from past trips`);
+      } catch (e) {
+        console.log("Error fetching trips:", e);
+      }
+    }
+
+    // 2. Check cached addresses
+    try {
+      const delta = radius / 111000;
+      const { data: cached } = await supabase
+        .from('cached_addresses')
+        .select('*')
+        .gte('lat', lat - delta)
+        .lte('lat', lat + delta)
+        .gte('lon', lon - delta)
+        .lte('lon', lon + delta)
+        .limit(20);
+
+      if (cached) {
+        for (const addr of cached) {
+          const dist = getDistance(lat, lon, Number(addr.lat), Number(addr.lon));
+          if (dist <= radius) {
+            addPlace({
+              name: addr.place_name || addr.display_name.split(',')[0].trim(),
+              address: addr.display_name,
+              lat: Number(addr.lat),
+              lon: Number(addr.lon),
+              type: addr.source === 'user_custom' ? 'business' : 'other',
+              distance: Math.round(dist),
+              source: 'cached',
+            });
+          }
+        }
+        console.log(`Found ${cached.length} cached addresses`);
+      }
+    } catch (e) {
+      console.log("Error fetching cached:", e);
+    }
+
+    // 3. If we have enough from cache/trips, return early (skip OSM)
+    if (allPlaces.length >= 5 && !query) {
+      console.log(`Returning ${allPlaces.length} places from cache/trips (skipping OSM)`);
+      allPlaces.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      return new Response(
+        JSON.stringify({ places: allPlaces.slice(0, 5) }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 4. Search OSM (only if needed)
     const delta = radius / 111000;
     const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
 
-    // If there's a search query, prioritize searching for that
+    // If there's a search query, search by name
     if (query && query.trim()) {
       try {
         const searchUrl = `https://nominatim.openstreetmap.org/search?` +
@@ -78,147 +204,82 @@ serve(async (req) => {
                 `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
                 '';
 
-              allPlaces.push({
+              addPlace({
                 name,
                 address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
                 lat: placeLat,
                 lon: placeLon,
                 type: place.class === 'shop' || place.class === 'amenity' ? 'business' : 'other',
                 distance: Math.round(distance),
+                source: 'osm',
               });
             }
           }
         }
       } catch (e) {
-        console.log("Error searching:", e);
-      }
-
-      // If query search found results, return them
-      if (allPlaces.length > 0) {
-        return new Response(
-          JSON.stringify({ places: allPlaces.slice(0, 5) }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        console.log("Error searching OSM:", e);
       }
     }
 
-    // Search for businesses/POIs using Nominatim
-    const businessAmenities = ['restaurant', 'fast_food', 'cafe', 'shop', 'supermarket', 'pharmacy', 'bank'];
-    
-    for (const amenity of businessAmenities.slice(0, 3)) { // Limit to 3 types for speed
-      try {
-        const url = `https://nominatim.openstreetmap.org/search?` +
-          `format=json&` +
-          `amenity=${amenity}&` +
-          `viewbox=${viewbox}&` +
-          `bounded=1&` +
-          `limit=5&` +
-          `addressdetails=1`;
+    // Only fetch businesses from OSM if we need more places
+    if (allPlaces.length < 5) {
+      const businessAmenities = ['restaurant', 'fast_food', 'cafe', 'shop', 'supermarket'];
+      
+      for (const amenity of businessAmenities.slice(0, 2)) {
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?` +
+            `format=json&` +
+            `amenity=${amenity}&` +
+            `viewbox=${viewbox}&` +
+            `bounded=1&` +
+            `limit=3&` +
+            `addressdetails=1`;
 
-        const response = await fetch(url, {
-          headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
-        });
+          const response = await fetch(url, {
+            headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
+          });
 
-        if (response.ok) {
-          const data = await response.json();
-          for (const place of data) {
-            const placeLat = parseFloat(place.lat);
-            const placeLon = parseFloat(place.lon);
-            const distance = getDistance(lat, lon, placeLat, placeLon);
-            
-            if (distance <= radius) {
-              const name = place.name || '';
-              const addr = place.address;
-              const address = addr ? 
-                `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
-                '';
-
-              allPlaces.push({
-                name,
-                address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
-                lat: placeLat,
-                lon: placeLon,
-                type: ['restaurant', 'fast_food', 'cafe'].includes(amenity) ? 'restaurant' : 'business',
-                distance: Math.round(distance),
-              });
-            }
-          }
-        }
-        await new Promise(r => setTimeout(r, 100));
-      } catch (e) {
-        console.log(`Error fetching ${amenity}:`, e);
-      }
-    }
-
-    // Search for nearby house numbers using reverse geocoding around the point
-    const houseSearchPoints = [
-      { lat, lon },
-      { lat: lat + 0.0001, lon },
-      { lat: lat - 0.0001, lon },
-      { lat, lon: lon + 0.0001 },
-      { lat, lon: lon - 0.0001 },
-    ];
-
-    for (const point of houseSearchPoints.slice(0, 3)) { // Limit for speed
-      try {
-        const url = `https://nominatim.openstreetmap.org/reverse?` +
-          `format=json&` +
-          `lat=${point.lat}&` +
-          `lon=${point.lon}&` +
-          `addressdetails=1&` +
-          `zoom=18`;
-
-        const response = await fetch(url, {
-          headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
-        });
-
-        if (response.ok) {
-          const place = await response.json();
-          if (place && place.address && place.address.house_number) {
-            const placeLat = parseFloat(place.lat);
-            const placeLon = parseFloat(place.lon);
-            const distance = getDistance(lat, lon, placeLat, placeLon);
-            
-            if (distance <= radius) {
-              const addr = place.address;
-              const houseNum = addr.house_number;
-              const road = addr.road || '';
+          if (response.ok) {
+            const data = await response.json();
+            for (const place of data) {
+              const placeLat = parseFloat(place.lat);
+              const placeLon = parseFloat(place.lon);
+              const distance = getDistance(lat, lon, placeLat, placeLon);
               
-              allPlaces.push({
-                name: `${houseNum} ${road}`.trim(),
-                address: `${addr.city || addr.town || ''}, ${addr.postcode || ''}`.trim().replace(/^,\s*/, ''),
-                lat: placeLat,
-                lon: placeLon,
-                type: 'residential',
-                distance: Math.round(distance),
-              });
+              if (distance <= radius && place.name) {
+                const addr = place.address;
+                const address = addr ? 
+                  `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
+                  '';
+
+                addPlace({
+                  name: place.name,
+                  address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
+                  lat: placeLat,
+                  lon: placeLon,
+                  type: ['restaurant', 'fast_food', 'cafe'].includes(amenity) ? 'restaurant' : 'business',
+                  distance: Math.round(distance),
+                  source: 'osm',
+                });
+              }
             }
           }
+          await new Promise(r => setTimeout(r, 100));
+        } catch (e) {
+          console.log(`Error fetching ${amenity}:`, e);
         }
-        await new Promise(r => setTimeout(r, 100));
-      } catch (e) {
-        console.log("Error fetching residential:", e);
+
+        if (allPlaces.length >= 5) break;
       }
     }
 
-    // Sort by distance and remove duplicates
-    const sortedPlaces = allPlaces.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-    
-    const uniquePlaces: NearbyPlace[] = [];
-    const seenKeys = new Set<string>();
-    
-    for (const place of sortedPlaces) {
-      const key = `${place.name.toLowerCase()}-${place.address.toLowerCase()}`.replace(/\s+/g, '');
-      if (!seenKeys.has(key) && place.name) {
-        seenKeys.add(key);
-        uniquePlaces.push(place);
-      }
-    }
+    // Sort by distance
+    allPlaces.sort((a, b) => (a.distance || 0) - (b.distance || 0));
 
-    console.log(`Found ${uniquePlaces.length} nearby places`);
+    console.log(`Returning ${Math.min(allPlaces.length, 5)} places total`);
 
     return new Response(
-      JSON.stringify({ places: uniquePlaces.slice(0, 5) }),
+      JSON.stringify({ places: allPlaces.slice(0, 5) }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {

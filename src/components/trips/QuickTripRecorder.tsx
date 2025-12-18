@@ -42,6 +42,10 @@ interface QuickTripRecorderProps {
     category: 'business' | 'personal' | 'uncategorized';
     waypoints?: Waypoint[];
     notes?: string;
+    start_lat?: number;
+    start_lon?: number;
+    end_lat?: number;
+    end_lon?: number;
   }) => void;
 }
 
@@ -384,6 +388,10 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       category: 'uncategorized',
       waypoints: waypoints,
       notes: notesText,
+      start_lat: startLocation.lat,
+      start_lon: startLocation.lon,
+      end_lat: pendingEndLocation.lat,
+      end_lon: pendingEndLocation.lon,
     });
 
     // Reset state and clear persistence

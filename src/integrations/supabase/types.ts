@@ -23,11 +23,13 @@ export type Database = {
           id: string
           lat: number
           lon: number
+          place_name: string | null
           postal_code: string | null
           province: string | null
           search_terms: string[] | null
           source: string
           street: string | null
+          user_id: string | null
         }
         Insert: {
           city?: string | null
@@ -37,11 +39,13 @@ export type Database = {
           id?: string
           lat: number
           lon: number
+          place_name?: string | null
           postal_code?: string | null
           province?: string | null
           search_terms?: string[] | null
           source?: string
           street?: string | null
+          user_id?: string | null
         }
         Update: {
           city?: string | null
@@ -51,11 +55,13 @@ export type Database = {
           id?: string
           lat?: number
           lon?: number
+          place_name?: string | null
           postal_code?: string | null
           province?: string | null
           search_terms?: string[] | null
           source?: string
           street?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -155,7 +161,9 @@ export type Database = {
           created_at: string
           date: string
           end_city: string | null
+          end_lat: number | null
           end_location: string
+          end_lon: number | null
           end_postal_code: string | null
           end_province: string | null
           end_street: string | null
@@ -164,7 +172,9 @@ export type Database = {
           kilometres: number
           notes: string | null
           start_city: string | null
+          start_lat: number | null
           start_location: string
+          start_lon: number | null
           start_postal_code: string | null
           start_province: string | null
           start_street: string | null
@@ -176,7 +186,9 @@ export type Database = {
           created_at?: string
           date: string
           end_city?: string | null
+          end_lat?: number | null
           end_location: string
+          end_lon?: number | null
           end_postal_code?: string | null
           end_province?: string | null
           end_street?: string | null
@@ -185,7 +197,9 @@ export type Database = {
           kilometres: number
           notes?: string | null
           start_city?: string | null
+          start_lat?: number | null
           start_location: string
+          start_lon?: number | null
           start_postal_code?: string | null
           start_province?: string | null
           start_street?: string | null
@@ -197,7 +211,9 @@ export type Database = {
           created_at?: string
           date?: string
           end_city?: string | null
+          end_lat?: number | null
           end_location?: string
+          end_lon?: number | null
           end_postal_code?: string | null
           end_province?: string | null
           end_street?: string | null
@@ -206,7 +222,9 @@ export type Database = {
           kilometres?: number
           notes?: string | null
           start_city?: string | null
+          start_lat?: number | null
           start_location?: string
+          start_lon?: number | null
           start_postal_code?: string | null
           start_province?: string | null
           start_street?: string | null
