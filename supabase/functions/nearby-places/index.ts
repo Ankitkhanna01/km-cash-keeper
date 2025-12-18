@@ -10,7 +10,20 @@ interface NearbyPlace {
   address: string;
   lat: number;
   lon: number;
-  type: 'restaurant' | 'residential' | 'other';
+  type: 'restaurant' | 'residential' | 'business' | 'other';
+  distance?: number;
+}
+
+// Calculate distance between two points in meters
+function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
 }
 
 serve(async (req) => {
@@ -19,7 +32,7 @@ serve(async (req) => {
   }
 
   try {
-    const { lat, lon, radius = 500 } = await req.json();
+    const { lat, lon, radius = 150 } = await req.json();
 
     if (!lat || !lon) {
       return new Response(
@@ -28,20 +41,25 @@ serve(async (req) => {
       );
     }
 
-    // Query Nominatim for nearby amenities (restaurants, fast food, cafes)
-    // and residential buildings
-    const amenities = ['restaurant', 'fast_food', 'cafe', 'bar', 'pub'];
-    const allPlaces: NearbyPlace[] = [];
+    console.log(`Searching nearby places at ${lat}, ${lon} within ${radius}m`);
 
-    // Search for restaurants/food places
-    for (const amenity of amenities) {
+    const allPlaces: NearbyPlace[] = [];
+    
+    // Calculate bounding box (rough approximation: 1 degree ≈ 111km)
+    const delta = radius / 111000;
+    const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
+
+    // Search for businesses/POIs using Nominatim
+    const businessAmenities = ['restaurant', 'fast_food', 'cafe', 'shop', 'supermarket', 'pharmacy', 'bank'];
+    
+    for (const amenity of businessAmenities.slice(0, 3)) { // Limit to 3 types for speed
       try {
         const url = `https://nominatim.openstreetmap.org/search?` +
           `format=json&` +
           `amenity=${amenity}&` +
-          `viewbox=${lon - 0.01},${lat + 0.01},${lon + 0.01},${lat - 0.01}&` +
+          `viewbox=${viewbox}&` +
           `bounded=1&` +
-          `limit=10&` +
+          `limit=5&` +
           `addressdetails=1`;
 
         const response = await fetch(url, {
@@ -51,93 +69,104 @@ serve(async (req) => {
         if (response.ok) {
           const data = await response.json();
           for (const place of data) {
-            const name = place.name || place.display_name?.split(',')[0] || 'Unknown';
-            const addr = place.address;
-            const address = addr ? 
-              `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || addr.village || ''}`.trim() :
-              place.display_name?.split(',').slice(0, 2).join(',') || '';
+            const placeLat = parseFloat(place.lat);
+            const placeLon = parseFloat(place.lon);
+            const distance = getDistance(lat, lon, placeLat, placeLon);
+            
+            if (distance <= radius) {
+              const name = place.name || '';
+              const addr = place.address;
+              const address = addr ? 
+                `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
+                '';
 
-            allPlaces.push({
-              name,
-              address: address || 'No address',
-              lat: parseFloat(place.lat),
-              lon: parseFloat(place.lon),
-              type: 'restaurant',
-            });
+              allPlaces.push({
+                name,
+                address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
+                lat: placeLat,
+                lon: placeLon,
+                type: ['restaurant', 'fast_food', 'cafe'].includes(amenity) ? 'restaurant' : 'business',
+                distance: Math.round(distance),
+              });
+            }
           }
         }
-
-        // Small delay between requests to respect Nominatim rate limits
         await new Promise(r => setTimeout(r, 100));
       } catch (e) {
         console.log(`Error fetching ${amenity}:`, e);
       }
     }
 
-    // Search for residential buildings/apartments nearby
-    try {
-      const residentialUrl = `https://nominatim.openstreetmap.org/search?` +
-        `format=json&` +
-        `q=apartment+OR+house&` +
-        `viewbox=${lon - 0.005},${lat + 0.005},${lon + 0.005},${lat - 0.005}&` +
-        `bounded=1&` +
-        `limit=10&` +
-        `addressdetails=1`;
+    // Search for nearby house numbers using reverse geocoding around the point
+    // Generate points in a small grid around the location
+    const houseSearchPoints = [
+      { lat, lon },
+      { lat: lat + 0.0001, lon },
+      { lat: lat - 0.0001, lon },
+      { lat, lon: lon + 0.0001 },
+      { lat, lon: lon - 0.0001 },
+    ];
 
-      const response = await fetch(residentialUrl, {
-        headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
-      });
+    for (const point of houseSearchPoints.slice(0, 3)) { // Limit for speed
+      try {
+        const url = `https://nominatim.openstreetmap.org/reverse?` +
+          `format=json&` +
+          `lat=${point.lat}&` +
+          `lon=${point.lon}&` +
+          `addressdetails=1&` +
+          `zoom=18`;
 
-      if (response.ok) {
-        const data = await response.json();
-        for (const place of data) {
-          const addr = place.address;
-          const address = addr ? 
-            `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || addr.village || ''}`.trim() :
-            place.display_name?.split(',').slice(0, 2).join(',') || '';
-          const name = addr?.house_number && addr?.road ? 
-            `${addr.house_number} ${addr.road}` : 
-            place.display_name?.split(',')[0] || 'Residential';
+        const response = await fetch(url, {
+          headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
+        });
 
-          allPlaces.push({
-            name,
-            address: address || 'No address',
-            lat: parseFloat(place.lat),
-            lon: parseFloat(place.lon),
-            type: 'residential',
-          });
+        if (response.ok) {
+          const place = await response.json();
+          if (place && place.address && place.address.house_number) {
+            const placeLat = parseFloat(place.lat);
+            const placeLon = parseFloat(place.lon);
+            const distance = getDistance(lat, lon, placeLat, placeLon);
+            
+            if (distance <= radius) {
+              const addr = place.address;
+              const houseNum = addr.house_number;
+              const road = addr.road || '';
+              
+              allPlaces.push({
+                name: `${houseNum} ${road}`.trim(),
+                address: `${addr.city || addr.town || ''}, ${addr.postcode || ''}`.trim().replace(/^,\s*/, ''),
+                lat: placeLat,
+                lon: placeLon,
+                type: 'residential',
+                distance: Math.round(distance),
+              });
+            }
+          }
         }
+        await new Promise(r => setTimeout(r, 100));
+      } catch (e) {
+        console.log("Error fetching residential:", e);
       }
-    } catch (e) {
-      console.log("Error fetching residential:", e);
     }
 
-    // Sort by distance from the original point
-    const sortedPlaces = allPlaces
-      .map(place => ({
-        ...place,
-        distance: Math.sqrt(
-          Math.pow(place.lat - lat, 2) + Math.pow(place.lon - lon, 2)
-        ),
-      }))
-      .sort((a, b) => a.distance - b.distance)
-      .map(({ distance, ...place }) => place);
-
-    // Remove duplicates by name
+    // Sort by distance and remove duplicates
+    const sortedPlaces = allPlaces.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+    
     const uniquePlaces: NearbyPlace[] = [];
-    const seenNames = new Set<string>();
+    const seenKeys = new Set<string>();
+    
     for (const place of sortedPlaces) {
-      const key = `${place.name.toLowerCase()}-${place.address.toLowerCase()}`;
-      if (!seenNames.has(key)) {
-        seenNames.add(key);
+      const key = `${place.name.toLowerCase()}-${place.address.toLowerCase()}`.replace(/\s+/g, '');
+      if (!seenKeys.has(key) && place.name) {
+        seenKeys.add(key);
         uniquePlaces.push(place);
       }
     }
 
-    console.log(`Found ${uniquePlaces.length} nearby places for ${lat}, ${lon}`);
+    console.log(`Found ${uniquePlaces.length} nearby places`);
 
     return new Response(
-      JSON.stringify({ places: uniquePlaces.slice(0, 30) }),
+      JSON.stringify({ places: uniquePlaces.slice(0, 5) }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {
