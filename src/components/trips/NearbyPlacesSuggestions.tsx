@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MapPin, Building2, Home, Store, Loader2, Search, X } from 'lucide-react';
+import { MapPin, Building2, Home, Store, Loader2, Search, X, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface NearbyPlace {
@@ -18,11 +18,13 @@ interface NearbyPlacesSuggestionsProps {
   lon: number;
   onSelect: (place: NearbyPlace) => void;
   className?: string;
-  baseAddress?: string; // For completing unit numbers like "306" → "306-3420 Quadra St"
+  baseAddress?: string;
 }
 
 export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', baseAddress = '' }: NearbyPlacesSuggestionsProps) {
   const [places, setPlaces] = useState<NearbyPlace[]>([]);
+  const [hasSelected, setHasSelected] = useState(false);
+  const initialCoords = useRef({ lat, lon });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -31,7 +33,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
   const [searching, setSearching] = useState(false);
   const searchDebounce = useRef<NodeJS.Timeout>();
 
-  // Initial fetch of nearby places
+  // Initial fetch of nearby places - only fetch once using initial coordinates
   useEffect(() => {
     let cancelled = false;
 
@@ -41,7 +43,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
       
       try {
         const { data, error: fnError } = await supabase.functions.invoke('nearby-places', {
-          body: { lat, lon, radius: 150 },
+          body: { lat: initialCoords.current.lat, lon: initialCoords.current.lon, radius: 150 },
         });
 
         if (cancelled) return;
@@ -62,7 +64,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
 
     fetchNearby();
     return () => { cancelled = true; };
-  }, [lat, lon]);
+  }, []); // Empty deps - only run once on mount
 
   // Debounced search
   useEffect(() => {
@@ -76,7 +78,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
       setSearching(true);
       try {
         const { data, error: fnError } = await supabase.functions.invoke('nearby-places', {
-          body: { lat, lon, radius: 300, query: searchQuery },
+          body: { lat: initialCoords.current.lat, lon: initialCoords.current.lon, radius: 300, query: searchQuery },
         });
 
         if (!fnError && data?.places) {
@@ -90,7 +92,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
     }, 300);
 
     return () => clearTimeout(searchDebounce.current);
-  }, [searchQuery, lat, lon]);
+  }, [searchQuery]);
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -120,6 +122,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
       finalAddress = `${searchQuery.trim()}-${baseAddress}`;
     }
     
+    setHasSelected(true);
     onSelect({
       name: finalName,
       address: finalAddress || `Near ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
@@ -133,11 +136,29 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
   };
 
   const handleSelectPlace = (place: NearbyPlace) => {
+    setHasSelected(true);
     onSelect(place);
     setSearchQuery('');
     setShowSearch(false);
     setSearchResults([]);
   };
+
+  // If user already selected a place, show minimal UI with option to change
+  if (hasSelected) {
+    return (
+      <div className={className}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setHasSelected(false)}
+          className="h-auto py-0.5 px-1.5 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+        >
+          <RotateCcw className="w-2.5 h-2.5" />
+          Change place
+        </Button>
+      </div>
+    );
+  }
 
   // Always show - either loading, places, or search option
   return (
