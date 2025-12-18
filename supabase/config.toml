@@ -7,7 +7,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.reverse-geocode]
-verify_jwt = false
+verify_jwt = true
 
 [functions.smart-address]
 verify_jwt = false
