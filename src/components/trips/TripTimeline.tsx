@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trip } from '@/hooks/useTripsDB';
 import { getLocalDateString } from '@/lib/dateUtils';
+import { isValidCoordinate } from '@/lib/coordinateUtils';
 import { Clock, MapPin, AlertTriangle, Car, ChevronLeft, ChevronRight, Calendar, Pencil, Loader2, Plus } from 'lucide-react';
 import { AddressAutocomplete, AddressComponents } from './AddressAutocomplete';
 import { supabase } from '@/integrations/supabase/client';
@@ -182,6 +183,12 @@ export function TripTimeline({ trips, date, onUpdate, onCreate }: TripTimelinePr
   };
 
   const calculateDistance = async (startLat: number, startLon: number, endLat: number, endLon: number) => {
+    // Validate coordinates before making API call
+    if (!isValidCoordinate(startLat, startLon) || !isValidCoordinate(endLat, endLon)) {
+      console.error('Invalid coordinates for distance calculation');
+      return;
+    }
+
     setCalculating(true);
     try {
       // Use OSRM for route distance calculation

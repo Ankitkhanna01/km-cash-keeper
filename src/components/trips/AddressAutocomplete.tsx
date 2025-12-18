@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2, MapPin, Search, Store, Home, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-
+import { isValidCoordinate, isValidSearchQuery } from "@/lib/coordinateUtils";
 export interface AddressComponents {
   house_number?: string;
   road?: string;
@@ -110,7 +110,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
   const handleSearch = async () => {
     const query = inputValue.trim();
-    if (!query) return;
+    if (!query || !isValidSearchQuery(query)) return;
 
     setIsSearching(true);
     setPage(0);
@@ -119,7 +119,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
       // Search with Nominatim, biased to user location if available
       let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ca&limit=20&addressdetails=1`;
 
-      if (userLocation) {
+      if (userLocation && isValidCoordinate(userLocation.lat, userLocation.lon)) {
         const viewbox = `${userLocation.lon - 0.05},${userLocation.lat + 0.05},${userLocation.lon + 0.05},${userLocation.lat - 0.05}`;
         url += `&viewbox=${viewbox}&bounded=0`;
       }
