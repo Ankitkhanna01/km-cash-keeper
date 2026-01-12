@@ -13,7 +13,7 @@ interface NearbyPlace {
   lon: number;
   type: 'restaurant' | 'residential' | 'business' | 'other';
   distance?: number;
-  source?: 'trips' | 'cached' | 'osm';
+  source?: 'trips' | 'cached' | 'osm' | 'google';
 }
 
 // Calculate distance between two points in meters
@@ -26,6 +26,235 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): nu
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
+}
+
+// Track API usage
+async function checkAndTrackUsage(supabase: any, apiType: string): Promise<{ allowed: boolean; count: number; limit: number }> {
+  try {
+    const monthKey = new Date().toISOString().slice(0, 7);
+    const key = `google_${apiType}_${monthKey}`;
+    const limit = apiType === 'places_nearby' ? 5000 : 10000;
+    
+    const { data } = await supabase
+      .from('cached_addresses')
+      .select('hit_count')
+      .eq('display_name', key)
+      .single();
+    
+    const currentCount = data?.hit_count || 0;
+    
+    if (currentCount >= limit * 0.9) {
+      console.warn(`⚠️ GOOGLE API LIMIT WARNING: ${apiType} at ${currentCount}/${limit} (${Math.round(currentCount/limit*100)}%)`);
+    }
+    
+    if (data) {
+      await supabase
+        .from('cached_addresses')
+        .update({ hit_count: currentCount + 1 })
+        .eq('display_name', key);
+    } else {
+      await supabase
+        .from('cached_addresses')
+        .insert({
+          display_name: key,
+          lat: 0,
+          lon: 0,
+          source: 'usage_tracking',
+          hit_count: 1,
+        });
+    }
+    
+    return { allowed: currentCount < limit, count: currentCount + 1, limit };
+  } catch (err) {
+    console.error('Usage tracking error:', err);
+    return { allowed: true, count: 0, limit: 10000 };
+  }
+}
+
+// Google Places Nearby Search - PRIMARY
+async function searchGoogleNearby(lat: number, lon: number, radius: number, query: string | null, supabase: any): Promise<NearbyPlace[]> {
+  const googleApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (!googleApiKey) {
+    console.log("No GOOGLE_MAPS_API_KEY configured");
+    return [];
+  }
+
+  const usage = await checkAndTrackUsage(supabase, 'places_nearby');
+  if (!usage.allowed) {
+    console.warn(`🚨 GOOGLE PLACES NEARBY LIMIT EXCEEDED: ${usage.count}/${usage.limit} - Falling back to OSM`);
+    return [];
+  }
+
+  try {
+    const params = new URLSearchParams({
+      location: `${lat},${lon}`,
+      radius: String(Math.min(radius, 500)), // Max 500m for nearby
+      key: googleApiKey,
+    });
+    
+    if (query) {
+      params.set('keyword', query);
+    } else {
+      params.set('type', 'establishment');
+    }
+
+    console.log(`Google Nearby: ${lat}, ${lon} radius=${radius}m (usage: ${usage.count}/${usage.limit})`);
+    
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${params.toString()}`,
+      { headers: { Accept: "application/json" } }
+    );
+
+    if (!response.ok) {
+      console.error(`Google API error: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    
+    if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED') {
+      console.warn(`🚨 GOOGLE PLACES STATUS: ${data.status}`);
+      return [];
+    }
+
+    return (data.results || []).slice(0, 5).map((place: any) => {
+      const location = place.geometry?.location || {};
+      const placeLat = location.lat;
+      const placeLon = location.lng;
+      const distance = getDistance(lat, lon, placeLat, placeLon);
+      
+      // Determine type
+      let type: NearbyPlace['type'] = 'other';
+      const types = place.types || [];
+      if (types.some((t: string) => ['restaurant', 'food', 'cafe', 'meal_takeaway', 'meal_delivery'].includes(t))) {
+        type = 'restaurant';
+      } else if (types.includes('store') || types.includes('establishment')) {
+        type = 'business';
+      }
+      
+      return {
+        name: place.name,
+        address: place.vicinity || place.formatted_address || '',
+        lat: placeLat,
+        lon: placeLon,
+        type,
+        distance: Math.round(distance),
+        source: 'google' as const,
+      };
+    });
+  } catch (err) {
+    console.error(`Google Nearby error: ${err}`);
+    return [];
+  }
+}
+
+// OSM Nearby Search - FALLBACK
+async function searchOSMNearby(lat: number, lon: number, radius: number, query: string | null): Promise<NearbyPlace[]> {
+  const delta = radius / 111000;
+  const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
+  const places: NearbyPlace[] = [];
+
+  console.log(`OSM Nearby (fallback): ${lat}, ${lon} radius=${radius}m`);
+
+  // If there's a search query, search by name
+  if (query && query.trim()) {
+    try {
+      const searchUrl = `https://nominatim.openstreetmap.org/search?` +
+        `format=json&` +
+        `q=${encodeURIComponent(query)}&` +
+        `viewbox=${viewbox}&` +
+        `bounded=1&` +
+        `limit=5&` +
+        `addressdetails=1`;
+
+      const response = await fetch(searchUrl, {
+        headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        for (const place of data) {
+          const placeLat = parseFloat(place.lat);
+          const placeLon = parseFloat(place.lon);
+          const distance = getDistance(lat, lon, placeLat, placeLon);
+          
+          if (distance <= radius) {
+            const name = place.name || place.display_name?.split(',')[0] || '';
+            const addr = place.address;
+            const address = addr ? 
+              `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
+              '';
+
+            places.push({
+              name,
+              address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
+              lat: placeLat,
+              lon: placeLon,
+              type: place.class === 'shop' || place.class === 'amenity' ? 'business' : 'other',
+              distance: Math.round(distance),
+              source: 'osm',
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.log("Error searching OSM:", e);
+    }
+  }
+
+  // Only fetch businesses if we need more places
+  if (places.length < 5) {
+    const businessAmenities = ['restaurant', 'fast_food', 'cafe'];
+    
+    for (const amenity of businessAmenities.slice(0, 2)) {
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?` +
+          `format=json&` +
+          `amenity=${amenity}&` +
+          `viewbox=${viewbox}&` +
+          `bounded=1&` +
+          `limit=3&` +
+          `addressdetails=1`;
+
+        const response = await fetch(url, {
+          headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          for (const place of data) {
+            const placeLat = parseFloat(place.lat);
+            const placeLon = parseFloat(place.lon);
+            const distance = getDistance(lat, lon, placeLat, placeLon);
+            
+            if (distance <= radius && place.name) {
+              const addr = place.address;
+              const address = addr ? 
+                `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
+                '';
+
+              places.push({
+                name: place.name,
+                address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
+                lat: placeLat,
+                lon: placeLon,
+                type: 'restaurant',
+                distance: Math.round(distance),
+                source: 'osm',
+              });
+            }
+          }
+        }
+        await new Promise(r => setTimeout(r, 100));
+      } catch (e) {
+        console.log(`Error fetching ${amenity}:`, e);
+      }
+
+      if (places.length >= 5) break;
+    }
+  }
+
+  return places;
 }
 
 serve(async (req) => {
@@ -98,7 +327,6 @@ serve(async (req) => {
 
         if (trips) {
           for (const trip of trips) {
-            // Check start location
             if (trip.start_lat && trip.start_lon) {
               const dist = getDistance(lat, lon, Number(trip.start_lat), Number(trip.start_lon));
               if (dist <= radius) {
@@ -113,7 +341,6 @@ serve(async (req) => {
                 });
               }
             }
-            // Check end location
             if (trip.end_lat && trip.end_lon) {
               const dist = getDistance(lat, lon, Number(trip.end_lat), Number(trip.end_lon));
               if (dist <= radius) {
@@ -142,6 +369,7 @@ serve(async (req) => {
       const { data: cached } = await supabase
         .from('cached_addresses')
         .select('*')
+        .neq('source', 'usage_tracking')
         .gte('lat', lat - delta)
         .lte('lat', lat + delta)
         .gte('lon', lon - delta)
@@ -169,9 +397,9 @@ serve(async (req) => {
       console.log("Error fetching cached:", e);
     }
 
-    // 3. If we have enough from cache/trips, return early (skip OSM)
+    // 3. If we have enough from cache/trips, return early
     if (allPlaces.length >= 5 && !query) {
-      console.log(`Returning ${allPlaces.length} places from cache/trips (skipping OSM)`);
+      console.log(`Returning ${allPlaces.length} places from cache/trips (skipping external API)`);
       allPlaces.sort((a, b) => (a.distance || 0) - (b.distance || 0));
       return new Response(
         JSON.stringify({ places: allPlaces.slice(0, 5) }),
@@ -179,105 +407,20 @@ serve(async (req) => {
       );
     }
 
-    // 4. Search OSM (only if needed)
-    const delta = radius / 111000;
-    const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
-
-    // If there's a search query, search by name
-    if (query && query.trim()) {
-      try {
-        const searchUrl = `https://nominatim.openstreetmap.org/search?` +
-          `format=json&` +
-          `q=${encodeURIComponent(query)}&` +
-          `viewbox=${viewbox}&` +
-          `bounded=1&` +
-          `limit=5&` +
-          `addressdetails=1`;
-
-        const response = await fetch(searchUrl, {
-          headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          for (const place of data) {
-            const placeLat = parseFloat(place.lat);
-            const placeLon = parseFloat(place.lon);
-            const distance = getDistance(lat, lon, placeLat, placeLon);
-            
-            if (distance <= radius) {
-              const name = place.name || place.display_name?.split(',')[0] || '';
-              const addr = place.address;
-              const address = addr ? 
-                `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
-                '';
-
-              addPlace({
-                name,
-                address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
-                lat: placeLat,
-                lon: placeLon,
-                type: place.class === 'shop' || place.class === 'amenity' ? 'business' : 'other',
-                distance: Math.round(distance),
-                source: 'osm',
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.log("Error searching OSM:", e);
-      }
+    // 4. PRIMARY: Google Places API
+    const googlePlaces = await searchGoogleNearby(lat, lon, radius, query || null, supabase);
+    
+    for (const place of googlePlaces) {
+      addPlace(place);
     }
 
-    // Only fetch businesses from OSM if we need more places
-    if (allPlaces.length < 5) {
-      const businessAmenities = ['restaurant', 'fast_food', 'cafe', 'shop', 'supermarket'];
+    // 5. FALLBACK: OSM if Google didn't return results
+    if (googlePlaces.length === 0) {
+      console.log("Google returned no results, falling back to OSM...");
+      const osmPlaces = await searchOSMNearby(lat, lon, radius, query || null);
       
-      for (const amenity of businessAmenities.slice(0, 2)) {
-        try {
-          const url = `https://nominatim.openstreetmap.org/search?` +
-            `format=json&` +
-            `amenity=${amenity}&` +
-            `viewbox=${viewbox}&` +
-            `bounded=1&` +
-            `limit=3&` +
-            `addressdetails=1`;
-
-          const response = await fetch(url, {
-            headers: { "User-Agent": "CRA-Tax-Tracker/1.0" },
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            for (const place of data) {
-              const placeLat = parseFloat(place.lat);
-              const placeLon = parseFloat(place.lon);
-              const distance = getDistance(lat, lon, placeLat, placeLon);
-              
-              if (distance <= radius && place.name) {
-                const addr = place.address;
-                const address = addr ? 
-                  `${addr.house_number || ''} ${addr.road || ''}, ${addr.city || addr.town || ''}`.trim().replace(/^,\s*/, '') :
-                  '';
-
-                addPlace({
-                  name: place.name,
-                  address: address || place.display_name?.split(',').slice(0, 2).join(',') || '',
-                  lat: placeLat,
-                  lon: placeLon,
-                  type: ['restaurant', 'fast_food', 'cafe'].includes(amenity) ? 'restaurant' : 'business',
-                  distance: Math.round(distance),
-                  source: 'osm',
-                });
-              }
-            }
-          }
-          await new Promise(r => setTimeout(r, 100));
-        } catch (e) {
-          console.log(`Error fetching ${amenity}:`, e);
-        }
-
-        if (allPlaces.length >= 5) break;
+      for (const place of osmPlaces) {
+        addPlace(place);
       }
     }
 

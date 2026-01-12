@@ -34,6 +34,13 @@ const PROVINCE_ABBREVIATIONS: Record<string, string> = {
   'nu': 'Nunavut',
 };
 
+// Usage tracking - check if we're approaching limits
+const GOOGLE_MONTHLY_LIMITS = {
+  geocoding: 10000,
+  autocomplete: 10000,
+  places_details: 10000,
+};
+
 function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
@@ -63,17 +70,14 @@ function extractStreetAddress(query: string): string | null {
 
 // Parse "near me" or "near [location]" from query
 function parseNearQuery(query: string): { searchTerm: string; nearType: 'me' | 'location' | null; locationName: string | null } {
-  // Match "near me" pattern
   const nearMeMatch = query.match(/^(.+?)\s+near\s+me$/i);
   if (nearMeMatch) {
     return { searchTerm: nearMeMatch[1].trim(), nearType: 'me', locationName: null };
   }
   
-  // Match "near [location]" pattern
   const nearLocationMatch = query.match(/^(.+?)\s+near\s+(.+)$/i);
   if (nearLocationMatch) {
     const locationName = nearLocationMatch[2].trim();
-    // Don't match if it's "near me"
     if (locationName.toLowerCase() !== 'me') {
       return { searchTerm: nearLocationMatch[1].trim(), nearType: 'location', locationName };
     }
@@ -82,66 +86,9 @@ function parseNearQuery(query: string): { searchTerm: string; nearType: 'me' | '
   return { searchTerm: query, nearType: null, locationName: null };
 }
 
-// Geocode a location name to get coordinates, biased by user's location
-async function geocodeLocation(locationName: string, userLocation?: Nearby): Promise<Nearby | null> {
-  try {
-    const params = new URLSearchParams({
-      format: "json",
-      q: locationName,
-      limit: "5",
-      countrycodes: "ca",
-    });
-    
-    // Bias search towards user's location if available
-    if (userLocation) {
-      const kmRadius = 30;
-      const latDelta = kmRadius / 111;
-      const lonDelta = kmRadius / (111 * Math.cos((userLocation.lat * Math.PI) / 180) || 1);
-      params.set("viewbox", `${userLocation.lon - lonDelta},${userLocation.lat + latDelta},${userLocation.lon + lonDelta},${userLocation.lat - latDelta}`);
-      params.set("bounded", "0");
-    }
-    
-    console.log(`Geocoding location: ${locationName}`);
-    const response = await fetchWithTimeout(
-      `https://nominatim.openstreetmap.org/search?${params.toString()}`,
-      { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
-      5000
-    );
-    
-    if (!response.ok) return null;
-    const data = await response.json();
-    
-    if (data.length > 0) {
-      // If user location available, pick the closest result
-      let best = data[0];
-      if (userLocation && data.length > 1) {
-        let minDist = Infinity;
-        for (const item of data) {
-          const dist = calculateDistanceMeters(
-            userLocation.lat, userLocation.lon,
-            parseFloat(item.lat), parseFloat(item.lon)
-          );
-          if (dist < minDist) {
-            minDist = dist;
-            best = item;
-          }
-        }
-      }
-      const lat = parseFloat(best.lat);
-      const lon = parseFloat(best.lon);
-      console.log(`Location found: ${locationName} -> ${lat}, ${lon} (${best.display_name})`);
-      return { lat, lon };
-    }
-    return null;
-  } catch (err) {
-    console.error(`Geocode location error: ${err}`);
-    return null;
-  }
-}
-
-// Calculate distance between two points in meters (Haversine formula)
+// Calculate distance between two points in meters
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000; // Earth's radius in meters
+  const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -167,12 +114,57 @@ function filterByDistance(results: any[], center: Nearby, maxDistanceMeters: num
   }).sort((a, b) => a.distance_meters - b.distance_meters);
 }
 
-// Initialize Supabase client for cache operations
 function getSupabaseClient() {
   return createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
   );
+}
+
+// Track API usage and check limits
+async function checkAndTrackUsage(apiType: string): Promise<{ allowed: boolean; count: number; limit: number }> {
+  try {
+    const supabase = getSupabaseClient();
+    const monthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+    const key = `google_${apiType}_${monthKey}`;
+    
+    // Try to get current count
+    const { data } = await supabase
+      .from('cached_addresses')
+      .select('hit_count')
+      .eq('display_name', key)
+      .single();
+    
+    const currentCount = data?.hit_count || 0;
+    const limit = GOOGLE_MONTHLY_LIMITS[apiType as keyof typeof GOOGLE_MONTHLY_LIMITS] || 10000;
+    
+    if (currentCount >= limit * 0.9) {
+      console.warn(`⚠️ GOOGLE API LIMIT WARNING: ${apiType} at ${currentCount}/${limit} (${Math.round(currentCount/limit*100)}%)`);
+    }
+    
+    // Update count
+    if (data) {
+      await supabase
+        .from('cached_addresses')
+        .update({ hit_count: currentCount + 1 })
+        .eq('display_name', key);
+    } else {
+      await supabase
+        .from('cached_addresses')
+        .insert({
+          display_name: key,
+          lat: 0,
+          lon: 0,
+          source: 'usage_tracking',
+          hit_count: 1,
+        });
+    }
+    
+    return { allowed: currentCount < limit, count: currentCount + 1, limit };
+  } catch (err) {
+    console.error('Usage tracking error:', err);
+    return { allowed: true, count: 0, limit: 10000 };
+  }
 }
 
 // Search local cache first
@@ -184,6 +176,7 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
     const { data, error } = await supabase
       .from('cached_addresses')
       .select('*')
+      .neq('source', 'usage_tracking')
       .limit(20);
     
     if (error || !data) {
@@ -191,7 +184,6 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
       return [];
     }
     
-    // Filter results that match any search term
     const matches = data.filter((addr: any) => {
       const displayLower = addr.display_name?.toLowerCase() || '';
       const cachedTerms = addr.search_terms || [];
@@ -205,7 +197,6 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
     if (matches.length > 0) {
       console.log(`Cache hit: ${matches.length} results`);
       
-      // Update hit count for matched results
       for (const match of matches) {
         await supabase
           .from('cached_addresses')
@@ -225,7 +216,7 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
         city: addr.city,
         state: addr.province,
         postcode: addr.postal_code,
-        full_label: addr.display_name, // Use display_name as full_label for consistent formatting
+        full_label: addr.display_name,
       },
       source: 'cache',
     }));
@@ -235,8 +226,8 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
   }
 }
 
-// Save HERE results to cache for future use
-async function cacheHEREResults(results: any[], originalQuery: string): Promise<void> {
+// Save Google results to cache
+async function cacheGoogleResults(results: any[], originalQuery: string): Promise<void> {
   try {
     const supabase = getSupabaseClient();
     const searchTerms = originalQuery.toLowerCase().split(/\s+/).filter(w => w.length > 1);
@@ -247,7 +238,6 @@ async function cacheHEREResults(results: any[], originalQuery: string): Promise<
       const lat = parseFloat(result.lat);
       const lon = parseFloat(result.lon);
       
-      // Check if already cached (within 50m)
       const { data: existing } = await supabase
         .from('cached_addresses')
         .select('id, search_terms')
@@ -279,7 +269,7 @@ async function cacheHEREResults(results: any[], originalQuery: string): Promise<
             postal_code: addr.postcode,
             lat,
             lon,
-            source: 'here',
+            source: 'google',
             search_terms: searchTerms,
           });
           
@@ -288,34 +278,6 @@ async function cacheHEREResults(results: any[], originalQuery: string): Promise<
     }
   } catch (err) {
     console.error(`Cache write error: ${err}`);
-  }
-}
-
-// Reverse geocode coordinates to get city/province
-async function getCityFromCoordinates(lat: number, lon: number): Promise<{ city: string; province: string } | null> {
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10`;
-    const response = await fetchWithTimeout(
-      url,
-      { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
-      3000
-    );
-    
-    if (!response.ok) return null;
-    
-    const data = await response.json();
-    const address = data.address || {};
-    const city = address.city || address.town || address.village || address.municipality || address.county || '';
-    const province = address.state || '';
-    
-    if (city || province) {
-      console.log(`GPS location: ${city}, ${province}`);
-      return { city, province };
-    }
-    return null;
-  } catch (err) {
-    console.error(`Reverse geocode error: ${err}`);
-    return null;
   }
 }
 
@@ -329,13 +291,196 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-// Search Photon (better for POIs)
+// GOOGLE MAPS API - Primary geocoding source
+async function searchGoogle(query: string, near?: Nearby, limit = 10): Promise<any[]> {
+  const googleApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (!googleApiKey) {
+    console.log("No GOOGLE_MAPS_API_KEY configured");
+    return [];
+  }
+
+  // Check usage limits
+  const usage = await checkAndTrackUsage('geocoding');
+  if (!usage.allowed) {
+    console.warn(`🚨 GOOGLE GEOCODING LIMIT EXCEEDED: ${usage.count}/${usage.limit} - Falling back to OSM`);
+    return [];
+  }
+
+  try {
+    const params = new URLSearchParams({
+      address: query,
+      key: googleApiKey,
+      components: 'country:CA',
+    });
+    
+    if (near) {
+      params.set('bounds', `${near.lat - 0.5},${near.lon - 0.5}|${near.lat + 0.5},${near.lon + 0.5}`);
+    }
+
+    console.log(`Google Geocoding: ${query} (usage: ${usage.count}/${usage.limit})`);
+    const response = await fetchWithTimeout(
+      `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`,
+      { headers: { Accept: "application/json" } },
+      5000
+    );
+    
+    if (!response.ok) {
+      console.error(`Google API error: ${response.status}`);
+      return [];
+    }
+    
+    const data = await response.json();
+    
+    if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED') {
+      console.warn(`🚨 GOOGLE API STATUS: ${data.status} - ${data.error_message || 'Limit exceeded'}`);
+      return [];
+    }
+    
+    return (data.results || []).slice(0, limit).map((item: any) => {
+      const location = item.geometry?.location || {};
+      const addressComponents = item.address_components || [];
+      
+      const getComponent = (type: string) => 
+        addressComponents.find((c: any) => c.types.includes(type))?.long_name || '';
+      const getShortComponent = (type: string) => 
+        addressComponents.find((c: any) => c.types.includes(type))?.short_name || '';
+      
+      return {
+        display_name: item.formatted_address,
+        name: item.formatted_address.split(',')[0].trim(),
+        lat: String(location.lat),
+        lon: String(location.lng),
+        type: item.types?.[0] || 'address',
+        address: {
+          house_number: getComponent('street_number'),
+          road: getComponent('route'),
+          city: getComponent('locality') || getComponent('sublocality'),
+          state: getComponent('administrative_area_level_1'),
+          postcode: getComponent('postal_code'),
+          full_label: item.formatted_address,
+        },
+        source: 'google',
+      };
+    });
+  } catch (err) {
+    console.error(`Google error: ${err}`);
+    return [];
+  }
+}
+
+// Google Places Autocomplete - for business searches
+async function searchGooglePlaces(query: string, near?: Nearby, limit = 10): Promise<any[]> {
+  const googleApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (!googleApiKey) {
+    return [];
+  }
+
+  const usage = await checkAndTrackUsage('autocomplete');
+  if (!usage.allowed) {
+    console.warn(`🚨 GOOGLE AUTOCOMPLETE LIMIT EXCEEDED: ${usage.count}/${usage.limit} - Falling back to OSM`);
+    return [];
+  }
+
+  try {
+    const params = new URLSearchParams({
+      input: query,
+      key: googleApiKey,
+      components: 'country:ca',
+      types: 'establishment',
+    });
+    
+    if (near) {
+      params.set('location', `${near.lat},${near.lon}`);
+      params.set('radius', '50000'); // 50km radius bias
+    }
+
+    console.log(`Google Places Autocomplete: ${query} (usage: ${usage.count}/${usage.limit})`);
+    const response = await fetchWithTimeout(
+      `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`,
+      { headers: { Accept: "application/json" } },
+      5000
+    );
+    
+    if (!response.ok) return [];
+    
+    const data = await response.json();
+    
+    if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED') {
+      console.warn(`🚨 GOOGLE PLACES STATUS: ${data.status}`);
+      return [];
+    }
+    
+    // Get place details for each prediction
+    const predictions = (data.predictions || []).slice(0, Math.min(limit, 5)); // Limit to save API calls
+    const detailedResults: any[] = [];
+    
+    for (const prediction of predictions) {
+      const detailUsage = await checkAndTrackUsage('places_details');
+      if (!detailUsage.allowed) {
+        console.warn(`🚨 GOOGLE PLACES DETAILS LIMIT EXCEEDED - stopping detail lookups`);
+        break;
+      }
+      
+      try {
+        const detailParams = new URLSearchParams({
+          place_id: prediction.place_id,
+          key: googleApiKey,
+          fields: 'formatted_address,geometry,name,address_components',
+        });
+        
+        const detailResponse = await fetchWithTimeout(
+          `https://maps.googleapis.com/maps/api/place/details/json?${detailParams.toString()}`,
+          { headers: { Accept: "application/json" } },
+          3000
+        );
+        
+        if (detailResponse.ok) {
+          const detailData = await detailResponse.json();
+          if (detailData.status === 'OK' && detailData.result) {
+            const result = detailData.result;
+            const location = result.geometry?.location || {};
+            const addressComponents = result.address_components || [];
+            
+            const getComponent = (type: string) => 
+              addressComponents.find((c: any) => c.types.includes(type))?.long_name || '';
+            
+            detailedResults.push({
+              display_name: result.formatted_address,
+              name: result.name || result.formatted_address.split(',')[0].trim(),
+              lat: String(location.lat),
+              lon: String(location.lng),
+              type: 'establishment',
+              address: {
+                house_number: getComponent('street_number'),
+                road: getComponent('route'),
+                city: getComponent('locality') || getComponent('sublocality'),
+                state: getComponent('administrative_area_level_1'),
+                postcode: getComponent('postal_code'),
+                full_label: result.formatted_address,
+              },
+              source: 'google',
+            });
+          }
+        }
+      } catch (e) {
+        console.log(`Place detail error: ${e}`);
+      }
+    }
+    
+    return detailedResults;
+  } catch (err) {
+    console.error(`Google Places error: ${err}`);
+    return [];
+  }
+}
+
+// FALLBACK: Search Photon (free, good for POIs)
 async function searchPhoton(query: string, near?: Nearby, limit = 10): Promise<any[]> {
   try {
     let url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=${limit}&lang=en`;
     if (near) url += `&lat=${near.lat}&lon=${near.lon}`;
     
-    console.log(`Photon: ${query}`);
+    console.log(`Photon (fallback): ${query}`);
     const response = await fetchWithTimeout(url, { headers: { "User-Agent": "DriverTaxTracker/1.0" } }, 5000);
     if (!response.ok) return [];
     
@@ -375,7 +520,7 @@ async function searchPhoton(query: string, near?: Nearby, limit = 10): Promise<a
   }
 }
 
-// Search Nominatim
+// FALLBACK: Search Nominatim (free)
 async function searchNominatim(query: string, countrycodes: string, near?: Nearby, limit = 10): Promise<any[]> {
   try {
     const params = new URLSearchParams({
@@ -394,7 +539,7 @@ async function searchNominatim(query: string, countrycodes: string, near?: Nearb
       params.set("bounded", "0");
     }
 
-    console.log(`Nominatim: ${query}`);
+    console.log(`Nominatim (fallback): ${query}`);
     const response = await fetchWithTimeout(
       `https://nominatim.openstreetmap.org/search?${params.toString()}`,
       { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
@@ -408,75 +553,102 @@ async function searchNominatim(query: string, countrycodes: string, near?: Nearb
   }
 }
 
-// HERE API - used when OSM doesn't find good results for business searches
-async function searchHERE(query: string, near?: Nearby, limit = 10): Promise<any[]> {
-  const hereApiKey = Deno.env.get("HERE_API_KEY");
-  if (!hereApiKey) {
-    console.log("No HERE_API_KEY configured");
-    return [];
+// Geocode a location name
+async function geocodeLocation(locationName: string, userLocation?: Nearby): Promise<Nearby | null> {
+  // Try Google first
+  const googleResults = await searchGoogle(locationName, userLocation, 1);
+  if (googleResults.length > 0) {
+    return { lat: parseFloat(googleResults[0].lat), lon: parseFloat(googleResults[0].lon) };
   }
-
+  
+  // Fallback to Nominatim
   try {
     const params = new URLSearchParams({
-      q: query,
-      apiKey: hereApiKey,
-      limit: String(limit),
-      in: 'countryCode:CAN',
+      format: "json",
+      q: locationName,
+      limit: "1",
+      countrycodes: "ca",
     });
     
-    if (near) {
-      params.set('at', `${near.lat},${near.lon}`);
-    }
-
-    console.log(`HERE: ${query}`);
     const response = await fetchWithTimeout(
-      `https://geocode.search.hereapi.com/v1/geocode?${params.toString()}`,
-      { headers: { Accept: "application/json" } },
+      `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+      { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
       5000
     );
     
-    if (!response.ok) {
-      console.error(`HERE API error: ${response.status}`);
-      return [];
+    if (!response.ok) return null;
+    const data = await response.json();
+    
+    if (data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
     }
+    return null;
+  } catch (err) {
+    console.error(`Geocode location error: ${err}`);
+    return null;
+  }
+}
+
+// Reverse geocode for city/province
+async function getCityFromCoordinates(lat: number, lon: number): Promise<{ city: string; province: string } | null> {
+  // Try Google first (it's more reliable)
+  const googleApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (googleApiKey) {
+    try {
+      const usage = await checkAndTrackUsage('geocoding');
+      if (usage.allowed) {
+        const response = await fetchWithTimeout(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${googleApiKey}&result_type=locality`,
+          { headers: { Accept: "application/json" } },
+          3000
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.results && data.results[0]) {
+            const components = data.results[0].address_components || [];
+            const city = components.find((c: any) => c.types.includes('locality'))?.long_name || '';
+            const province = components.find((c: any) => c.types.includes('administrative_area_level_1'))?.long_name || '';
+            if (city || province) {
+              return { city, province };
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.log(`Google reverse geocode error: ${err}`);
+    }
+  }
+  
+  // Fallback to Nominatim
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10`;
+    const response = await fetchWithTimeout(
+      url,
+      { headers: { Accept: "application/json", "User-Agent": "DriverTaxTracker/1.0" } },
+      3000
+    );
+    
+    if (!response.ok) return null;
     
     const data = await response.json();
-    return (data.items || []).map((item: any) => {
-      const addr = item.address || {};
-      // Build full address from HERE data - addr.label has the complete address
-      const fullAddress = addr.label || item.title;
-      // Extract unit/suite if present in the label
-      const unitMatch = fullAddress.match(/Unit\s+\d+|Suite\s+\d+|#\d+/i);
-      const unit = unitMatch ? unitMatch[0] : null;
-      
-      return {
-        display_name: fullAddress,
-        name: item.title,
-        lat: String(item.position?.lat),
-        lon: String(item.position?.lng),
-        type: item.resultType,
-        address: {
-          house_number: addr.houseNumber,
-          road: addr.street,
-          unit: unit,
-          city: addr.city,
-          state: addr.state,
-          postcode: addr.postalCode,
-          full_label: addr.label,
-        },
-        source: 'here',
-      };
-    });
+    const address = data.address || {};
+    const city = address.city || address.town || address.village || address.municipality || address.county || '';
+    const province = address.state || '';
+    
+    if (city || province) {
+      return { city, province };
+    }
+    return null;
   } catch (err) {
-    console.error(`HERE error: ${err}`);
-    return [];
+    console.error(`Reverse geocode error: ${err}`);
+    return null;
   }
 }
 
 function formatAddress(item: any): any {
   const address = item.address || {};
   
-  // If we have a full_label from HERE, use it as it's the most complete
   if (address.full_label) {
     const result: any = {
       ...item,
@@ -493,15 +665,12 @@ function formatAddress(item: any): any {
     return result;
   }
   
-  // Build address from components
   const parts: string[] = [];
   
-  // Add business name if it exists and doesn't start with a number
   if (item.name && !item.name.match(/^\d/)) {
     parts.push(item.name);
   }
   
-  // Build street address with unit if available
   let streetPart = '';
   if (address.house_number && address.road) {
     streetPart = `${address.house_number} ${address.road}`;
@@ -528,7 +697,6 @@ function formatAddress(item: any): any {
   
   if (address.postcode) parts.push(address.postcode);
   
-  // Add distance if available
   const result: any = {
     ...item,
     formatted_name: parts.join(', ') || item.display_name,
@@ -550,62 +718,43 @@ function deduplicateResults(results: any[]): any[] {
     const lat = parseFloat(result.lat).toFixed(5);
     const lon = parseFloat(result.lon).toFixed(5);
     const key = `${lat},${lon}`;
-    if (!seen.has(key) || result.source === 'cache' || (result.source === 'here' && seen.get(key)?.source !== 'cache')) {
+    if (!seen.has(key) || result.source === 'google' || result.source === 'cache') {
       seen.set(key, result);
     }
   }
   return Array.from(seen.values());
 }
 
-// Check if a word appears as a whole word (not just substring)
 function hasWholeWord(text: string, word: string): boolean {
   const regex = new RegExp(`\\b${word}\\b`, 'i');
   return regex.test(text);
 }
 
-// Check if results contain relevant business matches - stricter matching
 function hasRelevantBusinessMatch(results: any[], query: string): boolean {
   const queryLower = query.toLowerCase();
-  // Get significant words (length > 2, not numbers)
   const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2 && !/^\d+$/.test(w));
-  
-  console.log(`Matching "${query}" | Words: [${queryWords.join(', ')}] | Results: ${results.length}`);
   
   if (queryWords.length === 0) return false;
   
-  // The first significant word is usually the business name - must match as whole word
   const primaryWord = queryWords[0];
   
-  const match = results.some(r => {
+  return results.some(r => {
     const name = (r.name || '').toLowerCase();
     const displayName = (r.display_name || '').toLowerCase();
     
-    // Primary word MUST be present as a WHOLE WORD in the name
-    const hasPrimary = hasWholeWord(name, primaryWord);
+    const hasPrimary = hasWholeWord(name, primaryWord) || hasWholeWord(displayName, primaryWord);
     if (!hasPrimary) return false;
     
-    // For multi-word queries, need at least half the words to match (whole word or substring for location words)
     if (queryWords.length >= 2) {
       const matchCount = queryWords.filter(w => 
         hasWholeWord(name, w) || hasWholeWord(displayName, w)
       ).length;
       const needed = Math.ceil(queryWords.length / 2);
-      if (matchCount >= needed) {
-        console.log(`Match found: "${name}" | Primary "${primaryWord}" as whole word: ${hasPrimary} | ${matchCount}/${queryWords.length} words`);
-        return true;
-      }
-      return false;
+      return matchCount >= needed;
     }
     
-    console.log(`Match found: "${name}" has primary word "${primaryWord}"`);
     return true;
   });
-  
-  if (!match) {
-    console.log(`No match found for "${query}" - will try HERE`);
-  }
-  
-  return match;
 }
 
 serve(async (req) => {
@@ -637,7 +786,6 @@ serve(async (req) => {
     const hasNearby = !!(body.near && isFiniteNumber(body.near.lat) && isFiniteNumber(body.near.lon));
     const userLocation = hasNearby ? body.near : undefined;
 
-    // Parse "near me" or "near [location]" queries
     const { searchTerm, nearType, locationName } = parseNearQuery(q);
     
     let searchCenter: Nearby | undefined = userLocation;
@@ -645,21 +793,17 @@ serve(async (req) => {
     let actualSearchTerm = q;
     
     if (nearType === 'me' && userLocation) {
-      // "near me" - use user's GPS, 300m radius
       searchCenter = userLocation;
       maxDistance = 300;
       actualSearchTerm = searchTerm;
-      console.log(`"Near me" search: "${searchTerm}" within 300m of user location`);
+      console.log(`"Near me" search: "${searchTerm}" within 300m`);
     } else if (nearType === 'location' && locationName) {
-      // "near [location]" - geocode location first (biased by user GPS), then 500m radius
       const locationCoords = await geocodeLocation(locationName, userLocation);
       if (locationCoords) {
         searchCenter = locationCoords;
-        maxDistance = 1000; // 1km radius for "near [location]"
+        maxDistance = 1000;
         actualSearchTerm = searchTerm;
-        console.log(`"Near ${locationName}" search: "${searchTerm}" within 500m of ${locationCoords.lat}, ${locationCoords.lon}`);
-      } else {
-        console.log(`Could not geocode location: ${locationName}, falling back to normal search`);
+        console.log(`"Near ${locationName}" search: "${searchTerm}" within 1km`);
       }
     }
 
@@ -667,16 +811,14 @@ serve(async (req) => {
     const isBusinessSearch = looksLikeBusinessSearch(actualSearchTerm);
     const hasLocation = hasExplicitLocation(actualSearchTerm);
     
-    console.log(`Query: "${actualSearchTerm}" | Business: ${isBusinessSearch} | HasLocation: ${hasLocation} | NearType: ${nearType || 'none'}`);
+    console.log(`Query: "${actualSearchTerm}" | Business: ${isBusinessSearch} | HasLocation: ${hasLocation}`);
 
     // 1. Check local cache first
     const cachedResults = await searchCache(actualSearchTerm, searchCenter);
     
-    // If we have a distance filter, apply it to cache results
     let filteredCache = cachedResults;
     if (maxDistance && searchCenter && cachedResults.length > 0) {
       filteredCache = filterByDistance(cachedResults, searchCenter, maxDistance);
-      console.log(`Cache: ${cachedResults.length} total, ${filteredCache.length} within ${maxDistance}m`);
     }
     
     if (filteredCache.length > 0 && hasRelevantBusinessMatch(filteredCache, actualSearchTerm)) {
@@ -688,7 +830,7 @@ serve(async (req) => {
       });
     }
 
-    // 2. If business search without location, try to get city from GPS coordinates
+    // 2. If business search without location, try to get city from GPS
     let enhancedQuery = expandedQuery;
     
     if (isBusinessSearch && !hasLocation && searchCenter) {
@@ -699,35 +841,36 @@ serve(async (req) => {
       }
     }
 
-    // 3. Search both OSM sources in parallel
-    const [photonResults, nominatimResults] = await Promise.all([
-      searchPhoton(enhancedQuery, searchCenter, limit * 2), // Get more results for filtering
-      searchNominatim(enhancedQuery, countrycodes, searchCenter, limit * 2),
-    ]);
-
-    console.log(`OSM: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
-    let allResults = [...filteredCache, ...photonResults, ...nominatimResults];
-
-    // 4. For business searches: use HERE if OSM returns no results OR doesn't have relevant matches
-    let hereResults: any[] = [];
+    // 3. PRIMARY: Google Maps API
+    let googleResults: any[] = [];
+    
     if (isBusinessSearch) {
-      const hasGoodOSMResults = allResults.length > 0 && hasRelevantBusinessMatch(allResults, actualSearchTerm);
+      // Use Places API for business searches
+      googleResults = await searchGooglePlaces(enhancedQuery, searchCenter, limit);
+    } else {
+      // Use Geocoding API for address searches
+      googleResults = await searchGoogle(enhancedQuery, searchCenter, limit);
+    }
+    
+    let allResults = [...filteredCache, ...googleResults];
+    
+    // 4. FALLBACK: If Google didn't return results, use free alternatives
+    if (googleResults.length === 0) {
+      console.log("Google returned no results, falling back to OSM...");
       
-      if (!hasGoodOSMResults) {
-        console.log("OSM didn't find relevant business match, trying HERE...");
-        hereResults = await searchHERE(enhancedQuery, searchCenter, limit * 2);
-        
-        if (hereResults.length > 0) {
-          console.log(`HERE found ${hereResults.length} results`);
-          allResults = [...hereResults, ...allResults];
-          
-          // Cache HERE results for future searches (async, don't await)
-          cacheHEREResults(hereResults, actualSearchTerm);
-        }
-      }
+      const [photonResults, nominatimResults] = await Promise.all([
+        searchPhoton(enhancedQuery, searchCenter, limit * 2),
+        searchNominatim(enhancedQuery, countrycodes, searchCenter, limit * 2),
+      ]);
+      
+      console.log(`OSM fallback: Photon=${photonResults.length}, Nominatim=${nominatimResults.length}`);
+      allResults = [...filteredCache, ...photonResults, ...nominatimResults];
+    } else {
+      // Cache Google results for future searches
+      cacheGoogleResults(googleResults, actualSearchTerm);
     }
 
-    // 5. Fallback: try extracting street address if no results
+    // 5. Final fallback: try extracting street address
     if (allResults.length === 0) {
       const streetAddr = extractStreetAddress(enhancedQuery);
       if (streetAddr) {
@@ -737,39 +880,25 @@ serve(async (req) => {
       }
     }
 
-    // 6. Last resort for any query with no results: try HERE
-    if (allResults.length === 0) {
-      console.log("No OSM results, trying HERE as last resort...");
-      hereResults = await searchHERE(enhancedQuery, searchCenter, limit);
-      if (hereResults.length > 0) {
-        console.log(`HERE found ${hereResults.length} results`);
-        allResults = hereResults;
-        cacheHEREResults(hereResults, actualSearchTerm);
-      }
-    }
-
-    // 7. Apply distance filter if "near me" or "near [location]" search
+    // 6. Apply distance filter if needed
     if (maxDistance && searchCenter && allResults.length > 0) {
       allResults = filterByDistance(allResults, searchCenter, maxDistance);
-      console.log(`Filtered to ${allResults.length} results within ${maxDistance}m`);
     }
 
-    // 8. Deduplicate and format
+    // 7. Deduplicate and format
     const combined = deduplicateResults(allResults);
     
-    // Sort by distance if we have distance info, otherwise by relevance
     const queryLower = actualSearchTerm.toLowerCase();
     combined.sort((a, b) => {
-      // If we have distance, sort by distance first
       if (a.distance_meters !== undefined && b.distance_meters !== undefined) {
         return a.distance_meters - b.distance_meters;
       }
       
-      // Cache/HERE results first for business searches
+      // Google/cache results first
+      if (a.source === 'google' && b.source !== 'google') return -1;
+      if (b.source === 'google' && a.source !== 'google') return 1;
       if (a.source === 'cache' && b.source !== 'cache') return -1;
       if (b.source === 'cache' && a.source !== 'cache') return 1;
-      if (a.source === 'here' && b.source !== 'here') return -1;
-      if (b.source === 'here' && a.source !== 'here') return 1;
       
       const aName = (a.name || '').toLowerCase();
       const bName = (b.name || '').toLowerCase();
