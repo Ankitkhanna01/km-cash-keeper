@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,6 +10,10 @@ interface Trip {
   id: string;
   start_location: string;
   end_location: string;
+  start_lat?: number;
+  start_lon?: number;
+  end_lat?: number;
+  end_lon?: number;
   kilometres: number;
   start_time: string;
   end_time: string;
@@ -18,6 +23,7 @@ interface RouteResult {
   id: string;
   calculatedKm: number | null;
   loggedKm: number;
+  source?: string;
 }
 
 interface GapResult {
@@ -27,45 +33,198 @@ interface GapResult {
   estimatedKm: number;
 }
 
+// Google Routes API usage limits
+const GOOGLE_MONTHLY_LIMITS = {
+  routes_essentials: 10000,
+  geocoding: 10000,
+};
+
+function getSupabaseClient() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+  );
+}
+
+// Track API usage
+async function checkAndTrackUsage(apiType: string): Promise<{ allowed: boolean; count: number; limit: number }> {
+  try {
+    const supabase = getSupabaseClient();
+    const monthKey = new Date().toISOString().slice(0, 7);
+    const key = `google_${apiType}_${monthKey}`;
+    const limit = GOOGLE_MONTHLY_LIMITS[apiType as keyof typeof GOOGLE_MONTHLY_LIMITS] || 10000;
+    
+    const { data } = await supabase
+      .from('cached_addresses')
+      .select('hit_count')
+      .eq('display_name', key)
+      .single();
+    
+    const currentCount = data?.hit_count || 0;
+    
+    if (currentCount >= limit * 0.9) {
+      console.warn(`⚠️ GOOGLE API LIMIT WARNING: ${apiType} at ${currentCount}/${limit}`);
+    }
+    
+    if (data) {
+      await supabase
+        .from('cached_addresses')
+        .update({ hit_count: currentCount + 1 })
+        .eq('display_name', key);
+    } else {
+      await supabase
+        .from('cached_addresses')
+        .insert({
+          display_name: key,
+          lat: 0,
+          lon: 0,
+          source: 'usage_tracking',
+          hit_count: 1,
+        });
+    }
+    
+    return { allowed: currentCount < limit, count: currentCount + 1, limit };
+  } catch (err) {
+    console.error('Usage tracking error:', err);
+    return { allowed: true, count: 0, limit: 10000 };
+  }
+}
+
 // Cache for geocoded addresses
 const geocodeCache = new Map<string, { lat: number; lon: number } | null>();
+
+// Google Geocoding API (primary)
+async function geocodeAddressGoogle(address: string): Promise<{ lat: number; lon: number } | null> {
+  const googleApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (!googleApiKey) return null;
+
+  const usage = await checkAndTrackUsage('geocoding');
+  if (!usage.allowed) {
+    console.warn(`🚨 GOOGLE GEOCODING LIMIT EXCEEDED - falling back to Nominatim`);
+    return null;
+  }
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${googleApiKey}&components=country:CA`;
+    const response = await fetch(url);
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    if (data.status === 'OK' && data.results?.length > 0) {
+      const location = data.results[0].geometry.location;
+      return { lat: location.lat, lon: location.lng };
+    }
+    return null;
+  } catch (err) {
+    console.error('Google geocoding error:', err);
+    return null;
+  }
+}
+
+// Nominatim Geocoding (fallback)
+async function geocodeAddressNominatim(address: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
+      { headers: { 'User-Agent': 'KMCashKeeper/1.0' } }
+    );
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    if (data?.length > 0) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    }
+    return null;
+  } catch (err) {
+    console.error('Nominatim geocoding error:', err);
+    return null;
+  }
+}
 
 async function geocodeAddress(address: string): Promise<{ lat: number; lon: number } | null> {
   if (geocodeCache.has(address)) {
     return geocodeCache.get(address) || null;
   }
 
-  try {
-    const encoded = encodeURIComponent(address);
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&limit=1`,
-      { headers: { 'User-Agent': 'KMCashKeeper/1.0' } }
-    );
-    
-    if (!response.ok) {
-      geocodeCache.set(address, null);
-      return null;
-    }
-    
-    const data = await response.json();
-    if (data && data.length > 0) {
-      const result = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-      geocodeCache.set(address, result);
-      return result;
-    }
-    geocodeCache.set(address, null);
+  // Try Google first
+  let result = await geocodeAddressGoogle(address);
+  
+  // Fallback to Nominatim
+  if (!result) {
+    result = await geocodeAddressNominatim(address);
+  }
+
+  geocodeCache.set(address, result);
+  return result;
+}
+
+// Google Routes API (primary) - most accurate
+async function getRouteDistanceGoogle(
+  start: { lat: number; lon: number },
+  end: { lat: number; lon: number }
+): Promise<{ km: number; source: string } | null> {
+  const googleApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (!googleApiKey) return null;
+
+  const usage = await checkAndTrackUsage('routes_essentials');
+  if (!usage.allowed) {
+    console.warn(`🚨 GOOGLE ROUTES LIMIT EXCEEDED - falling back to OSRM`);
     return null;
-  } catch (error) {
-    console.error('Geocoding error:', error);
-    geocodeCache.set(address, null);
+  }
+
+  try {
+    const body = {
+      origin: {
+        location: {
+          latLng: { latitude: start.lat, longitude: start.lon }
+        }
+      },
+      destination: {
+        location: {
+          latLng: { latitude: end.lat, longitude: end.lon }
+        }
+      },
+      travelMode: "DRIVE",
+      routingPreference: "TRAFFIC_AWARE",
+      computeAlternativeRoutes: false,
+      languageCode: "en-CA",
+      units: "METRIC",
+    };
+
+    const response = await fetch(
+      'https://routes.googleapis.com/directions/v2:computeRoutes',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': googleApiKey,
+          'X-Goog-FieldMask': 'routes.distanceMeters',
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (data.routes?.length > 0) {
+      const distanceKm = Math.round(data.routes[0].distanceMeters / 100) / 10;
+      return { km: distanceKm, source: 'google' };
+    }
+    return null;
+  } catch (err) {
+    console.error('Google Routes error:', err);
     return null;
   }
 }
 
-async function getRouteDistance(
+// OSRM Routing (fallback)
+async function getRouteDistanceOSRM(
   start: { lat: number; lon: number },
   end: { lat: number; lon: number }
-): Promise<number | null> {
+): Promise<{ km: number; source: string } | null> {
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=false`;
     const response = await fetch(url, { headers: { 'User-Agent': 'KMCashKeeper/1.0' } });
@@ -73,14 +232,32 @@ async function getRouteDistance(
     if (!response.ok) return null;
     
     const data = await response.json();
-    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-      return Math.round(data.routes[0].distance / 100) / 10; // Round to 0.1 km
+    if (data.code === 'Ok' && data.routes?.length > 0) {
+      return { 
+        km: Math.round(data.routes[0].distance / 100) / 10,
+        source: 'osrm'
+      };
     }
     return null;
-  } catch (error) {
-    console.error('OSRM routing error:', error);
+  } catch (err) {
+    console.error('OSRM routing error:', err);
     return null;
   }
+}
+
+async function getRouteDistance(
+  start: { lat: number; lon: number },
+  end: { lat: number; lon: number }
+): Promise<{ km: number; source: string } | null> {
+  // Try Google Routes first (most accurate)
+  let result = await getRouteDistanceGoogle(start, end);
+  
+  // Fallback to OSRM
+  if (!result) {
+    result = await getRouteDistanceOSRM(start, end);
+  }
+  
+  return result;
 }
 
 function parseTimeToMinutes(timeStr: string): number {
@@ -93,16 +270,29 @@ async function processTrip(trip: Trip): Promise<{
   startCoords: { lat: number; lon: number } | null;
   endCoords: { lat: number; lon: number } | null;
   calculatedKm: number | null;
+  source: string | null;
 }> {
-  const startCoords = await geocodeAddress(trip.start_location);
-  const endCoords = await geocodeAddress(trip.end_location);
+  // Use provided coordinates if available, otherwise geocode
+  let startCoords = trip.start_lat && trip.start_lon 
+    ? { lat: trip.start_lat, lon: trip.start_lon }
+    : await geocodeAddress(trip.start_location);
+    
+  let endCoords = trip.end_lat && trip.end_lon
+    ? { lat: trip.end_lat, lon: trip.end_lon }
+    : await geocodeAddress(trip.end_location);
   
   let calculatedKm: number | null = null;
+  let source: string | null = null;
+  
   if (startCoords && endCoords) {
-    calculatedKm = await getRouteDistance(startCoords, endCoords);
+    const routeResult = await getRouteDistance(startCoords, endCoords);
+    if (routeResult) {
+      calculatedKm = routeResult.km;
+      source = routeResult.source;
+    }
   }
   
-  return { trip, startCoords, endCoords, calculatedKm };
+  return { trip, startCoords, endCoords, calculatedKm, source };
 }
 
 async function processTripsBatched(trips: Trip[], batchSize: number = 5) {
@@ -144,7 +334,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Processing ${trips.length} trips for route verification...`);
+    console.log(`Processing ${trips.length} trips for route verification (Google Routes primary)...`);
 
     // Process all trips
     const tripAnalysis = await processTripsBatched(trips, 5);
@@ -154,6 +344,7 @@ serve(async (req) => {
       id: a.trip.id,
       calculatedKm: a.calculatedKm,
       loggedKm: a.trip.kilometres,
+      source: a.source || undefined,
     }));
 
     // Detect gaps between consecutive trips
@@ -166,14 +357,14 @@ serve(async (req) => {
       const prev = sortedAnalysis[idx];
       
       if (prev.endCoords && curr.startCoords) {
-        const gapDistance = await getRouteDistance(prev.endCoords, curr.startCoords);
+        const gapResult = await getRouteDistance(prev.endCoords, curr.startCoords);
         
-        if (gapDistance !== null && gapDistance > 0.3) {
+        if (gapResult && gapResult.km > 0.3) {
           return {
             tripId: curr.trip.id,
             fromLocation: prev.trip.end_location,
             toLocation: curr.trip.start_location,
-            estimatedKm: gapDistance,
+            estimatedKm: gapResult.km,
           };
         }
       }
@@ -186,7 +377,8 @@ serve(async (req) => {
     }
 
     const verified = routeResults.filter(r => r.calculatedKm !== null).length;
-    console.log(`Verified ${verified}/${trips.length} trips, found ${gaps.length} gaps`);
+    const googleRoutes = routeResults.filter(r => r.source === 'google').length;
+    console.log(`Verified ${verified}/${trips.length} trips (${googleRoutes} via Google Routes), found ${gaps.length} gaps`);
 
     return new Response(
       JSON.stringify({ routeResults, gaps, verified, total: trips.length }),
