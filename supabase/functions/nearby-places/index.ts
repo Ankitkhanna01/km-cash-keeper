@@ -71,7 +71,7 @@ async function checkAndTrackUsage(supabase: any, apiType: string): Promise<{ all
   }
 }
 
-// Google Places Nearby Search - PRIMARY
+// Google Places Nearby Search - PRIMARY (with caching)
 async function searchGoogleNearby(lat: number, lon: number, radius: number, query: string | null, supabase: any): Promise<NearbyPlace[]> {
   const googleApiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
   if (!googleApiKey) {
@@ -117,7 +117,7 @@ async function searchGoogleNearby(lat: number, lon: number, radius: number, quer
       return [];
     }
 
-    return (data.results || []).slice(0, 5).map((place: any) => {
+    const places = (data.results || []).slice(0, 5).map((place: any) => {
       const location = place.geometry?.location || {};
       const placeLat = location.lat;
       const placeLon = location.lng;
@@ -142,6 +142,47 @@ async function searchGoogleNearby(lat: number, lon: number, radius: number, quer
         source: 'google' as const,
       };
     });
+
+    // 💾 CACHE Google results for future use (shared globally)
+    for (const place of places) {
+      try {
+        // Check if already cached (within ~50m)
+        const { data: existing } = await supabase
+          .from('cached_addresses')
+          .select('id, hit_count')
+          .gte('lat', place.lat - 0.0005)
+          .lte('lat', place.lat + 0.0005)
+          .gte('lon', place.lon - 0.0005)
+          .lte('lon', place.lon + 0.0005)
+          .limit(1);
+
+        if (existing && existing.length > 0) {
+          // Update hit count
+          await supabase
+            .from('cached_addresses')
+            .update({ hit_count: (existing[0].hit_count || 1) + 1 })
+            .eq('id', existing[0].id);
+        } else {
+          // Insert new entry - user_id = NULL for global sharing
+          await supabase
+            .from('cached_addresses')
+            .insert({
+              display_name: place.address || place.name,
+              place_name: place.name,
+              lat: place.lat,
+              lon: place.lon,
+              source: 'google',
+              user_id: null, // NULL = shared for all users
+              hit_count: 1,
+            });
+          console.log(`💾 Cached nearby: ${place.name}`);
+        }
+      } catch (cacheErr) {
+        console.log(`Cache write skipped: ${cacheErr}`);
+      }
+    }
+
+    return places;
   } catch (err) {
     console.error(`Google Nearby error: ${err}`);
     return [];
@@ -363,7 +404,7 @@ serve(async (req) => {
       }
     }
 
-    // 2. Check cached addresses
+    // 2. Check cached addresses (GLOBAL shared cache for all users)
     try {
       const delta = radius / 111000;
       const { data: cached } = await supabase
@@ -374,32 +415,40 @@ serve(async (req) => {
         .lte('lat', lat + delta)
         .gte('lon', lon - delta)
         .lte('lon', lon + delta)
-        .limit(20);
+        .order('hit_count', { ascending: false }) // Most popular first
+        .limit(30);
 
       if (cached) {
         for (const addr of cached) {
           const dist = getDistance(lat, lon, Number(addr.lat), Number(addr.lon));
           if (dist <= radius) {
+            // Update hit count for popular places (fire and forget)
+            supabase
+              .from('cached_addresses')
+              .update({ hit_count: (addr.hit_count || 1) + 1 })
+              .eq('id', addr.id)
+              .then(() => {});
+            
             addPlace({
               name: addr.place_name || addr.display_name.split(',')[0].trim(),
               address: addr.display_name,
               lat: Number(addr.lat),
               lon: Number(addr.lon),
-              type: addr.source === 'user_custom' ? 'business' : 'other',
+              type: addr.source === 'user_custom' ? 'business' : (addr.source === 'google' ? 'business' : 'other'),
               distance: Math.round(dist),
               source: 'cached',
             });
           }
         }
-        console.log(`Found ${cached.length} cached addresses`);
+        console.log(`✅ Found ${cached.length} cached addresses nearby`);
       }
     } catch (e) {
       console.log("Error fetching cached:", e);
     }
 
-    // 3. If we have enough from cache/trips, return early
+    // 3. If we have enough from cache/trips, SKIP external APIs to save quota
     if (allPlaces.length >= 5 && !query) {
-      console.log(`Returning ${allPlaces.length} places from cache/trips (skipping external API)`);
+      console.log(`🚀 Returning ${allPlaces.length} places from cache/trips (saving Google API calls!)`);
       allPlaces.sort((a, b) => (a.distance || 0) - (b.distance || 0));
       return new Response(
         JSON.stringify({ places: allPlaces.slice(0, 5) }),
