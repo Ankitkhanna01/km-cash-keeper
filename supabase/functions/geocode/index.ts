@@ -167,47 +167,74 @@ async function checkAndTrackUsage(apiType: string): Promise<{ allowed: boolean; 
   }
 }
 
-// Search local cache first
+// Search local cache first - GLOBAL SHARED CACHE for all users
 async function searchCache(query: string, near?: Nearby): Promise<any[]> {
   try {
     const supabase = getSupabaseClient();
-    const searchTerms = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+    const queryLower = query.toLowerCase().trim();
+    const searchTerms = queryLower.split(/\s+/).filter(w => w.length > 1);
     
-    const { data, error } = await supabase
+    // Build more targeted query for better cache hits
+    let dbQuery = supabase
       .from('cached_addresses')
       .select('*')
-      .neq('source', 'usage_tracking')
-      .limit(20);
+      .neq('source', 'usage_tracking');
+    
+    // If we have coordinates, search nearby first (within ~500m)
+    if (near) {
+      const delta = 0.005; // ~500m
+      dbQuery = dbQuery
+        .gte('lat', near.lat - delta)
+        .lte('lat', near.lat + delta)
+        .gte('lon', near.lon - delta)
+        .lte('lon', near.lon + delta);
+    }
+    
+    const { data, error } = await dbQuery.limit(50);
     
     if (error || !data) {
       console.log(`Cache search error: ${error?.message}`);
       return [];
     }
     
-    const matches = data.filter((addr: any) => {
+    // Score and filter matches
+    const matches = data.map((addr: any) => {
       const displayLower = addr.display_name?.toLowerCase() || '';
-      const cachedTerms = addr.search_terms || [];
+      const placeLower = addr.place_name?.toLowerCase() || '';
+      const cachedTerms = (addr.search_terms || []).map((t: string) => t.toLowerCase());
       
-      return searchTerms.some(term => 
-        displayLower.includes(term) || 
-        cachedTerms.some((t: string) => t.includes(term) || term.includes(t))
-      );
-    });
+      let score = 0;
+      
+      // Exact place name match = highest priority
+      if (placeLower && queryLower.includes(placeLower)) score += 100;
+      if (placeLower && placeLower.includes(queryLower)) score += 80;
+      
+      // Search term matches
+      for (const term of searchTerms) {
+        if (displayLower.includes(term)) score += 10;
+        if (placeLower.includes(term)) score += 15;
+        if (cachedTerms.some((t: string) => t.includes(term) || term.includes(t))) score += 5;
+      }
+      
+      return { addr, score };
+    }).filter(m => m.score > 0).sort((a, b) => b.score - a.score);
     
     if (matches.length > 0) {
-      console.log(`Cache hit: ${matches.length} results`);
+      console.log(`✅ Cache hit: ${matches.length} results for "${query}"`);
       
-      for (const match of matches) {
-        await supabase
+      // Update hit count for cache analytics (fire and forget)
+      for (const { addr } of matches.slice(0, 5)) {
+        supabase
           .from('cached_addresses')
-          .update({ hit_count: (match.hit_count || 1) + 1 })
-          .eq('id', match.id);
+          .update({ hit_count: (addr.hit_count || 1) + 1 })
+          .eq('id', addr.id)
+          .then(() => {});
       }
     }
     
-    return matches.map((addr: any) => ({
+    return matches.slice(0, 10).map(({ addr }) => ({
       display_name: addr.display_name,
-      name: addr.display_name.split(',')[0].trim(),
+      name: addr.place_name || addr.display_name.split(',')[0].trim(),
       lat: String(addr.lat),
       lon: String(addr.lon),
       type: 'cached',
@@ -226,7 +253,7 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
   }
 }
 
-// Save Google results to cache
+// Save Google results to cache - SHARED for all users (user_id = NULL)
 async function cacheGoogleResults(results: any[], originalQuery: string): Promise<void> {
   try {
     const supabase = getSupabaseClient();
@@ -238,42 +265,55 @@ async function cacheGoogleResults(results: any[], originalQuery: string): Promis
       const lat = parseFloat(result.lat);
       const lon = parseFloat(result.lon);
       
+      // Check if similar location already exists (within ~50m)
       const { data: existing } = await supabase
         .from('cached_addresses')
-        .select('id, search_terms')
+        .select('id, search_terms, hit_count')
         .gte('lat', lat - 0.0005)
         .lte('lat', lat + 0.0005)
         .gte('lon', lon - 0.0005)
         .lte('lon', lon + 0.0005)
         .limit(1);
       
+      const addr = result.address || {};
+      const placeName = result.name || result.display_name?.split(',')[0]?.trim() || '';
+      
       if (existing && existing.length > 0) {
+        // Update existing cache entry with new search terms
         const existingTerms = existing[0].search_terms || [];
         const newTerms = [...new Set([...existingTerms, ...searchTerms])];
         
         await supabase
           .from('cached_addresses')
-          .update({ search_terms: newTerms })
+          .update({ 
+            search_terms: newTerms,
+            hit_count: (existing[0].hit_count || 1) + 1,
+            // Update place_name if we have a better one
+            ...(placeName && { place_name: placeName }),
+          })
           .eq('id', existing[0].id);
           
-        console.log(`Updated cache entry: ${result.display_name}`);
+        console.log(`📝 Updated cache: ${result.display_name}`);
       } else {
-        const addr = result.address || {};
+        // Insert new cache entry - user_id = NULL for global sharing
         await supabase
           .from('cached_addresses')
           .insert({
             display_name: result.display_name,
-            street: addr.road || addr.street,
-            city: addr.city,
+            place_name: placeName,
+            street: addr.road || addr.street || addr.house_number ? `${addr.house_number || ''} ${addr.road || ''}`.trim() : null,
+            city: addr.city || addr.town || addr.locality,
             province: addr.state,
             postal_code: addr.postcode,
             lat,
             lon,
             source: 'google',
             search_terms: searchTerms,
+            user_id: null, // NULL = shared globally for all users
+            hit_count: 1,
           });
           
-        console.log(`Cached: ${result.display_name}`);
+        console.log(`💾 Cached NEW: ${placeName || result.display_name}`);
       }
     }
   } catch (err) {
