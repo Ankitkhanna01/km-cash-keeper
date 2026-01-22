@@ -67,6 +67,12 @@ export default function Trips() {
     end_location: string;
     kilometres: number;
     category: 'business' | 'personal' | 'uncategorized';
+    notes?: string;
+    company?: string | null;
+    start_lat?: number;
+    start_lon?: number;
+    end_lat?: number;
+    end_lon?: number;
   }) => {
     const result = await addTrip(tripData);
     if (result) {
