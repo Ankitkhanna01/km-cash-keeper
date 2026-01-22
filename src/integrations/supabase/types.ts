@@ -158,6 +158,7 @@ export type Database = {
       trips: {
         Row: {
           category: string
+          company: string | null
           created_at: string
           date: string
           end_city: string | null
@@ -183,6 +184,7 @@ export type Database = {
         }
         Insert: {
           category?: string
+          company?: string | null
           created_at?: string
           date: string
           end_city?: string | null
@@ -208,6 +210,7 @@ export type Database = {
         }
         Update: {
           category?: string
+          company?: string | null
           created_at?: string
           date?: string
           end_city?: string | null

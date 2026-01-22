@@ -8,7 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { calculateTotalDistance } from './AddressAutocomplete';
 import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
-import { TripPurposeDialog, TripPurpose } from './TripPurposeDialog';
+import { TripPurposeDialog, TripPurpose, DeliveryCompany } from './TripPurposeDialog';
 import { NearbyPlacesSuggestions } from './NearbyPlacesSuggestions';
 import { EndLocationPicker } from './EndLocationPicker';
 
@@ -44,6 +44,7 @@ interface QuickTripRecorderProps {
     category: 'business' | 'personal' | 'uncategorized';
     waypoints?: Waypoint[];
     notes?: string;
+    company?: string | null;
     start_lat?: number;
     start_lon?: number;
     end_lat?: number;
@@ -96,6 +97,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [showEndLocationPicker, setShowEndLocationPicker] = useState(false);
   const [selectedPurpose, setSelectedPurpose] = useState<TripPurpose | null>(null);
   const [selectedCustomReason, setSelectedCustomReason] = useState<string | undefined>();
+  const [selectedCompany, setSelectedCompany] = useState<DeliveryCompany>(null);
 
   // Load persisted state on mount
   useEffect(() => {
@@ -429,14 +431,15 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setShowPurposeDialog(true);
   };
 
-  const handlePurposeSelected = (purpose: TripPurpose, customReason?: string) => {
+  const handlePurposeSelected = (purpose: TripPurpose, customReason?: string, company?: DeliveryCompany) => {
     if (!pendingEndLocation || !startLocation) return;
 
     setShowPurposeDialog(false);
     
-    // Store purpose and show end location picker
+    // Store purpose, company, and show end location picker
     setSelectedPurpose(purpose);
     setSelectedCustomReason(customReason);
+    setSelectedCompany(company || null);
     setShowEndLocationPicker(true);
   };
 
@@ -483,6 +486,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       category: 'uncategorized',
       waypoints: waypoints,
       notes: notesText,
+      company: selectedCompany,
       start_lat: startLocation.lat,
       start_lon: startLocation.lon,
       end_lat: finalEndLocation.lat,
@@ -539,6 +543,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       setShowCommentsField(false);
       setSelectedPurpose(null);
       setSelectedCustomReason(undefined);
+      setSelectedCompany(null);
       toast.success(`Trip recorded with ${waypoints.length} route points!`);
     }
   };
@@ -558,6 +563,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setElapsedTime(0);
     setComments('');
     setShowCommentsField(false);
+    setSelectedPurpose(null);
+    setSelectedCustomReason(undefined);
+    setSelectedCompany(null);
     toast.info('Trip cancelled');
   };
 

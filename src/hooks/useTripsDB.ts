@@ -23,6 +23,7 @@ export interface Trip {
   category: 'business' | 'personal' | 'uncategorized';
   created_at: string;
   notes?: string;
+  company?: string | null;
   // CRA-compliant structured address fields
   start_street?: string;
   start_city?: string;
@@ -101,6 +102,7 @@ export function useTripsDB() {
           kilometres: tripData.kilometres,
           category: tripData.category,
           notes: tripData.notes,
+          company: tripData.company || null,
           // CRA-compliant structured fields
           start_street: startAddr?.street || null,
           start_city: startAddr?.city || null,
