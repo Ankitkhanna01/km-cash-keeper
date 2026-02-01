@@ -56,7 +56,7 @@ export default function Reports() {
   const loading = tripsLoading || expensesLoading || odometerLoading;
 
   // CRA Compliance checks
-  const hasOdometer = odometerReading !== null && odometerReading.end_reading !== null;
+  const hasOdometer = odometerReading !== null && odometerReading !== undefined && odometerReading.end_reading !== null;
   const hasDocuments = yearDocs.length > 0;
   const hasNoGap = !gap || gap.gap_status === 'confirmed' || gap.gap_km <= 0;
   const isFullyCompliant = hasOdometer && hasDocuments && hasNoGap;
