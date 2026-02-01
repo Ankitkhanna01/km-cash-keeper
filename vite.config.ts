@@ -17,33 +17,121 @@ export default defineConfig(({ mode }) => ({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "pwa-192x192.png", "pwa-512x512.png"],
       manifest: {
-        name: "KM Cash Keeper - Tax Tracker",
+        id: "/",
+        name: "KM Cash Keeper - CRA Tax Tracker",
         short_name: "KM Cash Keeper",
-        description: "Track vehicle expenses and mileage for CRA Form T2125. Built for Canadian delivery drivers.",
+        description: "Track vehicle expenses and mileage for CRA Form T2125. Built for Canadian self-employed delivery drivers. Log trips, scan receipts, and generate audit-ready reports.",
         theme_color: "#141619",
         background_color: "#141619",
         display: "standalone",
+        display_override: ["standalone", "minimal-ui"],
         orientation: "portrait",
         scope: "/",
         start_url: "/",
+        dir: "ltr",
+        lang: "en-CA",
+        categories: ["finance", "productivity", "business"],
+        prefer_related_applications: false,
+        iarc_rating_id: "",
         icons: [
           {
             src: "pwa-192x192.png",
             sizes: "192x192",
             type: "image/png",
+            purpose: "any",
           },
           {
             src: "pwa-512x512.png",
             sizes: "512x512",
             type: "image/png",
+            purpose: "any",
           },
           {
             src: "pwa-512x512.png",
             sizes: "512x512",
             type: "image/png",
-            purpose: "any maskable",
+            purpose: "maskable",
+          },
+          {
+            src: "apple-touch-icon.png",
+            sizes: "180x180",
+            type: "image/png",
+            purpose: "any",
           },
         ],
+        screenshots: [
+          {
+            src: "pwa-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            form_factor: "narrow",
+            label: "Dashboard view of KM Cash Keeper",
+          },
+          {
+            src: "pwa-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            form_factor: "wide",
+            label: "Desktop view of KM Cash Keeper",
+          },
+        ],
+        shortcuts: [
+          {
+            name: "Add Trip",
+            short_name: "Trip",
+            description: "Log a new business trip",
+            url: "/trips?action=add",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+          },
+          {
+            name: "Add Expense",
+            short_name: "Expense",
+            description: "Log a new vehicle expense",
+            url: "/expenses?action=add",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+          },
+          {
+            name: "View Reports",
+            short_name: "Reports",
+            description: "View tax reports",
+            url: "/reports",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+          },
+        ],
+        launch_handler: {
+          client_mode: ["navigate-existing", "auto"],
+        },
+        handle_links: "preferred",
+        edge_side_panel: {
+          preferred_width: 400,
+        },
+        file_handlers: [
+          {
+            action: "/backup",
+            accept: {
+              "application/json": [".json"],
+            },
+          },
+        ],
+        protocol_handlers: [
+          {
+            protocol: "web+kmcash",
+            url: "/?source=%s",
+          },
+        ],
+        share_target: {
+          action: "/backup",
+          method: "POST",
+          enctype: "multipart/form-data",
+          params: {
+            files: [
+              {
+                name: "backup",
+                accept: ["application/json", ".json"],
+              },
+            ],
+          },
+        },
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
@@ -53,6 +141,17 @@ export default defineConfig(({ mode }) => ({
             handler: "CacheFirst",
             options: {
               cacheName: "google-fonts-cache",
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "gstatic-fonts-cache",
               expiration: {
                 maxEntries: 10,
                 maxAgeSeconds: 60 * 60 * 24 * 365,

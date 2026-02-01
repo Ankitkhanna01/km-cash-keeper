@@ -21,16 +21,17 @@ import { useDocumentsDB } from '@/hooks/useDocumentsDB';
 import { useOdometerGapsDB } from '@/hooks/useOdometerGapsDB';
 import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
-import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { generateFullExcelReport } from '@/lib/excelExport';
+import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Reports() {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear.toString());
 
-  const { loading: tripsLoading, getStats: getTripStats, getTripsByYear } = useTripsDB();
-  const { loading: expensesLoading, getTotalByCategory, getExpensesByYear } = useExpensesDB();
-  const { loading: odometerLoading, getReadingForYear, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
+  const { trips, loading: tripsLoading, getStats: getTripStats, getTripsByYear } = useTripsDB();
+  const { expenses, loading: expensesLoading, getTotalByCategory, getExpensesByYear } = useExpensesDB();
+  const { readings: odometerReadings, loading: odometerLoading, getReadingForYear, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
   const { documents, getDocumentsByYear, getMonthlyBusinessSummary, getRatio } = useDocumentsDB();
   const { getGapForYear } = useOdometerGapsDB();
 
@@ -328,11 +329,31 @@ ${expenses
         </CardContent>
       </Card>
 
-      {/* Download Button */}
-      <Button onClick={generateReport} className="w-full" size="lg">
-        <Download className="w-5 h-5 mr-2" />
-        Download Audit Package
-      </Button>
+      {/* Download Buttons */}
+      <div className="space-y-3">
+        <Button onClick={generateReport} className="w-full" size="lg">
+          <Download className="w-5 h-5 mr-2" />
+          Download Text Report
+        </Button>
+        <Button 
+          onClick={() => {
+            const yearTrips = getTripsByYear(year);
+            const yearExpenses = getExpensesByYear(year);
+            if (yearTrips.length === 0 && yearExpenses.length === 0) {
+              toast.error('No data to export for this year');
+              return;
+            }
+            generateFullExcelReport(trips, expenses, odometerReadings, year);
+            toast.success('Excel report downloaded');
+          }} 
+          variant="outline" 
+          className="w-full" 
+          size="lg"
+        >
+          <FileSpreadsheet className="w-5 h-5 mr-2" />
+          Download Excel Spreadsheet
+        </Button>
+      </div>
     </AppLayout>
   );
 }
