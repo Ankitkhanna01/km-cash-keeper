@@ -26,6 +26,7 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+  // Store only the file path, not the signed URL - signed URLs should be generated on-demand
   const uploadReceipt = async (file: File): Promise<string | null> => {
     if (!user) return null;
 
@@ -39,14 +40,8 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
 
       if (uploadError) throw uploadError;
 
-      // Get signed URL for private bucket
-      const { data: signedData, error: signedError } = await supabase.storage
-        .from('receipts')
-        .createSignedUrl(fileName, 60 * 60 * 24); // 24 hour expiry
-
-      if (signedError) throw signedError;
-
-      return signedData.signedUrl;
+      // Return only the file path - signed URLs will be generated on-demand when viewing
+      return fileName;
     } catch (error) {
       console.error('Error uploading receipt:', error);
       return null;

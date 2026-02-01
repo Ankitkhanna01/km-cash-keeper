@@ -28,6 +28,7 @@ export function PaystubScanner({ onDataExtracted }: PaystubScannerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+  // Store only the file path, not signed URL - URLs are generated on-demand for security
   const uploadDocument = async (file: File): Promise<string | null> => {
     if (!user) return null;
 
@@ -41,13 +42,8 @@ export function PaystubScanner({ onDataExtracted }: PaystubScannerProps) {
 
       if (uploadError) throw uploadError;
 
-      const { data: signedData, error: signedError } = await supabase.storage
-        .from('receipts')
-        .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year expiry
-
-      if (signedError) throw signedError;
-
-      return signedData.signedUrl;
+      // Return only the file path - signed URLs will be generated on-demand when viewing
+      return fileName;
     } catch (error) {
       console.error('Error uploading document:', error);
       return null;
