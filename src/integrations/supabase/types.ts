@@ -65,6 +65,63 @@ export type Database = {
         }
         Relationships: []
       }
+      documents: {
+        Row: {
+          created_at: string
+          document_type: string
+          document_url: string | null
+          estimated_km: number | null
+          has_verified_km: boolean
+          id: string
+          income_amount: number | null
+          kilometres: number | null
+          notes: string | null
+          period_month: number
+          period_year: number
+          platform: string | null
+          raw_ocr_data: Json | null
+          source_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          document_type: string
+          document_url?: string | null
+          estimated_km?: number | null
+          has_verified_km?: boolean
+          id?: string
+          income_amount?: number | null
+          kilometres?: number | null
+          notes?: string | null
+          period_month: number
+          period_year: number
+          platform?: string | null
+          raw_ocr_data?: Json | null
+          source_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          document_type?: string
+          document_url?: string | null
+          estimated_km?: number | null
+          has_verified_km?: boolean
+          id?: string
+          income_amount?: number | null
+          kilometres?: number | null
+          notes?: string | null
+          period_month?: number
+          period_year?: number
+          platform?: string | null
+          raw_ocr_data?: Json | null
+          source_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       expenses: {
         Row: {
           amount: number
@@ -101,6 +158,54 @@ export type Database = {
         }
         Relationships: []
       }
+      odometer_gaps: {
+        Row: {
+          confirmed_at: string | null
+          created_at: string
+          gap_category: string | null
+          gap_km: number
+          gap_status: string
+          id: string
+          logged_business_km: number
+          logged_personal_km: number
+          notes: string | null
+          odometer_total_km: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          confirmed_at?: string | null
+          created_at?: string
+          gap_category?: string | null
+          gap_km?: number
+          gap_status?: string
+          id?: string
+          logged_business_km?: number
+          logged_personal_km?: number
+          notes?: string | null
+          odometer_total_km?: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          confirmed_at?: string | null
+          created_at?: string
+          gap_category?: string | null
+          gap_km?: number
+          gap_status?: string
+          id?: string
+          logged_business_km?: number
+          logged_personal_km?: number
+          notes?: string | null
+          odometer_total_km?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
       odometer_readings: {
         Row: {
           created_at: string
@@ -126,6 +231,45 @@ export type Database = {
           id?: string
           start_reading?: number
           updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
+      performance_ratios: {
+        Row: {
+          created_at: string
+          id: string
+          km_per_dollar: number
+          last_calculated_at: string
+          platform: string | null
+          source_document_count: number
+          total_income: number
+          total_km: number
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          km_per_dollar: number
+          last_calculated_at?: string
+          platform?: string | null
+          source_document_count?: number
+          total_income?: number
+          total_km?: number
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          km_per_dollar?: number
+          last_calculated_at?: string
+          platform?: string | null
+          source_document_count?: number
+          total_income?: number
+          total_km?: number
           user_id?: string
           year?: number
         }
