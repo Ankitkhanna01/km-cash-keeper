@@ -10,6 +10,7 @@ import Trips from "./pages/Trips";
 import Expenses from "./pages/Expenses";
 import Reports from "./pages/Reports";
 import Backup from "./pages/Backup";
+import Documents from "./pages/Documents";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -74,6 +75,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Backup />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/documents"
+        element={
+          <ProtectedRoute>
+            <Documents />
           </ProtectedRoute>
         }
       />
