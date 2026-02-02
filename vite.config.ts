@@ -36,50 +36,8 @@ export default defineConfig(({ mode }) => ({
         iarc_rating_id: "",
         icons: [
           {
-            src: "pwa-72x72.png",
-            sizes: "72x72",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "pwa-96x96.png",
-            sizes: "96x96",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "pwa-128x128.png",
-            sizes: "128x128",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "pwa-144x144.png",
-            sizes: "144x144",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "pwa-152x152.png",
-            sizes: "152x152",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "apple-touch-icon.png",
-            sizes: "180x180",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
             src: "pwa-192x192.png",
             sizes: "192x192",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "pwa-384x384.png",
-            sizes: "384x384",
             type: "image/png",
             purpose: "any",
           },
@@ -102,43 +60,27 @@ export default defineConfig(({ mode }) => ({
             purpose: "maskable",
           },
         ],
-        screenshots: [
-          {
-            src: "screenshot-mobile.png",
-            sizes: "1080x1920",
-            type: "image/png",
-            form_factor: "narrow",
-            label: "Dashboard view of KM Cash Keeper on mobile",
-          },
-          {
-            src: "screenshot-desktop.png",
-            sizes: "1920x1080",
-            type: "image/png",
-            form_factor: "wide",
-            label: "Desktop view of KM Cash Keeper dashboard",
-          },
-        ],
         shortcuts: [
           {
             name: "Add Trip",
             short_name: "Trip",
             description: "Log a new business trip",
             url: "/trips?action=add",
-            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+            icons: [{ src: "pwa-512x512.png", sizes: "512x512", type: "image/png" }],
           },
           {
             name: "Add Expense",
             short_name: "Expense",
             description: "Log a new vehicle expense",
             url: "/expenses?action=add",
-            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+            icons: [{ src: "pwa-512x512.png", sizes: "512x512", type: "image/png" }],
           },
           {
             name: "View Reports",
             short_name: "Reports",
             description: "View tax reports",
             url: "/reports",
-            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+            icons: [{ src: "pwa-512x512.png", sizes: "512x512", type: "image/png" }],
           },
         ],
         launch_handler: {
