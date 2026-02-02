@@ -50,7 +50,8 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
     amount: number | null;
     category: ExpenseCategory;
     receipt_url: string | null;
-  }) => {
+    items: Array<{ name: string; quantity: number; price: number }>;
+  }, itemsNotes: string | null) => {
     setFormData(prev => ({
       ...prev,
       vendorName: data.vendor_name || prev.vendorName,
@@ -58,6 +59,7 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
       amount: data.amount?.toString() || prev.amount,
       category: data.category || prev.category,
       receiptUrl: data.receipt_url || prev.receiptUrl,
+      notes: itemsNotes || prev.notes, // Auto-fill notes with extracted items
     }));
   };
 

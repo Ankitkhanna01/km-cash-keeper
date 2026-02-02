@@ -11,11 +11,18 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_AMOUNT = 1000000; // Reasonable upper bound for expense amount
 const MAX_VENDOR_LENGTH = 200;
 
+interface LineItem {
+  name: string;
+  quantity: number;
+  price: number;
+}
+
 interface ReceiptData {
   vendor_name: string | null;
   date: string | null;
   amount: number | null;
   category: typeof VALID_CATEGORIES[number];
+  items: LineItem[];
 }
 
 function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
@@ -81,7 +88,30 @@ function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
     }
   }
 
-  return { vendor_name, date, amount, category };
+  // Validate and sanitize items array
+  const items: LineItem[] = [];
+  if (raw.items && Array.isArray(raw.items)) {
+    for (const item of raw.items) {
+      if (item && typeof item === 'object') {
+        const itemObj = item as Record<string, unknown>;
+        const name = typeof itemObj.name === 'string' 
+          ? itemObj.name.trim().slice(0, 200).replace(/[<>'"&]/g, '') 
+          : '';
+        const quantity = typeof itemObj.quantity === 'number' && itemObj.quantity > 0 
+          ? Math.round(itemObj.quantity * 100) / 100 
+          : 1;
+        const price = typeof itemObj.price === 'number' && itemObj.price >= 0 
+          ? Math.round(itemObj.price * 100) / 100 
+          : 0;
+        
+        if (name) {
+          items.push({ name, quantity, price });
+        }
+      }
+    }
+  }
+
+  return { vendor_name, date, amount, category, items };
 }
 
 serve(async (req) => {
@@ -135,7 +165,9 @@ serve(async (req) => {
 - date: The transaction date in YYYY-MM-DD format
 - amount: The total amount as a number (no currency symbol)
 - category: Suggest one of these categories based on the vendor type: fuel, repairs, insurance, licence, interest, other
+- items: Array of line items from the receipt, each with name (item description), quantity (number of units), and price (unit price)
 
+Extract ALL individual items/products listed on the receipt with their quantities and prices.
 If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
           },
           {
@@ -143,7 +175,7 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
             content: [
               {
                 type: "text",
-                text: `Extract the vendor name, date, and total amount from this receipt ${isPdf ? 'PDF document' : 'image'}. Return JSON only.`
+                text: `Extract the vendor name, date, total amount, and ALL individual line items (with name, quantity, price) from this receipt ${isPdf ? 'PDF document' : 'image'}. Return JSON only.`
               },
               {
                 type: "image_url",
@@ -157,7 +189,7 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
             type: "function",
             function: {
               name: "extract_receipt_data",
-              description: "Extract structured data from a receipt",
+              description: "Extract structured data from a receipt including all line items",
               parameters: {
                 type: "object",
                 properties: {
@@ -168,9 +200,22 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
                     type: "string", 
                     enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"],
                     description: "Expense category based on vendor type"
+                  },
+                  items: {
+                    type: "array",
+                    description: "List of individual items/products on the receipt",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string", description: "Item/product name or description" },
+                        quantity: { type: "number", description: "Quantity purchased (default 1)" },
+                        price: { type: "number", description: "Unit price of the item" }
+                      },
+                      required: ["name", "quantity", "price"]
+                    }
                   }
                 },
-                required: ["vendor_name", "date", "amount", "category"]
+                required: ["vendor_name", "date", "amount", "category", "items"]
               }
             }
           }
