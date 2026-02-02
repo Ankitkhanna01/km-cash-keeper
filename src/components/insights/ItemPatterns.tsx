@@ -2,15 +2,16 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useState, useMemo } from 'react';
 import { Package, Scale, DollarSign, ChevronRight, Grid3X3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ItemDetailDialog } from './ItemDetailDialog';
+import { CategoryDetailDialog } from './CategoryDetailDialog';
 import { 
   parseAndCategorizeItems, 
-  CategorizedItem, 
   ItemCategory,
   ITEM_CATEGORY_LABELS,
-  ITEM_CATEGORY_ICONS 
+  ITEM_CATEGORY_ICONS,
+  normalizeNameForComparison,
+  getBestDisplayName,
 } from '@/lib/itemCategorization';
 
 interface Expense {
@@ -43,13 +44,20 @@ interface ItemPatternData {
   purchases: ItemPurchase[];
 }
 
+interface CategoryItem {
+  name: string;
+  totalSpent: number;
+  totalQuantity: number;
+  icon: string;
+}
+
 interface CategorySummary {
   category: ItemCategory;
   label: string;
   icon: string;
   totalItems: number;
   totalSpent: number;
-  itemNames: string[];
+  items: CategoryItem[];
 }
 
 interface ItemPatternsProps {
@@ -59,9 +67,12 @@ interface ItemPatternsProps {
 export function ItemPatterns({ expenses }: ItemPatternsProps) {
   const [selectedItem, setSelectedItem] = useState<ItemPatternData | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<CategorySummary | null>(null);
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
 
   const { itemData, categorySummary } = useMemo(() => {
-    const items: Record<string, ItemPatternData> = {};
+    // Use normalized keys to merge similar names
+    const items: Record<string, ItemPatternData & { rawNames: string[] }> = {};
     const categoryTotals: Record<ItemCategory, CategorySummary> = {} as Record<ItemCategory, CategorySummary>;
 
     expenses.forEach(exp => {
@@ -70,12 +81,14 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
       const parsedItems = parseAndCategorizeItems(exp.notes, exp.vendor_name, exp.date);
       
       parsedItems.forEach(item => {
-        const key = item.cleanName.toLowerCase();
+        // Normalize the key to merge variations like "THRIFTY FOOD" and "Thrifty Foods"
+        const normalizedKey = normalizeNameForComparison(item.cleanName);
         
-        if (!items[key]) {
-          items[key] = {
+        if (!items[normalizedKey]) {
+          items[normalizedKey] = {
             name: item.cleanName,
             cleanName: item.cleanName,
+            rawNames: [item.cleanName],
             category: item.category,
             categoryLabel: item.categoryLabel,
             categoryIcon: item.categoryIcon,
@@ -85,11 +98,16 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
             stores: [],
             purchases: [],
           };
+        } else {
+          // Collect all name variations
+          if (!items[normalizedKey].rawNames.includes(item.cleanName)) {
+            items[normalizedKey].rawNames.push(item.cleanName);
+          }
         }
         
-        items[key].totalQuantity += item.quantity;
-        items[key].totalSpent += item.price;
-        items[key].purchases.push({
+        items[normalizedKey].totalQuantity += item.quantity;
+        items[normalizedKey].totalSpent += item.price;
+        items[normalizedKey].purchases.push({
           store: item.store,
           date: item.date,
           quantity: item.quantity,
@@ -97,8 +115,13 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
           price: item.price,
         });
         
-        if (!items[key].stores.includes(item.store)) {
-          items[key].stores.push(item.store);
+        // Normalize store names too
+        const normalizedStore = getBestDisplayName([item.store]);
+        const existingStore = items[normalizedKey].stores.find(
+          s => normalizeNameForComparison(s) === normalizeNameForComparison(item.store)
+        );
+        if (!existingStore) {
+          items[normalizedKey].stores.push(normalizedStore);
         }
 
         // Build category summary
@@ -109,20 +132,37 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
             icon: item.categoryIcon,
             totalItems: 0,
             totalSpent: 0,
-            itemNames: [],
+            items: [],
           };
         }
         categoryTotals[item.category].totalItems += item.quantity;
         categoryTotals[item.category].totalSpent += item.price;
-        if (!categoryTotals[item.category].itemNames.includes(item.cleanName)) {
-          categoryTotals[item.category].itemNames.push(item.cleanName);
-        }
       });
     });
 
-    // Calculate averages
+    // Finalize items - pick best display name and calculate averages
     Object.values(items).forEach(item => {
+      item.cleanName = getBestDisplayName(item.rawNames);
+      item.name = item.cleanName;
       item.avgPrice = item.totalSpent / item.purchases.length;
+    });
+
+    // Build category items list
+    Object.values(items).forEach(item => {
+      const cat = categoryTotals[item.category];
+      if (cat) {
+        const existingItem = cat.items.find(
+          i => normalizeNameForComparison(i.name) === normalizeNameForComparison(item.cleanName)
+        );
+        if (!existingItem) {
+          cat.items.push({
+            name: item.cleanName,
+            totalSpent: item.totalSpent,
+            totalQuantity: item.totalQuantity,
+            icon: item.categoryIcon,
+          });
+        }
+      }
     });
 
     const sortedItems = Object.values(items).sort((a, b) => b.totalSpent - a.totalSpent);
@@ -137,6 +177,11 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
   const handleItemClick = (item: ItemPatternData) => {
     setSelectedItem(item);
     setDialogOpen(true);
+  };
+
+  const handleCategoryClick = (category: CategorySummary) => {
+    setSelectedCategory(category);
+    setCategoryDialogOpen(true);
   };
 
   if (itemData.length === 0) {
@@ -263,12 +308,13 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
 
             <TabsContent value="categories" className="space-y-3">
               <p className="text-sm text-muted-foreground mb-2">
-                Your purchases organized by product type
+                Tap a category to see all items inside
               </p>
-              {categorySummary.map((cat, index) => (
-                <div
+              {categorySummary.map((cat) => (
+                <button
                   key={cat.category}
-                  className="flex items-start justify-between p-3 rounded-lg bg-muted/50"
+                  onClick={() => handleCategoryClick(cat)}
+                  className="w-full flex items-start justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors text-left"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -276,15 +322,18 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
                       <span className="text-sm font-medium">{cat.label}</span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 pl-7">
-                      {cat.itemNames.slice(0, 3).join(', ')}
-                      {cat.itemNames.length > 3 && ` +${cat.itemNames.length - 3} more`}
+                      {cat.items.slice(0, 3).map(i => i.name).join(', ')}
+                      {cat.items.length > 3 && ` +${cat.items.length - 3} more`}
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-primary">${cat.totalSpent.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground">{cat.totalItems} items</p>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-bold text-primary">${cat.totalSpent.toFixed(2)}</p>
+                      <p className="text-xs text-muted-foreground">{cat.totalItems} items</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   </div>
-                </div>
+                </button>
               ))}
             </TabsContent>
           </Tabs>
@@ -295,6 +344,12 @@ export function ItemPatterns({ expenses }: ItemPatternsProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         item={selectedItem}
+      />
+
+      <CategoryDetailDialog
+        open={categoryDialogOpen}
+        onOpenChange={setCategoryDialogOpen}
+        category={selectedCategory}
       />
     </>
   );
