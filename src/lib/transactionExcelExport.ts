@@ -61,9 +61,39 @@ export async function generateShortExcel(expenses: ExpenseData[], year: number):
   await saveWorkbook(workbook, `KM_Cash_Keeper_${year}_Short.xlsx`);
 }
 
+interface ParsedLineItem {
+  name: string;
+  quantity: number;
+  unit: string;
+  price: number;
+}
+
+function parseLineItems(notes: string | null): ParsedLineItem[] {
+  if (!notes) return [];
+  
+  const items: ParsedLineItem[] = [];
+  const lines = notes.split('\n');
+  
+  lines.forEach(line => {
+    // Match patterns like: "Item Name (x2) - $5.99" or "Item Name (0.5kg) - $3.50"
+    const match = line.match(/^(.+?)\s*\((?:x)?(\d*\.?\d+)\s*(kg|g|lb|L|ml|pc|)?\)\s*-\s*\$?([\d.]+)/i);
+    if (match) {
+      const [, name, qty, unit, price] = match;
+      items.push({
+        name: name.trim(),
+        quantity: parseFloat(qty) || 1,
+        unit: unit || 'pc',
+        price: parseFloat(price) || 0,
+      });
+    }
+  });
+  
+  return items;
+}
+
 /**
  * Elaborate Excel Export - Detailed format with Date, Item, Quantity, Tax, Total
- * Includes more transaction details
+ * Includes individual line items from receipt scans
  */
 export async function generateElaborateExcel(expenses: ExpenseData[], year: number): Promise<void> {
   const workbook = new ExcelJS.Workbook();
@@ -75,7 +105,7 @@ export async function generateElaborateExcel(expenses: ExpenseData[], year: numb
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Add header row
-  worksheet.addRow(['Date', 'Store', 'Item Name', 'Description', 'Quantity', 'Unit Price', 'Total Tax', 'Total']);
+  worksheet.addRow(['Date', 'Store', 'Item Name', 'Quantity', 'Unit', 'Unit Price', 'Total']);
   
   const headerRow = worksheet.getRow(1);
   headerRow.font = { bold: true };
@@ -87,52 +117,67 @@ export async function generateElaborateExcel(expenses: ExpenseData[], year: numb
     };
   });
 
-  // Add data rows
+  let totalItems = 0;
+  let grandTotal = 0;
+
+  // Add data rows - expand line items from notes
   yearExpenses.forEach(expense => {
     const formattedDate = format(parseISO(expense.date), 'dd/MM/yyyy');
     const store = expense.vendor_name || '';
-    const itemName = expense.category || '';
-    const description = expense.notes || '';
-    const quantity = 1;
-    const unitPrice = expense.amount;
-    const tax = 0;
-    const total = expense.amount;
+    const lineItems = parseLineItems(expense.notes);
     
-    worksheet.addRow([
-      formattedDate,
-      store,
-      itemName,
-      description,
-      quantity,
-      Number(unitPrice.toFixed(2)),
-      Number(tax.toFixed(2)),
-      Number(total.toFixed(2))
-    ]);
+    if (lineItems.length > 0) {
+      // Add each line item as a separate row
+      lineItems.forEach(item => {
+        worksheet.addRow([
+          formattedDate,
+          store,
+          item.name,
+          item.quantity,
+          item.unit,
+          Number(item.price.toFixed(2)),
+          Number((item.quantity * item.price).toFixed(2))
+        ]);
+        totalItems++;
+        grandTotal += item.quantity * item.price;
+      });
+    } else {
+      // Fallback: add expense as single row if no line items parsed
+      const itemName = expense.notes || expense.category || '';
+      worksheet.addRow([
+        formattedDate,
+        store,
+        itemName,
+        1,
+        'pc',
+        Number(expense.amount.toFixed(2)),
+        Number(expense.amount.toFixed(2))
+      ]);
+      totalItems++;
+      grandTotal += expense.amount;
+    }
   });
 
   // Add totals row
-  const totalAmount = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
   const totalsRow = worksheet.addRow([
-    '',
     '',
     'TOTAL',
     '',
-    yearExpenses.length,
+    totalItems,
     '',
-    0,
-    Number(totalAmount.toFixed(2))
+    '',
+    Number(grandTotal.toFixed(2))
   ]);
   totalsRow.font = { bold: true };
 
   // Set column widths
   worksheet.getColumn(1).width = 12;
   worksheet.getColumn(2).width = 25;
-  worksheet.getColumn(3).width = 20;
-  worksheet.getColumn(4).width = 40;
-  worksheet.getColumn(5).width = 10;
+  worksheet.getColumn(3).width = 35;
+  worksheet.getColumn(4).width = 10;
+  worksheet.getColumn(5).width = 8;
   worksheet.getColumn(6).width = 12;
   worksheet.getColumn(7).width = 12;
-  worksheet.getColumn(8).width = 12;
 
   await saveWorkbook(workbook, `KM_Cash_Keeper_${year}_Elaborate.xlsx`);
 }
