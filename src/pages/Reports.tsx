@@ -22,7 +22,8 @@ import { useOdometerGapsDB } from '@/hooks/useOdometerGapsDB';
 import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
 import { generateFullExcelReport } from '@/lib/excelExport';
-import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
+import { generateShortExcel, generateElaborateExcel } from '@/lib/transactionExcelExport';
+import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, List, Table } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Reports() {
@@ -351,8 +352,46 @@ ${expenses
           size="lg"
         >
           <FileSpreadsheet className="w-5 h-5 mr-2" />
-          Download Excel Spreadsheet
+          Download Full Excel Report
         </Button>
+        
+        {/* New Export Options */}
+        <div className="grid grid-cols-2 gap-3">
+          <Button 
+            onClick={() => {
+              const yearExpenses = getExpensesByYear(year);
+              if (yearExpenses.length === 0) {
+                toast.error('No expenses to export for this year');
+                return;
+              }
+              generateShortExcel(yearExpenses, year);
+              toast.success('Short Excel downloaded');
+            }} 
+            variant="secondary" 
+            className="w-full" 
+            size="default"
+          >
+            <List className="w-4 h-4 mr-2" />
+            Short Excel
+          </Button>
+          <Button 
+            onClick={() => {
+              const yearExpenses = getExpensesByYear(year);
+              if (yearExpenses.length === 0) {
+                toast.error('No expenses to export for this year');
+                return;
+              }
+              generateElaborateExcel(yearExpenses, year);
+              toast.success('Elaborate Excel downloaded');
+            }} 
+            variant="secondary" 
+            className="w-full" 
+            size="default"
+          >
+            <Table className="w-4 h-4 mr-2" />
+            Elaborate Excel
+          </Button>
+        </div>
       </div>
     </AppLayout>
   );
