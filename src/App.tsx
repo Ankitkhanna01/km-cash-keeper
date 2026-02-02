@@ -11,6 +11,7 @@ import Expenses from "./pages/Expenses";
 import Reports from "./pages/Reports";
 import Backup from "./pages/Backup";
 import Documents from "./pages/Documents";
+import Insights from "./pages/Insights";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -83,6 +84,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Documents />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/insights"
+        element={
+          <ProtectedRoute>
+            <Insights />
           </ProtectedRoute>
         }
       />
