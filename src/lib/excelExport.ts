@@ -49,9 +49,14 @@ const CATEGORY_COLUMN_MAP: Record<ExpenseCategory, string> = {
   other: 'GROCERY',
 };
 
+interface CellValue {
+  formula?: string;
+  value?: number | string;
+}
+
 interface MonthlyExpenseData {
   month: string;
-  [category: string]: number | string;
+  [category: string]: number | string | CellValue;
 }
 
 async function saveWorkbook(workbook: ExcelJS.Workbook, filename: string): Promise<void> {
@@ -69,45 +74,67 @@ export async function generateExpenseSpreadsheet(
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet(`Expenses ${year}`);
 
-  // Group expenses by month and category
-  const monthlyData: MonthlyExpenseData[] = MONTHS.map((month, index) => {
+  // Track individual amounts for formula breakdown
+  interface MonthlyAmounts {
+    month: string;
+    [category: string]: string | number[] | string;
+  }
+
+  // Group expenses by month and category - collect individual amounts
+  const monthlyAmounts: MonthlyAmounts[] = MONTHS.map((month, index) => {
     const monthExpenses = expenses.filter(e => {
       const expDate = parseISO(e.date);
       return expDate.getMonth() === index;
     });
 
-    const row: MonthlyExpenseData = { month };
+    const row: MonthlyAmounts = { month };
     
     EXCEL_CATEGORIES.forEach(cat => {
-      row[cat.label] = '';
+      row[cat.label] = [] as number[];
     });
 
     monthExpenses.forEach(expense => {
       const mappedLabel = CATEGORY_COLUMN_MAP[expense.category as ExpenseCategory] || 'GROCERY';
-      const current = row[mappedLabel];
-      row[mappedLabel] = (typeof current === 'number' ? current : 0) + Number(expense.amount);
-    });
-
-    EXCEL_CATEGORIES.forEach(cat => {
-      const val = row[cat.label];
-      if (typeof val === 'number' && val > 0) {
-        row[cat.label] = Number(val.toFixed(2));
-      } else {
-        row[cat.label] = '';
-      }
+      const amounts = row[mappedLabel] as number[];
+      amounts.push(Number(expense.amount));
     });
 
     return row;
   });
 
-  // Add totals row
+  // Convert to data with formulas
+  const monthlyData: MonthlyExpenseData[] = monthlyAmounts.map(row => {
+    const dataRow: MonthlyExpenseData = { month: row.month as string };
+    
+    EXCEL_CATEGORIES.forEach(cat => {
+      const amounts = row[cat.label] as number[];
+      if (amounts.length > 0) {
+        // Create formula string like "=12.50+34.25+..."
+        const formulaParts = amounts.map(a => a.toFixed(2));
+        dataRow[cat.label] = { formula: formulaParts.join('+') };
+      } else {
+        dataRow[cat.label] = '';
+      }
+    });
+
+    return dataRow;
+  });
+
+  // Add totals row with column formulas
   const totalsRow: MonthlyExpenseData = { month: 'Total' };
   EXCEL_CATEGORIES.forEach(cat => {
-    const sum = monthlyData.reduce((acc, row) => {
-      const val = row[cat.label];
-      return acc + (typeof val === 'number' ? val : 0);
-    }, 0);
-    totalsRow[cat.label] = sum > 0 ? Number(sum.toFixed(2)) : '';
+    // Collect all amounts from monthlyAmounts for this category
+    const allAmounts: number[] = [];
+    monthlyAmounts.forEach(row => {
+      const amounts = row[cat.label] as number[];
+      allAmounts.push(...amounts);
+    });
+    if (allAmounts.length > 0) {
+      const formulaParts = allAmounts.map(a => a.toFixed(2));
+      totalsRow[cat.label] = { formula: formulaParts.join('+') };
+    } else {
+      totalsRow[cat.label] = '';
+    }
   });
   monthlyData.push(totalsRow);
 
@@ -126,9 +153,23 @@ export async function generateExpenseSpreadsheet(
     };
   });
 
-  // Add data rows
+  // Add data rows with formulas
   monthlyData.forEach(row => {
-    worksheet.addRow([row.month, ...EXCEL_CATEGORIES.map(c => row[c.label])]);
+    const rowValues = [row.month];
+    const wsRow = worksheet.addRow(rowValues);
+    
+    EXCEL_CATEGORIES.forEach((cat, i) => {
+      const cellValue = row[cat.label];
+      const cell = wsRow.getCell(i + 2);
+      
+      if (cellValue && typeof cellValue === 'object' && 'formula' in cellValue) {
+        cell.value = { formula: cellValue.formula };
+      } else if (typeof cellValue === 'number') {
+        cell.value = cellValue;
+      } else {
+        cell.value = '';
+      }
+    });
   });
 
   // Set column widths
