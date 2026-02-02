@@ -7,8 +7,10 @@ import { StoreAnalytics } from '@/components/insights/StoreAnalytics';
 import { ItemPatterns } from '@/components/insights/ItemPatterns';
 import { MonthlyTrends } from '@/components/insights/MonthlyTrends';
 import { CategoryBreakdown } from '@/components/insights/CategoryBreakdown';
+import { ReceiptHistory } from '@/components/insights/ReceiptHistory';
 import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Insights() {
   const { expenses, loading } = useExpensesDB();
@@ -50,13 +52,24 @@ export default function Insights() {
         }
       />
 
-      <div className="space-y-6 pb-4">
-        <SpendingOverview expenses={yearExpenses} year={selectedYear} />
-        <MonthlyTrends expenses={yearExpenses} year={selectedYear} />
-        <CategoryBreakdown expenses={yearExpenses} />
-        <StoreAnalytics expenses={yearExpenses} />
-        <ItemPatterns expenses={yearExpenses} />
-      </div>
+      <Tabs defaultValue="analytics" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="receipts">Receipt History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="analytics" className="space-y-6 pb-4">
+          <SpendingOverview expenses={yearExpenses} year={selectedYear} />
+          <MonthlyTrends expenses={yearExpenses} year={selectedYear} />
+          <CategoryBreakdown expenses={yearExpenses} />
+          <StoreAnalytics expenses={yearExpenses} />
+          <ItemPatterns expenses={yearExpenses} />
+        </TabsContent>
+
+        <TabsContent value="receipts" className="pb-4">
+          <ReceiptHistory expenses={yearExpenses} />
+        </TabsContent>
+      </Tabs>
     </AppLayout>
   );
 }
