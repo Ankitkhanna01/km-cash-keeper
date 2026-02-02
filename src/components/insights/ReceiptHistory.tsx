@@ -99,7 +99,7 @@ function findDuplicates(expenses: Expense[]): Set<string> {
   return duplicateIds;
 }
 
-// Mobile-friendly receipt card - tappable
+// Mobile-friendly receipt card - tappable with visible price
 function ReceiptCard({ 
   expense, 
   isDuplicate, 
@@ -114,26 +114,24 @@ function ReceiptCard({
       className={`border rounded-lg p-3 cursor-pointer active:bg-muted/50 transition-colors ${isDuplicate ? 'border-destructive/50 bg-destructive/5' : 'border-border'}`}
       onClick={onTap}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <span className="text-2xl flex-shrink-0">{EXPENSE_CATEGORY_ICONS[expense.category]}</span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="font-medium truncate">{expense.vendor_name}</span>
-              {isDuplicate && (
-                <Badge variant="destructive" className="text-[10px] px-1.5 py-0 flex-shrink-0">
-                  Dup
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {format(parseISO(expense.date), 'MMM d, yyyy')}
-            </p>
+      <div className="flex items-center gap-3">
+        <span className="text-2xl flex-shrink-0">{EXPENSE_CATEGORY_ICONS[expense.category]}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium">{expense.vendor_name}</span>
+            {isDuplicate && (
+              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                Dup
+              </Badge>
+            )}
           </div>
+          <p className="text-sm text-muted-foreground">
+            {format(parseISO(expense.date), 'MMM d, yyyy')}
+          </p>
         </div>
-        <div className="text-right flex-shrink-0">
-          <p className="font-bold text-lg">${expense.amount.toFixed(2)}</p>
-          <Badge variant="outline" className="text-[10px]">
+        <div className="text-right flex-shrink-0 pl-2">
+          <p className="font-bold text-xl text-primary">${expense.amount.toFixed(2)}</p>
+          <Badge variant="outline" className="text-[10px] mt-1">
             {EXPENSE_CATEGORY_LABELS[expense.category].split(' ')[0]}
           </Badge>
         </div>
@@ -309,7 +307,8 @@ export function ReceiptHistory({ expenses, onDeleteExpense }: ReceiptHistoryProp
     }
   };
 
-  const handleFirstConfirm = () => {
+  const handleFirstConfirm = (e: React.MouseEvent) => {
+    e.preventDefault();
     setConfirmStep(2);
   };
 
@@ -494,24 +493,24 @@ export function ReceiptHistory({ expenses, onDeleteExpense }: ReceiptHistoryProp
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting} onClick={handleCancelDelete}>
+            <AlertDialogCancel disabled={isDeleting}>
               Cancel
             </AlertDialogCancel>
             {confirmStep === 1 ? (
-              <AlertDialogAction 
+              <Button 
                 onClick={handleFirstConfirm}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="destructive"
               >
                 Yes, Delete
-              </AlertDialogAction>
+              </Button>
             ) : (
-              <AlertDialogAction 
+              <Button 
                 onClick={handleFinalDelete} 
                 disabled={isDeleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="destructive"
               >
                 {isDeleting ? 'Deleting...' : 'Confirm Delete'}
-              </AlertDialogAction>
+              </Button>
             )}
           </AlertDialogFooter>
         </AlertDialogContent>
