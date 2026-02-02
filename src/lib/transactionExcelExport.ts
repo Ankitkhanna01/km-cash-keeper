@@ -62,14 +62,15 @@ export function generateElaborateExcel(expenses: ExpenseData[], year: number): v
 
   // Create data rows with detailed columns
   const data: (string | number)[][] = [
-    ['Date', 'Store', 'Item', 'Quantity', 'Unit Price', 'Total Tax', 'Total']
+    ['Date', 'Store', 'Item Name', 'Description', 'Quantity', 'Unit Price', 'Total Tax', 'Total']
   ];
 
   yearExpenses.forEach(expense => {
     const formattedDate = format(parseISO(expense.date), 'dd/MM/yyyy');
     const store = expense.vendor_name || '';
-    const item = expense.notes || expense.category || '';
-    const quantity = 1; // Default quantity
+    const itemName = expense.category || ''; // Category as item type
+    const description = expense.notes || ''; // Notes as item description
+    const quantity = 1; // Default quantity per transaction
     const unitPrice = expense.amount;
     const tax = 0; // Tax not tracked separately
     const total = expense.amount;
@@ -77,7 +78,8 @@ export function generateElaborateExcel(expenses: ExpenseData[], year: number): v
     data.push([
       formattedDate,
       store,
-      item,
+      itemName,
+      description,
       quantity,
       Number(unitPrice.toFixed(2)),
       Number(tax.toFixed(2)),
@@ -91,6 +93,7 @@ export function generateElaborateExcel(expenses: ExpenseData[], year: number): v
     '',
     '',
     'TOTAL',
+    '',
     yearExpenses.length,
     '',
     0,
@@ -103,7 +106,8 @@ export function generateElaborateExcel(expenses: ExpenseData[], year: number): v
   ws['!cols'] = [
     { wch: 12 },  // Date
     { wch: 25 },  // Store
-    { wch: 40 },  // Item
+    { wch: 20 },  // Item Name
+    { wch: 40 },  // Description
     { wch: 10 },  // Quantity
     { wch: 12 },  // Unit Price
     { wch: 12 },  // Total Tax
