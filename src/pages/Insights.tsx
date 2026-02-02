@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Insights() {
-  const { expenses, loading } = useExpensesDB();
+  const { expenses, loading, deleteExpense } = useExpensesDB();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
 
@@ -22,6 +22,10 @@ export default function Insights() {
   if (!years.includes(currentYear)) years.unshift(currentYear);
 
   const yearExpenses = expenses.filter(e => new Date(e.date).getFullYear() === selectedYear);
+
+  const handleDeleteExpense = async (id: string) => {
+    await deleteExpense(id);
+  };
 
   if (loading) {
     return (
@@ -68,7 +72,7 @@ export default function Insights() {
 
         <TabsContent value="receipts" className="pb-4">
           {/* Show ALL receipts, not just filtered by year */}
-          <ReceiptHistory expenses={expenses} />
+          <ReceiptHistory expenses={expenses} onDeleteExpense={handleDeleteExpense} />
         </TabsContent>
       </Tabs>
     </AppLayout>
