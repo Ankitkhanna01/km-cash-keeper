@@ -352,7 +352,7 @@ ${expenses
           size="lg"
         >
           <FileSpreadsheet className="w-5 h-5 mr-2" />
-          Download Full Excel Report
+          Cookware Excel
         </Button>
         
         {/* New Export Options */}
