@@ -114,26 +114,23 @@ function ReceiptCard({
       className={`border rounded-lg p-3 cursor-pointer active:bg-muted/50 transition-colors ${isDuplicate ? 'border-destructive/50 bg-destructive/5' : 'border-border'}`}
       onClick={onTap}
     >
-      <div className="flex items-center gap-3">
-        <span className="text-2xl flex-shrink-0">{EXPENSE_CATEGORY_ICONS[expense.category]}</span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium">{expense.vendor_name}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-xl flex-shrink-0">{EXPENSE_CATEGORY_ICONS[expense.category]}</span>
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="font-medium text-sm truncate max-w-[120px]">{expense.vendor_name}</span>
             {isDuplicate && (
-              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+              <Badge variant="destructive" className="text-[10px] px-1 py-0">
                 Dup
               </Badge>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {format(parseISO(expense.date), 'MMM d, yyyy')}
+          <p className="text-xs text-muted-foreground">
+            {format(parseISO(expense.date), 'MMM d')}
           </p>
         </div>
-        <div className="text-right flex-shrink-0 pl-2">
-          <p className="font-bold text-xl text-primary">${expense.amount.toFixed(2)}</p>
-          <Badge variant="outline" className="text-[10px] mt-1">
-            {EXPENSE_CATEGORY_LABELS[expense.category].split(' ')[0]}
-          </Badge>
+        <div className="flex-shrink-0 mr-1">
+          <p className="font-bold text-lg text-primary whitespace-nowrap">${expense.amount.toFixed(2)}</p>
         </div>
       </div>
     </div>
