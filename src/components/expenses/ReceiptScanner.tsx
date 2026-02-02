@@ -6,16 +6,23 @@ import { toast } from 'sonner';
 import { ExpenseCategory } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 
+interface LineItem {
+  name: string;
+  quantity: number;
+  price: number;
+}
+
 interface ReceiptData {
   vendor_name: string | null;
   date: string | null;
   amount: number | null;
   category: ExpenseCategory;
   receipt_url: string | null;
+  items: LineItem[];
 }
 
 interface ReceiptScannerProps {
-  onDataExtracted: (data: ReceiptData) => void;
+  onDataExtracted: (data: ReceiptData, itemsNotes: string | null) => void;
 }
 
 export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
@@ -88,15 +95,25 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
       }
 
       if (data?.success && data?.data) {
+        // Format items as notes string for storage
+        const itemsData = data.data.items || [];
+        const itemsNotes = itemsData.length > 0
+          ? itemsData.map((item: LineItem) => 
+              `${item.name} (x${item.quantity}) - $${item.price.toFixed(2)}`
+            ).join('\n')
+          : null;
+
         const extractedData: ReceiptData = {
           vendor_name: data.data.vendor_name || null,
           date: data.data.date || null,
           amount: data.data.amount || null,
           category: data.data.category || 'other',
           receipt_url: receiptUrl,
+          items: itemsData,
         };
         
-        onDataExtracted(extractedData);
+        // Pass items notes to parent for storage
+        onDataExtracted(extractedData, itemsNotes);
         toast.success('Receipt scanned successfully!');
       } else {
         // Even if OCR fails, still provide the receipt URL
@@ -106,7 +123,8 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
           amount: null,
           category: 'other',
           receipt_url: receiptUrl,
-        });
+          items: [],
+        }, null);
         toast.error('Could not extract data, but receipt was saved');
       }
     } catch (error) {
