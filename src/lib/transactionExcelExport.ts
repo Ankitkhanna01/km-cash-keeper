@@ -75,16 +75,46 @@ function parseLineItems(notes: string | null): ParsedLineItem[] {
   const lines = notes.split('\n');
   
   lines.forEach(line => {
-    // Match patterns like: "Item Name (x2) - $5.99" or "Item Name (0.5kg) - $3.50"
-    const match = line.match(/^(.+?)\s*\((?:x)?(\d*\.?\d+)\s*(kg|g|lb|L|ml|pc|)?\)\s*-\s*\$?([\d.]+)/i);
-    if (match) {
-      const [, name, qty, unit, price] = match;
+    const trimmedLine = line.trim();
+    if (!trimmedLine) return;
+    
+    // Pattern 1: "Item Name (x2) - $5.99" (count-based items)
+    const countMatch = trimmedLine.match(/^(.+?)\s*\(x(\d+(?:\.\d+)?)\)\s*-\s*\$?([\d.]+)/i);
+    if (countMatch) {
+      const [, name, qty, price] = countMatch;
       items.push({
         name: name.trim(),
         quantity: parseFloat(qty) || 1,
-        unit: unit || 'pc',
+        unit: 'ea',
         price: parseFloat(price) || 0,
       });
+      return;
+    }
+    
+    // Pattern 2: "Item Name (1.5 kg) - $3.50" (weight/volume-based items)
+    const weightMatch = trimmedLine.match(/^(.+?)\s*\((\d+(?:\.\d+)?)\s*(kg|g|lb|oz|L|ml|ea|each|pc|pcs)\)\s*-\s*\$?([\d.]+)/i);
+    if (weightMatch) {
+      const [, name, qty, unit, price] = weightMatch;
+      items.push({
+        name: name.trim(),
+        quantity: parseFloat(qty) || 1,
+        unit: unit.toLowerCase(),
+        price: parseFloat(price) || 0,
+      });
+      return;
+    }
+    
+    // Pattern 3: Simple "Item Name - $5.99" format (single item, no quantity shown)
+    const simpleMatch = trimmedLine.match(/^(.+?)\s*-\s*\$?([\d.]+)$/);
+    if (simpleMatch) {
+      const [, name, price] = simpleMatch;
+      items.push({
+        name: name.trim(),
+        quantity: 1,
+        unit: 'ea',
+        price: parseFloat(price) || 0,
+      });
+      return;
     }
   });
   
