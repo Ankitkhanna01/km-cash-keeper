@@ -1,12 +1,12 @@
 import { NavLink } from 'react-router-dom';
-import { Car, Receipt, FileText, LayoutDashboard, FolderOpen } from 'lucide-react';
+import { Car, Receipt, FileText, LayoutDashboard, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/', icon: LayoutDashboard, label: 'Home' },
   { to: '/trips', icon: Car, label: 'Trips' },
   { to: '/expenses', icon: Receipt, label: 'Expenses' },
-  { to: '/documents', icon: FolderOpen, label: 'Docs' },
+  { to: '/insights', icon: BarChart3, label: 'Insights' },
   { to: '/reports', icon: FileText, label: 'Reports' },
 ];
 
