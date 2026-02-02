@@ -67,7 +67,8 @@ export default function Insights() {
         </TabsContent>
 
         <TabsContent value="receipts" className="pb-4">
-          <ReceiptHistory expenses={yearExpenses} />
+          {/* Show ALL receipts, not just filtered by year */}
+          <ReceiptHistory expenses={expenses} />
         </TabsContent>
       </Tabs>
     </AppLayout>
