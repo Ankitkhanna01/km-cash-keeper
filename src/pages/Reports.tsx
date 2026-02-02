@@ -337,15 +337,20 @@ ${expenses
           Download Text Report
         </Button>
         <Button 
-          onClick={() => {
+          onClick={async () => {
             const yearTrips = getTripsByYear(year);
             const yearExpenses = getExpensesByYear(year);
             if (yearTrips.length === 0 && yearExpenses.length === 0) {
               toast.error('No data to export for this year');
               return;
             }
-            generateFullExcelReport(trips, expenses, odometerReadings, year);
-            toast.success('Excel report downloaded');
+            try {
+              await generateFullExcelReport(trips, expenses, odometerReadings, year);
+              toast.success('Excel report downloaded');
+            } catch (error) {
+              console.error('Export error:', error);
+              toast.error('Failed to generate Excel report');
+            }
           }} 
           variant="outline" 
           className="w-full" 
@@ -358,14 +363,19 @@ ${expenses
         {/* New Export Options */}
         <div className="grid grid-cols-2 gap-3">
           <Button 
-            onClick={() => {
+            onClick={async () => {
               const yearExpenses = getExpensesByYear(year);
               if (yearExpenses.length === 0) {
                 toast.error('No expenses to export for this year');
                 return;
               }
-              generateShortExcel(yearExpenses, year);
-              toast.success('Short Excel downloaded');
+              try {
+                await generateShortExcel(yearExpenses, year);
+                toast.success('Short Excel downloaded');
+              } catch (error) {
+                console.error('Export error:', error);
+                toast.error('Failed to generate Short Excel');
+              }
             }} 
             variant="secondary" 
             className="w-full" 
@@ -375,14 +385,19 @@ ${expenses
             Short Excel
           </Button>
           <Button 
-            onClick={() => {
+            onClick={async () => {
               const yearExpenses = getExpensesByYear(year);
               if (yearExpenses.length === 0) {
                 toast.error('No expenses to export for this year');
                 return;
               }
-              generateElaborateExcel(yearExpenses, year);
-              toast.success('Elaborate Excel downloaded');
+              try {
+                await generateElaborateExcel(yearExpenses, year);
+                toast.success('Elaborate Excel downloaded');
+              } catch (error) {
+                console.error('Export error:', error);
+                toast.error('Failed to generate Elaborate Excel');
+              }
             }} 
             variant="secondary" 
             className="w-full" 

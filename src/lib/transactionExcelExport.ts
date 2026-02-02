@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { format, parseISO } from 'date-fns';
 
 interface ExpenseData {
@@ -9,73 +10,95 @@ interface ExpenseData {
   notes: string | null;
 }
 
+async function saveWorkbook(workbook: ExcelJS.Workbook, filename: string): Promise<void> {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  saveAs(blob, filename);
+}
+
 /**
  * Short Excel Export - Simple format with Date, Store, Item columns
  * Groups items by date and store for easy reading
  */
-export function generateShortExcel(expenses: ExpenseData[], year: number): void {
-  const wb = XLSX.utils.book_new();
+export async function generateShortExcel(expenses: ExpenseData[], year: number): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet(`Expenses ${year}`);
 
   // Filter expenses for the year and sort by date
   const yearExpenses = expenses
     .filter(e => e.date?.startsWith(year.toString()))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Create data rows - one item per row
-  const data: (string | number)[][] = [
-    ['Date', 'Store', 'Item']
-  ];
+  // Add header row
+  worksheet.addRow(['Date', 'Store', 'Item']);
+  
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true };
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' },
+    };
+  });
 
+  // Add data rows
   yearExpenses.forEach(expense => {
     const formattedDate = format(parseISO(expense.date), 'dd-MMM-yy');
     const store = expense.vendor_name || '';
-    // Use notes as item description, or category if no notes
     const item = expense.notes || expense.category || '';
     
-    data.push([formattedDate, store, item]);
+    worksheet.addRow([formattedDate, store, item]);
   });
 
-  const ws = XLSX.utils.aoa_to_sheet(data);
-
   // Set column widths
-  ws['!cols'] = [
-    { wch: 12 },  // Date
-    { wch: 20 },  // Store
-    { wch: 40 },  // Item
-  ];
+  worksheet.getColumn(1).width = 12;
+  worksheet.getColumn(2).width = 20;
+  worksheet.getColumn(3).width = 40;
 
-  XLSX.utils.book_append_sheet(wb, ws, `Expenses ${year}`);
-  XLSX.writeFile(wb, `KM_Cash_Keeper_${year}_Short.xlsx`);
+  await saveWorkbook(workbook, `KM_Cash_Keeper_${year}_Short.xlsx`);
 }
 
 /**
  * Elaborate Excel Export - Detailed format with Date, Item, Quantity, Tax, Total
  * Includes more transaction details
  */
-export function generateElaborateExcel(expenses: ExpenseData[], year: number): void {
-  const wb = XLSX.utils.book_new();
+export async function generateElaborateExcel(expenses: ExpenseData[], year: number): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet(`Expenses ${year}`);
 
   // Filter expenses for the year and sort by date
   const yearExpenses = expenses
     .filter(e => e.date?.startsWith(year.toString()))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Create data rows with detailed columns
-  const data: (string | number)[][] = [
-    ['Date', 'Store', 'Item Name', 'Description', 'Quantity', 'Unit Price', 'Total Tax', 'Total']
-  ];
+  // Add header row
+  worksheet.addRow(['Date', 'Store', 'Item Name', 'Description', 'Quantity', 'Unit Price', 'Total Tax', 'Total']);
+  
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true };
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' },
+    };
+  });
 
+  // Add data rows
   yearExpenses.forEach(expense => {
     const formattedDate = format(parseISO(expense.date), 'dd/MM/yyyy');
     const store = expense.vendor_name || '';
-    const itemName = expense.category || ''; // Category as item type
-    const description = expense.notes || ''; // Notes as item description
-    const quantity = 1; // Default quantity per transaction
+    const itemName = expense.category || '';
+    const description = expense.notes || '';
+    const quantity = 1;
     const unitPrice = expense.amount;
-    const tax = 0; // Tax not tracked separately
+    const tax = 0;
     const total = expense.amount;
     
-    data.push([
+    worksheet.addRow([
       formattedDate,
       store,
       itemName,
@@ -89,7 +112,7 @@ export function generateElaborateExcel(expenses: ExpenseData[], year: number): v
 
   // Add totals row
   const totalAmount = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
-  data.push([
+  const totalsRow = worksheet.addRow([
     '',
     '',
     'TOTAL',
@@ -99,21 +122,17 @@ export function generateElaborateExcel(expenses: ExpenseData[], year: number): v
     0,
     Number(totalAmount.toFixed(2))
   ]);
-
-  const ws = XLSX.utils.aoa_to_sheet(data);
+  totalsRow.font = { bold: true };
 
   // Set column widths
-  ws['!cols'] = [
-    { wch: 12 },  // Date
-    { wch: 25 },  // Store
-    { wch: 20 },  // Item Name
-    { wch: 40 },  // Description
-    { wch: 10 },  // Quantity
-    { wch: 12 },  // Unit Price
-    { wch: 12 },  // Total Tax
-    { wch: 12 },  // Total
-  ];
+  worksheet.getColumn(1).width = 12;
+  worksheet.getColumn(2).width = 25;
+  worksheet.getColumn(3).width = 20;
+  worksheet.getColumn(4).width = 40;
+  worksheet.getColumn(5).width = 10;
+  worksheet.getColumn(6).width = 12;
+  worksheet.getColumn(7).width = 12;
+  worksheet.getColumn(8).width = 12;
 
-  XLSX.utils.book_append_sheet(wb, ws, `Expenses ${year}`);
-  XLSX.writeFile(wb, `KM_Cash_Keeper_${year}_Elaborate.xlsx`);
+  await saveWorkbook(workbook, `KM_Cash_Keeper_${year}_Elaborate.xlsx`);
 }

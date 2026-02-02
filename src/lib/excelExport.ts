@@ -1,5 +1,6 @@
-import * as XLSX from 'xlsx';
-import { format, parseISO } from 'date-fns';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import { parseISO } from 'date-fns';
 import { EXPENSE_CATEGORY_LABELS, type ExpenseCategory } from '@/types';
 
 const MONTHS = [
@@ -9,45 +10,32 @@ const MONTHS = [
 
 // Expense categories matching CRA T2125 and user's Excel format
 const EXCEL_CATEGORIES = [
-  // Supplies
   { id: 'grocery', label: 'GROCERY', color: 'FFC000' },
   { id: 'clothing_shoes', label: 'CLOTHING/SHOES', color: 'FFC000' },
   { id: 'grooming', label: 'GROOMING', color: 'FFC000' },
   { id: 'baby_stuff', label: 'BABY STUFF/DIAPERS', color: 'FFC000' },
-  // Clothing
   { id: 'taxi_busride', label: 'TAXI/BUSRIDE/VELU/HOTEL', color: 'FFFF00' },
-  // Transport
   { id: 'professional_fees', label: 'PROFESSIONAL FEES', color: '92D050' },
   { id: 'medicals', label: 'MEDICALS', color: '92D050' },
   { id: 'gas', label: 'GAS', color: '92D050' },
   { id: 'work_from_home', label: 'WORK FROM HOME', color: '92D050' },
-  // Interest
   { id: 'cookware', label: 'COOKWARE', color: '00B0F0' },
-  // Entertainment/Meals
   { id: 'restaurants', label: 'RESTAURANTS/MEETINGS/GATHERINGS', color: '00B0F0' },
-  // Advertising
   { id: 'advertising', label: 'SPONSOR/GIFTS/SOCIALS/FUNDRAISING/CALLING CARD', color: 'FF00FF' },
-  // Car Wash
   { id: 'car_wash', label: 'CAR WASH', color: 'FFFF00' },
-  // Delivery/Freight
   { id: 'shipping_cost', label: 'SHIPPING COST', color: 'FFC000' },
-  // Repairs/Maintenance
   { id: 'repairs', label: 'REPAIRS & MAINTENANCE', color: '00FF00' },
   { id: 'renovation', label: 'RENOVATION/KITCHEN/DININ', color: '00FF00' },
-  // Use of Home
   { id: 'hello_hydro', label: 'Hello HYDRO', color: '00FFFF' },
   { id: 'phone_internet', label: 'Phone/Internet', color: '00FFFF' },
   { id: 'rent', label: 'Rent', color: '00FFFF' },
   { id: 'home_maintainance', label: 'Home Maintainance', color: '00FFFF' },
   { id: 'kitchen_dining', label: 'KITCHEN AND DINING ROOM', color: '00FFFF' },
-  // License
   { id: 'licence', label: 'DIRECT SELLING LICENSE', color: 'FF00FF' },
   { id: 'drivers_license', label: 'DRIVERS INSURAN', color: 'FF00FF' },
-  // Vehicle
   { id: 'car', label: 'CAR', color: 'FFC000' },
   { id: 'car_maintenance', label: 'CAR MAINTENAN', color: 'FFC000' },
   { id: 'home_downpayment', label: 'HOME DOWNPAYMENT', color: 'FFC000' },
-  // Membership
   { id: 'costco_wireless', label: 'COSTCO/WIRELESS', color: 'FF00FF' },
 ];
 
@@ -66,12 +54,20 @@ interface MonthlyExpenseData {
   [category: string]: number | string;
 }
 
-export function generateExpenseSpreadsheet(
+async function saveWorkbook(workbook: ExcelJS.Workbook, filename: string): Promise<void> {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  saveAs(blob, filename);
+}
+
+export async function generateExpenseSpreadsheet(
   expenses: any[],
   year: number
-): void {
-  // Create workbook
-  const wb = XLSX.utils.book_new();
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet(`Expenses ${year}`);
 
   // Group expenses by month and category
   const monthlyData: MonthlyExpenseData[] = MONTHS.map((month, index) => {
@@ -82,19 +78,16 @@ export function generateExpenseSpreadsheet(
 
     const row: MonthlyExpenseData = { month };
     
-    // Initialize all categories with empty values
     EXCEL_CATEGORIES.forEach(cat => {
       row[cat.label] = '';
     });
 
-    // Sum expenses by mapped category
     monthExpenses.forEach(expense => {
       const mappedLabel = CATEGORY_COLUMN_MAP[expense.category as ExpenseCategory] || 'GROCERY';
       const current = row[mappedLabel];
       row[mappedLabel] = (typeof current === 'number' ? current : 0) + Number(expense.amount);
     });
 
-    // Format numbers, keeping empty cells empty
     EXCEL_CATEGORIES.forEach(cat => {
       const val = row[cat.label];
       if (typeof val === 'number' && val > 0) {
@@ -118,84 +111,44 @@ export function generateExpenseSpreadsheet(
   });
   monthlyData.push(totalsRow);
 
-  // Create headers matching the Excel format
+  // Add headers
   const headers = ['DATE', ...EXCEL_CATEGORIES.map(c => c.label)];
-  
-  // Create worksheet data
-  const wsData = [
-    headers,
-    ...monthlyData.map(row => [
-      row.month,
-      ...EXCEL_CATEGORIES.map(c => row[c.label])
-    ])
-  ];
+  worksheet.addRow(headers);
 
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  // Style header row
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true };
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' },
+    };
+  });
+
+  // Add data rows
+  monthlyData.forEach(row => {
+    worksheet.addRow([row.month, ...EXCEL_CATEGORIES.map(c => row[c.label])]);
+  });
 
   // Set column widths
-  ws['!cols'] = [
-    { wch: 12 }, // DATE column
-    ...EXCEL_CATEGORIES.map(() => ({ wch: 14 }))
-  ];
+  worksheet.getColumn(1).width = 12;
+  EXCEL_CATEGORIES.forEach((_, i) => {
+    worksheet.getColumn(i + 2).width = 14;
+  });
 
-  // Add worksheet to workbook
-  XLSX.utils.book_append_sheet(wb, ws, `Expenses ${year}`);
-
-  // Create Trips sheet
-  const tripsWs = createTripsSheet(expenses, year);
-  XLSX.utils.book_append_sheet(wb, tripsWs, `Trips ${year}`);
-
-  // Download
-  XLSX.writeFile(wb, `KM_Cash_Keeper_${year}.xlsx`);
+  await saveWorkbook(workbook, `KM_Cash_Keeper_${year}.xlsx`);
 }
 
-function createTripsSheet(trips: any[], year: number): XLSX.WorkSheet {
-  const headers = [
-    'Date', 'Start Time', 'End Time', 'Start Location', 'End Location',
-    'Kilometres', 'Category', 'Company', 'Notes'
-  ];
-
-  const data = [
-    headers,
-    ...trips.map(t => [
-      t.date,
-      t.start_time,
-      t.end_time,
-      t.start_location,
-      t.end_location,
-      t.kilometres,
-      t.category?.toUpperCase(),
-      t.company || '',
-      t.notes || ''
-    ])
-  ];
-
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  
-  ws['!cols'] = [
-    { wch: 12 }, // Date
-    { wch: 10 }, // Start Time
-    { wch: 10 }, // End Time
-    { wch: 30 }, // Start Location
-    { wch: 30 }, // End Location
-    { wch: 12 }, // Kilometres
-    { wch: 12 }, // Category
-    { wch: 15 }, // Company
-    { wch: 25 }, // Notes
-  ];
-
-  return ws;
-}
-
-export function generateFullExcelReport(
+export async function generateFullExcelReport(
   trips: any[],
   expenses: any[],
   odometerReadings: any[],
   year: number
-): void {
-  const wb = XLSX.utils.book_new();
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
 
-  // Summary sheet
+  // Filter data for the year
   const yearTrips = trips.filter(t => t.date?.startsWith(year.toString()));
   const yearExpenses = expenses.filter(e => e.date?.startsWith(year.toString()));
   const odometerReading = odometerReadings.find(o => o.year === year);
@@ -208,38 +161,37 @@ export function generateFullExcelReport(
     .reduce((sum, t) => sum + Number(t.kilometres || 0), 0);
   const totalExpenses = yearExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
-  const summaryData = [
-    ['CRA T2125 Summary Report', '', year],
-    [],
-    ['MILEAGE SUMMARY'],
-    ['Business Kilometres', businessKm.toFixed(1)],
-    ['Personal Kilometres', personalKm.toFixed(1)],
-    ['Total Logged', (businessKm + personalKm).toFixed(1)],
-    [],
-    ['ODOMETER READINGS'],
-    ['Start of Year', odometerReading?.start_reading || 'Not recorded'],
-    ['End of Year', odometerReading?.end_reading || 'Not recorded'],
-    ['Total Annual KM', odometerReading?.end_reading ? 
-      (odometerReading.end_reading - odometerReading.start_reading).toFixed(0) : 'N/A'],
-    [],
-    ['BUSINESS USE PERCENTAGE', 
-      odometerReading?.end_reading ? 
-        ((businessKm / (odometerReading.end_reading - odometerReading.start_reading)) * 100).toFixed(1) + '%' :
-        (businessKm / (businessKm + personalKm) * 100).toFixed(1) + '%'
-    ],
-    [],
-    ['EXPENSE SUMMARY'],
-    ['Total Vehicle Expenses', '$' + totalExpenses.toFixed(2)],
-  ];
+  // Summary sheet
+  const summarySheet = workbook.addWorksheet('Summary');
+  summarySheet.addRow(['CRA T2125 Summary Report', '', year]);
+  summarySheet.addRow([]);
+  summarySheet.addRow(['MILEAGE SUMMARY']);
+  summarySheet.addRow(['Business Kilometres', businessKm.toFixed(1)]);
+  summarySheet.addRow(['Personal Kilometres', personalKm.toFixed(1)]);
+  summarySheet.addRow(['Total Logged', (businessKm + personalKm).toFixed(1)]);
+  summarySheet.addRow([]);
+  summarySheet.addRow(['ODOMETER READINGS']);
+  summarySheet.addRow(['Start of Year', odometerReading?.start_reading || 'Not recorded']);
+  summarySheet.addRow(['End of Year', odometerReading?.end_reading || 'Not recorded']);
+  summarySheet.addRow(['Total Annual KM', odometerReading?.end_reading ? 
+    (odometerReading.end_reading - odometerReading.start_reading).toFixed(0) : 'N/A']);
+  summarySheet.addRow([]);
+  summarySheet.addRow(['BUSINESS USE PERCENTAGE', 
+    odometerReading?.end_reading ? 
+      ((businessKm / (odometerReading.end_reading - odometerReading.start_reading)) * 100).toFixed(1) + '%' :
+      (businessKm / (businessKm + personalKm) * 100).toFixed(1) + '%'
+  ]);
+  summarySheet.addRow([]);
+  summarySheet.addRow(['EXPENSE SUMMARY']);
+  summarySheet.addRow(['Total Vehicle Expenses', '$' + totalExpenses.toFixed(2)]);
+  
+  summarySheet.getColumn(1).width = 25;
+  summarySheet.getColumn(2).width = 20;
+  summarySheet.getColumn(3).width = 10;
 
-  const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
-  summaryWs['!cols'] = [{ wch: 25 }, { wch: 20 }, { wch: 10 }];
-  XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
-
-  // Monthly Expenses sheet (matching user's format)
-  const monthlyData: any[][] = [
-    ['DATE', ...EXCEL_CATEGORIES.map(c => c.label), 'DATE']
-  ];
+  // Monthly Expenses sheet
+  const expensesSheet = workbook.addWorksheet('Monthly Expenses');
+  expensesSheet.addRow(['DATE', ...EXCEL_CATEGORIES.map(c => c.label), 'DATE']);
 
   MONTHS.forEach((month, index) => {
     const monthExpenses = yearExpenses.filter(e => {
@@ -259,34 +211,36 @@ export function generateFullExcelReport(
     });
 
     row.push(month);
-    monthlyData.push(row);
+    expensesSheet.addRow(row);
   });
 
   // Totals row
   const totalsRow: (string | number)[] = ['Total'];
-  EXCEL_CATEGORIES.forEach((cat, i) => {
+  EXCEL_CATEGORIES.forEach((_, i) => {
     let sum = 0;
-    for (let m = 1; m <= 12; m++) {
-      const val = monthlyData[m]?.[i + 1];
+    for (let m = 2; m <= 13; m++) {
+      const val = expensesSheet.getRow(m).getCell(i + 2).value;
       if (typeof val === 'number') sum += val;
     }
     totalsRow.push(sum > 0 ? Number(sum.toFixed(2)) : '');
   });
   totalsRow.push('');
-  monthlyData.push(totalsRow);
+  expensesSheet.addRow(totalsRow);
 
-  const expensesWs = XLSX.utils.aoa_to_sheet(monthlyData);
-  expensesWs['!cols'] = [
-    { wch: 12 },
-    ...EXCEL_CATEGORIES.map(() => ({ wch: 12 })),
-    { wch: 12 }
-  ];
-  XLSX.utils.book_append_sheet(wb, expensesWs, 'Monthly Expenses');
+  expensesSheet.getColumn(1).width = 12;
+  EXCEL_CATEGORIES.forEach((_, i) => {
+    expensesSheet.getColumn(i + 2).width = 12;
+  });
 
   // Trips sheet
-  const tripsData = [
-    ['Date', 'Start Time', 'End Time', 'From', 'To', 'KM', 'Category', 'Company', 'Notes'],
-    ...yearTrips.map(t => [
+  const tripsSheet = workbook.addWorksheet('Trips');
+  tripsSheet.addRow(['Date', 'Start Time', 'End Time', 'From', 'To', 'KM', 'Category', 'Company', 'Notes']);
+  
+  const headerRow = tripsSheet.getRow(1);
+  headerRow.font = { bold: true };
+
+  yearTrips.forEach(t => {
+    tripsSheet.addRow([
       t.date,
       t.start_time,
       t.end_time,
@@ -296,31 +250,41 @@ export function generateFullExcelReport(
       t.category?.toUpperCase(),
       t.company || '',
       t.notes || ''
-    ])
-  ];
-  const tripsWs = XLSX.utils.aoa_to_sheet(tripsData);
-  tripsWs['!cols'] = [
-    { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 },
-    { wch: 8 }, { wch: 12 }, { wch: 15 }, { wch: 25 }
-  ];
-  XLSX.utils.book_append_sheet(wb, tripsWs, 'Trips');
+    ]);
+  });
+
+  tripsSheet.getColumn(1).width = 12;
+  tripsSheet.getColumn(2).width = 10;
+  tripsSheet.getColumn(3).width = 10;
+  tripsSheet.getColumn(4).width = 30;
+  tripsSheet.getColumn(5).width = 30;
+  tripsSheet.getColumn(6).width = 8;
+  tripsSheet.getColumn(7).width = 12;
+  tripsSheet.getColumn(8).width = 15;
+  tripsSheet.getColumn(9).width = 25;
 
   // Detailed Expenses sheet
-  const detailedData = [
-    ['Date', 'Vendor', 'Category', 'Amount', 'Notes'],
-    ...yearExpenses.map(e => [
+  const detailedSheet = workbook.addWorksheet('Expense Details');
+  detailedSheet.addRow(['Date', 'Vendor', 'Category', 'Amount', 'Notes']);
+  
+  const detailedHeaderRow = detailedSheet.getRow(1);
+  detailedHeaderRow.font = { bold: true };
+
+  yearExpenses.forEach(e => {
+    detailedSheet.addRow([
       e.date,
       e.vendor_name,
       EXPENSE_CATEGORY_LABELS[e.category as ExpenseCategory] || e.category,
       Number(e.amount).toFixed(2),
       e.notes || ''
-    ])
-  ];
-  const detailedWs = XLSX.utils.aoa_to_sheet(detailedData);
-  detailedWs['!cols'] = [
-    { wch: 12 }, { wch: 25 }, { wch: 20 }, { wch: 12 }, { wch: 30 }
-  ];
-  XLSX.utils.book_append_sheet(wb, detailedWs, 'Expense Details');
+    ]);
+  });
 
-  XLSX.writeFile(wb, `KM_Cash_Keeper_${year}_Full_Report.xlsx`);
+  detailedSheet.getColumn(1).width = 12;
+  detailedSheet.getColumn(2).width = 25;
+  detailedSheet.getColumn(3).width = 20;
+  detailedSheet.getColumn(4).width = 12;
+  detailedSheet.getColumn(5).width = 30;
+
+  await saveWorkbook(workbook, `KM_Cash_Keeper_${year}_Full_Report.xlsx`);
 }
