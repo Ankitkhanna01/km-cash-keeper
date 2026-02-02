@@ -31,9 +31,10 @@ interface AddExpenseDialogProps {
     notes: string | null;
     receipt_url: string | null;
   }) => void;
+  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
 }
 
-export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDialogProps) {
   const [open, setOpen] = useState(false);
   const [formData, setFormData] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -100,7 +101,10 @@ export function AddExpenseDialog({ onAdd }: AddExpenseDialogProps) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label>Scan Receipt</Label>
-            <ReceiptScanner onDataExtracted={handleReceiptData} />
+            <ReceiptScanner 
+              onDataExtracted={handleReceiptData} 
+              existingExpenses={existingExpenses}
+            />
             {formData.receiptUrl && (
               <p className="text-xs text-green-600">✓ Receipt image saved</p>
             )}

@@ -62,7 +62,16 @@ export default function Expenses() {
       <PageHeader
         title="Expenses"
         subtitle="T2125 Categories"
-        action={<AddExpenseDialog onAdd={handleAddExpense} />}
+        action={
+          <AddExpenseDialog 
+            onAdd={handleAddExpense} 
+            existingExpenses={expenses.map(e => ({
+              vendor_name: e.vendor_name,
+              date: e.date,
+              amount: e.amount
+            }))}
+          />
+        }
       />
 
       <CategorySummary totals={categoryTotals} className="mb-6" />

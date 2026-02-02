@@ -14,6 +14,7 @@ const MAX_VENDOR_LENGTH = 200;
 interface LineItem {
   name: string;
   quantity: number;
+  unit: string;
   price: number;
 }
 
@@ -98,14 +99,23 @@ function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
           ? itemObj.name.trim().slice(0, 200).replace(/[<>'"&]/g, '') 
           : '';
         const quantity = typeof itemObj.quantity === 'number' && itemObj.quantity > 0 
-          ? Math.round(itemObj.quantity * 100) / 100 
+          ? Math.round(itemObj.quantity * 1000) / 1000 // 3 decimal places for weights
           : 1;
+        // Normalize unit to lowercase and validate
+        const validUnits = ['ea', 'kg', 'g', 'lb', 'oz', 'l', 'ml', 'each', 'unit', 'pc', 'pcs'];
+        let unit = 'ea';
+        if (typeof itemObj.unit === 'string') {
+          const normalizedUnit = itemObj.unit.toLowerCase().trim();
+          if (validUnits.includes(normalizedUnit)) {
+            unit = normalizedUnit;
+          }
+        }
         const price = typeof itemObj.price === 'number' && itemObj.price >= 0 
           ? Math.round(itemObj.price * 100) / 100 
           : 0;
         
         if (name) {
-          items.push({ name, quantity, price });
+          items.push({ name, quantity, unit, price });
         }
       }
     }
@@ -165,7 +175,12 @@ serve(async (req) => {
 - date: The transaction date in YYYY-MM-DD format
 - amount: The total amount as a number (no currency symbol)
 - category: Suggest one of these categories based on the vendor type: fuel, repairs, insurance, licence, interest, other
-- items: Array of line items from the receipt, each with name (item description), quantity (number of units), and price (unit price)
+- items: Array of line items from the receipt, each with name (item description), quantity (number of units or weight), unit (e.g., "ea", "kg", "g", "lb", "L"), and price (total price for this line)
+
+IMPORTANT: For weight-based items (sold by kg, gram, lb, etc.):
+- Extract the WEIGHT as the quantity (e.g., 1.5 for 1.5kg, 500 for 500g)
+- Include the unit type (kg, g, lb, L, ml, etc.)
+- For items without weight units, use quantity as count and unit as "ea" (each)
 
 Extract ALL individual items/products listed on the receipt with their quantities and prices.
 If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
@@ -208,10 +223,11 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
                       type: "object",
                       properties: {
                         name: { type: "string", description: "Item/product name or description" },
-                        quantity: { type: "number", description: "Quantity purchased (default 1)" },
-                        price: { type: "number", description: "Unit price of the item" }
+                        quantity: { type: "number", description: "Quantity or weight purchased (e.g., 2 for 2 items, 1.5 for 1.5kg)" },
+                        unit: { type: "string", enum: ["ea", "kg", "g", "lb", "oz", "L", "ml"], description: "Unit of measurement (ea for count, kg/g/lb for weight, L/ml for volume)" },
+                        price: { type: "number", description: "Total price for this line item" }
                       },
-                      required: ["name", "quantity", "price"]
+                      required: ["name", "quantity", "unit", "price"]
                     }
                   }
                 },

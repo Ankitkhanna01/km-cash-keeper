@@ -5,10 +5,21 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ExpenseCategory } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface LineItem {
   name: string;
   quantity: number;
+  unit: string;
   price: number;
 }
 
@@ -21,19 +32,63 @@ interface ReceiptData {
   items: LineItem[];
 }
 
-interface ReceiptScannerProps {
-  onDataExtracted: (data: ReceiptData, itemsNotes: string | null) => void;
+interface PotentialDuplicate {
+  vendor_name: string;
+  date: string;
+  amount: number;
 }
 
-export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
+interface ReceiptScannerProps {
+  onDataExtracted: (data: ReceiptData, itemsNotes: string | null) => void;
+  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
+}
+
+export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: ReceiptScannerProps) {
   const { user } = useAuth();
   const [isScanning, setIsScanning] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [isPdf, setIsPdf] = useState(false);
+  const [pendingData, setPendingData] = useState<{ receiptData: ReceiptData; itemsNotes: string | null } | null>(null);
+  const [duplicateWarning, setDuplicateWarning] = useState<PotentialDuplicate | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Store only the file path, not the signed URL - signed URLs should be generated on-demand
+  // Check for potential duplicates
+  const checkForDuplicate = (data: ReceiptData): PotentialDuplicate | null => {
+    if (!data.vendor_name || !data.date || !data.amount) return null;
+
+    const duplicate = existingExpenses.find(expense => {
+      const sameVendor = expense.vendor_name.toLowerCase().includes(data.vendor_name!.toLowerCase()) ||
+        data.vendor_name!.toLowerCase().includes(expense.vendor_name.toLowerCase());
+      const sameDate = expense.date === data.date;
+      const sameAmount = Math.abs(expense.amount - data.amount!) < 0.01;
+      
+      return sameVendor && sameDate && sameAmount;
+    });
+
+    if (duplicate) {
+      return {
+        vendor_name: duplicate.vendor_name,
+        date: duplicate.date,
+        amount: duplicate.amount
+      };
+    }
+    return null;
+  };
+
+  // Format items with units for notes
+  const formatItemsAsNotes = (items: LineItem[]): string | null => {
+    if (items.length === 0) return null;
+    
+    return items.map(item => {
+      const unitDisplay = item.unit === 'ea' || item.unit === 'each' 
+        ? `x${item.quantity}` 
+        : `${item.quantity} ${item.unit}`;
+      return `${item.name} (${unitDisplay}) - $${item.price.toFixed(2)}`;
+    }).join('\n');
+  };
+
+  // Store only the file path, not the signed URL
   const uploadReceipt = async (file: File): Promise<string | null> => {
     if (!user) return null;
 
@@ -47,7 +102,6 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
 
       if (uploadError) throw uploadError;
 
-      // Return only the file path - signed URLs will be generated on-demand when viewing
       return fileName;
     } catch (error) {
       console.error('Error uploading receipt:', error);
@@ -95,13 +149,8 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
       }
 
       if (data?.success && data?.data) {
-        // Format items as notes string for storage
         const itemsData = data.data.items || [];
-        const itemsNotes = itemsData.length > 0
-          ? itemsData.map((item: LineItem) => 
-              `${item.name} (x${item.quantity}) - $${item.price.toFixed(2)}`
-            ).join('\n')
-          : null;
+        const itemsNotes = formatItemsAsNotes(itemsData);
 
         const extractedData: ReceiptData = {
           vendor_name: data.data.vendor_name || null,
@@ -112,9 +161,15 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
           items: itemsData,
         };
         
-        // Pass items notes to parent for storage
-        onDataExtracted(extractedData, itemsNotes);
-        toast.success('Receipt scanned successfully!');
+        // Check for duplicates before proceeding
+        const duplicate = checkForDuplicate(extractedData);
+        if (duplicate) {
+          setPendingData({ receiptData: extractedData, itemsNotes });
+          setDuplicateWarning(duplicate);
+        } else {
+          onDataExtracted(extractedData, itemsNotes);
+          toast.success('Receipt scanned successfully!');
+        }
       } else {
         // Even if OCR fails, still provide the receipt URL
         onDataExtracted({
@@ -146,6 +201,22 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
   const clearPreview = () => {
     setPreview(null);
     setIsPdf(false);
+  };
+
+  const handleConfirmDuplicate = () => {
+    if (pendingData) {
+      onDataExtracted(pendingData.receiptData, pendingData.itemsNotes);
+      toast.success('Receipt added despite duplicate warning');
+    }
+    setDuplicateWarning(null);
+    setPendingData(null);
+  };
+
+  const handleCancelDuplicate = () => {
+    setDuplicateWarning(null);
+    setPendingData(null);
+    clearPreview();
+    toast.info('Receipt upload cancelled');
   };
 
   return (
@@ -230,6 +301,36 @@ export function ReceiptScanner({ onDataExtracted }: ReceiptScannerProps) {
           Uploading & analyzing receipt...
         </p>
       )}
+
+      {/* Duplicate Warning Dialog */}
+      <AlertDialog open={!!duplicateWarning} onOpenChange={() => {}}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-warning">⚠️ Possible Duplicate Receipt</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>This receipt appears to match an existing expense:</p>
+              {duplicateWarning && (
+                <div className="bg-muted p-3 rounded-lg text-sm">
+                  <p><strong>Vendor:</strong> {duplicateWarning.vendor_name}</p>
+                  <p><strong>Date:</strong> {duplicateWarning.date}</p>
+                  <p><strong>Amount:</strong> ${duplicateWarning.amount.toFixed(2)}</p>
+                </div>
+              )}
+              <p className="text-muted-foreground">
+                Are you sure you want to add this as a new expense?
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelDuplicate}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDuplicate}>
+              Add Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
