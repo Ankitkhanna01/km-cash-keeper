@@ -104,7 +104,7 @@ function findDuplicates(expenses: Expense[]): Set<string> {
 interface ReceiptCardProps {
   expense: Expense;
   onViewReceipt: (url: string) => void;
-  onDelete?: (expense: Expense) => void;
+  onDelete: (expense: Expense) => void;
   isDuplicate: boolean;
 }
 
@@ -160,16 +160,15 @@ function ReceiptCard({ expense, onViewReceipt, onDelete, isDuplicate }: ReceiptC
         <div className="text-right">
           <p className="font-semibold">${expense.amount.toFixed(2)}</p>
           <div className="flex gap-1 mt-1">
-            {isDuplicate && onDelete && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
-                onClick={() => onDelete(expense)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              onClick={() => onDelete(expense)}
+              title="Delete receipt"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
             {hasReceipt && (
               <Button
                 variant="ghost"
@@ -223,6 +222,7 @@ function ReceiptCard({ expense, onViewReceipt, onDelete, isDuplicate }: ReceiptC
 export function ReceiptHistory({ expenses, onDeleteExpense }: ReceiptHistoryProps) {
   const [receiptViewUrl, setReceiptViewUrl] = useState<string | null>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
+  const [confirmStep, setConfirmStep] = useState<1 | 2>(1);
   const [isDeleting, setIsDeleting] = useState(false);
   
   // Only show expenses that have receipts or extracted items
@@ -232,19 +232,29 @@ export function ReceiptHistory({ expenses, onDeleteExpense }: ReceiptHistoryProp
   const duplicateIds = useMemo(() => findDuplicates(receiptsWithData), [receiptsWithData]);
   const duplicateCount = duplicateIds.size;
 
-  const handleDelete = async () => {
+  const handleFirstConfirm = () => {
+    setConfirmStep(2);
+  };
+
+  const handleFinalDelete = async () => {
     if (!expenseToDelete || !onDeleteExpense) return;
     
     setIsDeleting(true);
     try {
       await onDeleteExpense(expenseToDelete.id);
-      toast.success('Duplicate receipt deleted');
+      toast.success('Receipt deleted successfully');
     } catch (error) {
       toast.error('Failed to delete receipt');
     } finally {
       setIsDeleting(false);
       setExpenseToDelete(null);
+      setConfirmStep(1);
     }
+  };
+
+  const handleCancelDelete = () => {
+    setExpenseToDelete(null);
+    setConfirmStep(1);
   };
   
   if (receiptsWithData.length === 0) {
@@ -306,7 +316,7 @@ export function ReceiptHistory({ expenses, onDeleteExpense }: ReceiptHistoryProp
                   key={expense.id} 
                   expense={expense} 
                   onViewReceipt={setReceiptViewUrl}
-                  onDelete={onDeleteExpense ? setExpenseToDelete : undefined}
+                  onDelete={setExpenseToDelete}
                   isDuplicate={duplicateIds.has(expense.id)}
                 />
               ))}
@@ -344,32 +354,55 @@ export function ReceiptHistory({ expenses, onDeleteExpense }: ReceiptHistoryProp
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!expenseToDelete} onOpenChange={() => setExpenseToDelete(null)}>
+      {/* Delete Confirmation Dialog - Two Step */}
+      <AlertDialog open={!!expenseToDelete} onOpenChange={handleCancelDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Duplicate Receipt?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirmStep === 1 ? 'Delete Receipt?' : '⚠️ Final Confirmation'}
+            </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
-              <p>Are you sure you want to delete this expense?</p>
-              {expenseToDelete && (
-                <div className="bg-muted p-3 rounded-lg text-sm">
-                  <p><strong>Vendor:</strong> {expenseToDelete.vendor_name}</p>
-                  <p><strong>Date:</strong> {format(parseISO(expenseToDelete.date), 'MMM d, yyyy')}</p>
-                  <p><strong>Amount:</strong> ${expenseToDelete.amount.toFixed(2)}</p>
-                </div>
+              {confirmStep === 1 ? (
+                <>
+                  <p>Are you sure you want to delete this expense?</p>
+                  {expenseToDelete && (
+                    <div className="bg-muted p-3 rounded-lg text-sm">
+                      <p><strong>Vendor:</strong> {expenseToDelete.vendor_name}</p>
+                      <p><strong>Date:</strong> {format(parseISO(expenseToDelete.date), 'MMM d, yyyy')}</p>
+                      <p><strong>Amount:</strong> ${expenseToDelete.amount.toFixed(2)}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-destructive font-medium">
+                    This will permanently delete the receipt and expense record.
+                  </p>
+                  <p>This action <strong>cannot be undone</strong>. Are you absolutely sure?</p>
+                </>
               )}
-              <p className="text-destructive text-sm">This action cannot be undone.</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDelete} 
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? 'Deleting...' : 'Delete'}
-            </AlertDialogAction>
+            <AlertDialogCancel disabled={isDeleting} onClick={handleCancelDelete}>
+              Cancel
+            </AlertDialogCancel>
+            {confirmStep === 1 ? (
+              <AlertDialogAction 
+                onClick={handleFirstConfirm}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Yes, Delete
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction 
+                onClick={handleFinalDelete} 
+                disabled={isDeleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
