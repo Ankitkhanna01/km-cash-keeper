@@ -2,8 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+const AI_MODELS = [
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-flash-lite",
+  "openai/gpt-5-nano",
+];
 
 const VALID_PLATFORMS = ["uber", "doordash", "skip", "other"] as const;
 const VALID_DOCUMENT_TYPES = ["paystub", "tax_form", "bank_record", "receipt", "other"] as const;
@@ -145,18 +151,24 @@ serve(async (req) => {
 
     console.log(`Processing paystub request`);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `You are a paystub/income document OCR assistant for gig economy workers. Extract the following information:
+    let response: Response | null = null;
+    let lastError = "";
+
+    for (const model of AI_MODELS) {
+      console.log(`Trying model: ${model}`);
+
+      const attempt = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content: `You are a paystub/income document OCR assistant for gig economy workers. Extract the following information:
 
 - platform: The gig platform (Uber, DoorDash, Skip The Dishes, or other)
 - period_year: The year of the pay period (YYYY format)
@@ -173,73 +185,70 @@ Look for:
 
 If kilometres are not shown, set kilometres to null.
 Return ONLY valid JSON, no other text.`
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Extract income and kilometer data from this gig economy ${isPdf ? 'PDF document' : 'image'}. Return JSON only with platform, period_year, period_month, income_amount, kilometres, and document_type.`
-              },
-              {
-                type: "image_url",
-                image_url: { url: image }
-              }
-            ]
-          }
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_paystub_data",
-              description: "Extract structured data from a paystub or income document",
-              parameters: {
-                type: "object",
-                properties: {
-                  platform: { 
-                    type: "string", 
-                    enum: ["uber", "doordash", "skip", "other"],
-                    description: "The gig platform" 
-                  },
-                  period_year: { type: "integer", description: "Year of pay period (YYYY)" },
-                  period_month: { type: "integer", description: "Month of pay period (1-12)" },
-                  income_amount: { type: "number", description: "Total earnings as a number" },
-                  kilometres: { type: "number", description: "Total km driven if shown, null if not available" },
-                  document_type: { 
-                    type: "string", 
-                    enum: ["paystub", "tax_form", "bank_record", "receipt", "other"],
-                    description: "Type of document"
-                  }
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `Extract income and kilometer data from this gig economy ${isPdf ? 'PDF document' : 'image'}. Return JSON only with platform, period_year, period_month, income_amount, kilometres, and document_type.`
                 },
-                required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
+                {
+                  type: "image_url",
+                  image_url: { url: image }
+                }
+              ]
+            }
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "extract_paystub_data",
+                description: "Extract structured data from a paystub or income document",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    platform: { 
+                      type: "string", 
+                      enum: ["uber", "doordash", "skip", "other"],
+                      description: "The gig platform" 
+                    },
+                    period_year: { type: "integer", description: "Year of pay period (YYYY)" },
+                    period_month: { type: "integer", description: "Month of pay period (1-12)" },
+                    income_amount: { type: "number", description: "Total earnings as a number" },
+                    kilometres: { type: "number", description: "Total km driven if shown, null if not available" },
+                    document_type: { 
+                      type: "string", 
+                      enum: ["paystub", "tax_form", "bank_record", "receipt", "other"],
+                      description: "Type of document"
+                    }
+                  },
+                  required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
+                }
               }
             }
-          }
-        ],
-        tool_choice: { type: "function", function: { name: "extract_paystub_data" } }
-      }),
-    });
+          ],
+          tool_choice: { type: "function", function: { name: "extract_paystub_data" } }
+        }),
+      });
 
-    if (!response.ok) {
-      console.error("AI gateway request failed:", response.status);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Service temporarily unavailable. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+      if (attempt.ok) {
+        response = attempt;
+        console.log(`Model ${model} succeeded`);
+        break;
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Service unavailable. Please contact support." }),
-          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
+
+      lastError = `${model}: ${attempt.status}`;
+      console.error(`Model ${model} failed: ${attempt.status}`);
+      await attempt.text();
+    }
+
+    if (!response) {
+      console.error(`All models failed. Last: ${lastError}`);
       return new Response(
-        JSON.stringify({ error: "Failed to process paystub" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Paystub scanning service temporarily unavailable. Please try again later." }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
