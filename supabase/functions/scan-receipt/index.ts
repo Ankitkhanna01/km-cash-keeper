@@ -145,7 +145,7 @@ serve(async (req) => {
       );
     }
 
-    const { image, isPdf } = await req.json();
+     const { image, isPdf } = await req.json();
     
     if (!image) {
       return new Response(
@@ -154,136 +154,164 @@ serve(async (req) => {
       );
     }
 
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      console.error("Server configuration error: Missing API key");
+    
+    if (!GEMINI_API_KEY && !LOVABLE_API_KEY) {
+      console.error("Server configuration error: Missing API keys");
       return new Response(
         JSON.stringify({ error: "Server configuration error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Processing receipt request`);
+    console.log("Processing receipt request");
 
-    let response: Response | null = null;
-    let lastError = "";
-
-    for (const model of AI_MODELS) {
-      console.log(`Trying model: ${model}`);
-      
-      const requestBody = JSON.stringify({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: `You are a receipt OCR assistant. Extract the following information from receipt images:
+    const systemPrompt = `You are a receipt OCR assistant. Extract the following information from receipt images and return ONLY valid JSON:
 - vendor_name: The store or business name
 - date: The transaction date in YYYY-MM-DD format
 - amount: The total amount as a number (no currency symbol)
-- category: Suggest one of these categories based on the vendor type: fuel, repairs, insurance, licence, interest, other
-- items: Array of line items from the receipt, each with name (item description), quantity (number of units or weight), unit (e.g., "ea", "kg", "g", "lb", "L"), and price (total price for this line)
+- category: One of: fuel, repairs, insurance, licence, interest, other
+- items: Array of line items, each with name, quantity (number), unit (ea/kg/g/lb/oz/L/ml), price (number)
 
-IMPORTANT: For weight-based items (sold by kg, gram, lb, etc.):
-- Extract the WEIGHT as the quantity (e.g., 1.5 for 1.5kg, 500 for 500g)
-- Include the unit type (kg, g, lb, L, ml, etc.)
-- For items without weight units, use quantity as count and unit as "ea" (each)
+For weight-based items, extract the weight as quantity with proper unit. For count items use "ea".
+Extract ALL individual items. If you cannot extract a field, use null.`;
 
-Extract ALL individual items/products listed on the receipt with their quantities and prices.
-If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Extract the vendor name, date, total amount, and ALL individual line items (with name, quantity, price) from this receipt ${isPdf ? 'PDF document' : 'image'}. Return JSON only.`
-              },
-              {
-                type: "image_url",
-                image_url: { url: image }
-              }
-            ]
-          }
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_receipt_data",
-              description: "Extract structured data from a receipt including all line items",
-              parameters: {
-                type: "object",
-                properties: {
-                  vendor_name: { type: "string", description: "The store or business name" },
-                  date: { type: "string", description: "Transaction date in YYYY-MM-DD format" },
-                  amount: { type: "number", description: "Total amount as a number" },
-                  category: { 
-                    type: "string", 
-                    enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"],
-                    description: "Expense category based on vendor type"
-                  },
-                  items: {
-                    type: "array",
-                    description: "List of individual items/products on the receipt",
-                    items: {
-                      type: "object",
-                      properties: {
-                        name: { type: "string", description: "Item/product name or description" },
-                        quantity: { type: "number", description: "Quantity or weight purchased" },
-                        unit: { type: "string", enum: ["ea", "kg", "g", "lb", "oz", "L", "ml"], description: "Unit of measurement" },
-                        price: { type: "number", description: "Total price for this line item" }
-                      },
-                      required: ["name", "quantity", "unit", "price"]
-                    }
-                  }
-                },
-                required: ["vendor_name", "date", "amount", "category", "items"]
-              }
-            }
-          }
-        ],
-        tool_choice: { type: "function", function: { name: "extract_receipt_data" } }
-      });
+    const userPrompt = `Extract the vendor name, date, total amount, and ALL individual line items from this receipt ${isPdf ? 'PDF document' : 'image'}. Return JSON only with keys: vendor_name, date, amount, category, items.`;
 
-      const attempt = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: requestBody,
-      });
+    let resultData: unknown = null;
 
-      if (attempt.ok) {
-        response = attempt;
-        console.log(`Model ${model} succeeded`);
-        break;
-      }
-
-      lastError = `${model}: ${attempt.status}`;
-      console.error(`Model ${model} failed: ${attempt.status}`);
-      // Consume body to avoid leak
-      await attempt.text();
-    }
-
-    if (!response) {
-      console.error(`All models failed. Last: ${lastError}`);
-      return new Response(
-        JSON.stringify({ error: "Receipt scanning service temporarily unavailable. Please try again later." }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const data = await response.json();
-    console.log("Receipt processing completed");
-
-    // Extract the tool call result
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (toolCall?.function?.arguments) {
+    // Try Google Gemini API directly first
+    if (GEMINI_API_KEY) {
       try {
-        const rawData = JSON.parse(toolCall.function.arguments);
-        const validatedData = validateAndSanitizeReceiptData(rawData);
+        console.log("Trying Google Gemini API directly");
         
+        // Extract base64 data from data URL
+        const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
+        const mimeType = base64Match ? base64Match[1] : (isPdf ? "application/pdf" : "image/jpeg");
+        const base64Data = base64Match ? base64Match[2] : image;
+
+        const geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: `${systemPrompt}\n\n${userPrompt}` },
+                  { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]
+              }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: "OBJECT",
+                  properties: {
+                    vendor_name: { type: "STRING" },
+                    date: { type: "STRING" },
+                    amount: { type: "NUMBER" },
+                    category: { type: "STRING", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
+                    items: {
+                      type: "ARRAY",
+                      items: {
+                        type: "OBJECT",
+                        properties: {
+                          name: { type: "STRING" },
+                          quantity: { type: "NUMBER" },
+                          unit: { type: "STRING" },
+                          price: { type: "NUMBER" }
+                        },
+                        required: ["name", "quantity", "unit", "price"]
+                      }
+                    }
+                  },
+                  required: ["vendor_name", "date", "amount", "category", "items"]
+                }
+              }
+            }),
+          }
+        );
+
+        if (geminiResponse.ok) {
+          const geminiData = await geminiResponse.json();
+          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            resultData = JSON.parse(text);
+            console.log("Google Gemini succeeded");
+          }
+        } else {
+          const errText = await geminiResponse.text();
+          console.error(`Gemini API failed: ${geminiResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("Gemini API error:", e);
+      }
+    }
+
+    // Fallback to Lovable AI gateway
+    if (!resultData && LOVABLE_API_KEY) {
+      try {
+        console.log("Falling back to Lovable AI gateway");
+        const lovableResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: image } }
+              ]}
+            ],
+            tools: [{
+              type: "function",
+              function: {
+                name: "extract_receipt_data",
+                description: "Extract structured data from a receipt",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    vendor_name: { type: "string" },
+                    date: { type: "string" },
+                    amount: { type: "number" },
+                    category: { type: "string", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
+                    items: { type: "array", items: { type: "object", properties: { name: { type: "string" }, quantity: { type: "number" }, unit: { type: "string" }, price: { type: "number" } }, required: ["name", "quantity", "unit", "price"] } }
+                  },
+                  required: ["vendor_name", "date", "amount", "category", "items"]
+                }
+              }
+            }],
+            tool_choice: { type: "function", function: { name: "extract_receipt_data" } }
+          }),
+        });
+
+        if (lovableResponse.ok) {
+          const data = await lovableResponse.json();
+          const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+          if (toolCall?.function?.arguments) {
+            resultData = JSON.parse(toolCall.function.arguments);
+            console.log("Lovable AI succeeded");
+          } else {
+            const content = data.choices?.[0]?.message?.content;
+            if (content) resultData = JSON.parse(content);
+          }
+        } else {
+          console.error(`Lovable AI failed: ${lovableResponse.status}`);
+          await lovableResponse.text();
+        }
+      } catch (e) {
+        console.error("Lovable AI error:", e);
+      }
+    }
+
+    if (resultData) {
+      try {
+        const validatedData = validateAndSanitizeReceiptData(resultData);
         return new Response(
           JSON.stringify({ success: true, data: validatedData }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -297,24 +325,9 @@ If you cannot extract a field, use null. Return ONLY valid JSON, no other text.`
       }
     }
 
-    // Fallback: try to parse from content
-    const content = data.choices?.[0]?.message?.content;
-    if (content) {
-      try {
-        const parsed = JSON.parse(content);
-        const validatedData = validateAndSanitizeReceiptData(parsed);
-        return new Response(
-          JSON.stringify({ success: true, data: validatedData }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      } catch {
-        console.error("Response parsing failed");
-      }
-    }
-
     return new Response(
-      JSON.stringify({ error: "Could not extract receipt data" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: "Receipt scanning service temporarily unavailable. Please try again later." }),
+      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error) {
