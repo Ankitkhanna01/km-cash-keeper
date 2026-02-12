@@ -140,128 +140,154 @@ serve(async (req) => {
       );
     }
 
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      console.error("Server configuration error: Missing API key");
+    
+    if (!GEMINI_API_KEY && !LOVABLE_API_KEY) {
+      console.error("Server configuration error: Missing API keys");
       return new Response(
         JSON.stringify({ error: "Server configuration error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Processing paystub request`);
+    console.log("Processing paystub request");
 
-    let response: Response | null = null;
-    let lastError = "";
-
-    for (const model of AI_MODELS) {
-      console.log(`Trying model: ${model}`);
-
-      const attempt = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: "system",
-              content: `You are a paystub/income document OCR assistant for gig economy workers. Extract the following information:
-
+    const systemPrompt = `You are a paystub/income document OCR assistant for gig economy workers. Extract:
 - platform: The gig platform (Uber, DoorDash, Skip The Dishes, or other)
-- period_year: The year of the pay period (YYYY format)
-- period_month: The month of the pay period (1-12)
-- income_amount: Total earnings/income as a number (no currency symbol)
-- kilometres: Total kilometers/miles driven if shown (convert miles to km if needed, multiply by 1.60934)
+- period_year: Year of pay period (YYYY)
+- period_month: Month of pay period (1-12)
+- income_amount: Total earnings as a number
+- kilometres: Total km driven if shown (convert miles to km * 1.60934), null if not shown
 - document_type: One of: paystub, tax_form, bank_record, receipt, other
 
-Look for:
-- "Total Earnings", "Net Pay", "Gross Pay" for income
-- "Distance", "Kilometres", "Miles", "KM" for distance traveled
-- Pay period dates to determine month and year
-- Platform branding/logos to identify the source
+Look for "Total Earnings", "Net Pay", "Gross Pay" for income. "Distance", "Kilometres", "Miles" for distance.
+Return ONLY valid JSON.`;
 
-If kilometres are not shown, set kilometres to null.
-Return ONLY valid JSON, no other text.`
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: `Extract income and kilometer data from this gig economy ${isPdf ? 'PDF document' : 'image'}. Return JSON only with platform, period_year, period_month, income_amount, kilometres, and document_type.`
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: image }
-                }
-              ]
-            }
-          ],
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "extract_paystub_data",
-                description: "Extract structured data from a paystub or income document",
-                parameters: {
-                  type: "object",
+    const userPrompt = `Extract income and kilometer data from this gig economy ${isPdf ? 'PDF document' : 'image'}. Return JSON with platform, period_year, period_month, income_amount, kilometres, document_type.`;
+
+    let resultData: unknown = null;
+
+    // Try Google Gemini API directly first
+    if (GEMINI_API_KEY) {
+      try {
+        console.log("Trying Google Gemini API directly");
+        
+        const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
+        const mimeType = base64Match ? base64Match[1] : (isPdf ? "application/pdf" : "image/jpeg");
+        const base64Data = base64Match ? base64Match[2] : image;
+
+        const geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: `${systemPrompt}\n\n${userPrompt}` },
+                  { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]
+              }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: "OBJECT",
                   properties: {
-                    platform: { 
-                      type: "string", 
-                      enum: ["uber", "doordash", "skip", "other"],
-                      description: "The gig platform" 
-                    },
-                    period_year: { type: "integer", description: "Year of pay period (YYYY)" },
-                    period_month: { type: "integer", description: "Month of pay period (1-12)" },
-                    income_amount: { type: "number", description: "Total earnings as a number" },
-                    kilometres: { type: "number", description: "Total km driven if shown, null if not available" },
-                    document_type: { 
-                      type: "string", 
-                      enum: ["paystub", "tax_form", "bank_record", "receipt", "other"],
-                      description: "Type of document"
-                    }
+                    platform: { type: "STRING" },
+                    period_year: { type: "INTEGER" },
+                    period_month: { type: "INTEGER" },
+                    income_amount: { type: "NUMBER" },
+                    kilometres: { type: "NUMBER" },
+                    document_type: { type: "STRING", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
                   },
                   required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
                 }
               }
-            }
-          ],
-          tool_choice: { type: "function", function: { name: "extract_paystub_data" } }
-        }),
-      });
+            }),
+          }
+        );
 
-      if (attempt.ok) {
-        response = attempt;
-        console.log(`Model ${model} succeeded`);
-        break;
+        if (geminiResponse.ok) {
+          const geminiData = await geminiResponse.json();
+          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            resultData = JSON.parse(text);
+            console.log("Google Gemini succeeded");
+          }
+        } else {
+          const errText = await geminiResponse.text();
+          console.error(`Gemini API failed: ${geminiResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("Gemini API error:", e);
       }
-
-      lastError = `${model}: ${attempt.status}`;
-      console.error(`Model ${model} failed: ${attempt.status}`);
-      await attempt.text();
     }
 
-    if (!response) {
-      console.error(`All models failed. Last: ${lastError}`);
-      return new Response(
-        JSON.stringify({ error: "Paystub scanning service temporarily unavailable. Please try again later." }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const data = await response.json();
-    console.log("Paystub processing completed");
-
-    // Extract the tool call result
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (toolCall?.function?.arguments) {
+    // Fallback to Lovable AI gateway
+    if (!resultData && LOVABLE_API_KEY) {
       try {
-        const rawData = JSON.parse(toolCall.function.arguments);
-        const validatedData = validateAndSanitizePaystubData(rawData);
-        
+        console.log("Falling back to Lovable AI gateway");
+        const lovableResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: image } }
+              ]}
+            ],
+            tools: [{
+              type: "function",
+              function: {
+                name: "extract_paystub_data",
+                description: "Extract structured data from a paystub",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    platform: { type: "string", enum: ["uber", "doordash", "skip", "other"] },
+                    period_year: { type: "integer" },
+                    period_month: { type: "integer" },
+                    income_amount: { type: "number" },
+                    kilometres: { type: "number" },
+                    document_type: { type: "string", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
+                  },
+                  required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
+                }
+              }
+            }],
+            tool_choice: { type: "function", function: { name: "extract_paystub_data" } }
+          }),
+        });
+
+        if (lovableResponse.ok) {
+          const data = await lovableResponse.json();
+          const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+          if (toolCall?.function?.arguments) {
+            resultData = JSON.parse(toolCall.function.arguments);
+            console.log("Lovable AI succeeded");
+          } else {
+            const content = data.choices?.[0]?.message?.content;
+            if (content) resultData = JSON.parse(content);
+          }
+        } else {
+          console.error(`Lovable AI failed: ${lovableResponse.status}`);
+          await lovableResponse.text();
+        }
+      } catch (e) {
+        console.error("Lovable AI error:", e);
+      }
+    }
+
+    if (resultData) {
+      try {
+        const validatedData = validateAndSanitizePaystubData(resultData);
         return new Response(
           JSON.stringify({ success: true, data: validatedData }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -275,24 +301,9 @@ Return ONLY valid JSON, no other text.`
       }
     }
 
-    // Fallback: try to parse from content
-    const content = data.choices?.[0]?.message?.content;
-    if (content) {
-      try {
-        const parsed = JSON.parse(content);
-        const validatedData = validateAndSanitizePaystubData(parsed);
-        return new Response(
-          JSON.stringify({ success: true, data: validatedData }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      } catch {
-        console.error("Response parsing failed");
-      }
-    }
-
     return new Response(
-      JSON.stringify({ error: "Could not extract paystub data" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: "Paystub scanning service temporarily unavailable. Please try again later." }),
+      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error) {
