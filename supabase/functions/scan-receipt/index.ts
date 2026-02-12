@@ -5,16 +5,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const AI_MODELS = [
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-flash-lite",
-  "openai/gpt-5-nano",
-];
-
 // Validation constants
 const VALID_CATEGORIES = ["fuel", "repairs", "insurance", "licence", "interest", "other"] as const;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const MAX_AMOUNT = 1000000; // Reasonable upper bound for expense amount
+const MAX_AMOUNT = 1000000;
 const MAX_VENDOR_LENGTH = 200;
 
 interface LineItem {
@@ -39,21 +33,15 @@ function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
 
   const raw = data as Record<string, unknown>;
   
-  // Validate and sanitize vendor_name
   let vendor_name: string | null = null;
   if (raw.vendor_name !== null && raw.vendor_name !== undefined) {
     if (typeof raw.vendor_name !== 'string') {
       throw new Error('vendor_name must be a string');
     }
-    // Sanitize: trim, limit length, remove potential injection characters
-    vendor_name = raw.vendor_name
-      .trim()
-      .slice(0, MAX_VENDOR_LENGTH)
-      .replace(/[<>'"&]/g, ''); // Remove potential XSS/injection chars
+    vendor_name = raw.vendor_name.trim().slice(0, MAX_VENDOR_LENGTH).replace(/[<>'"&]/g, '');
     if (vendor_name.length === 0) vendor_name = null;
   }
 
-  // Validate date format
   let date: string | null = null;
   if (raw.date !== null && raw.date !== undefined) {
     if (typeof raw.date !== 'string') {
@@ -61,7 +49,6 @@ function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
     }
     const trimmedDate = raw.date.trim();
     if (trimmedDate && DATE_REGEX.test(trimmedDate)) {
-      // Additional validation: check if it's a valid date
       const parsed = new Date(trimmedDate);
       if (!isNaN(parsed.getTime())) {
         date = trimmedDate;
@@ -69,60 +56,38 @@ function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
     }
   }
 
-  // Validate amount
   let amount: number | null = null;
   if (raw.amount !== null && raw.amount !== undefined) {
     const numAmount = Number(raw.amount);
-    if (isNaN(numAmount)) {
-      throw new Error('amount must be a valid number');
-    }
-    if (numAmount < 0 || numAmount > MAX_AMOUNT) {
-      throw new Error(`amount must be between 0 and ${MAX_AMOUNT}`);
-    }
-    // Round to 2 decimal places
+    if (isNaN(numAmount)) throw new Error('amount must be a valid number');
+    if (numAmount < 0 || numAmount > MAX_AMOUNT) throw new Error(`amount must be between 0 and ${MAX_AMOUNT}`);
     amount = Math.round(numAmount * 100) / 100;
   }
 
-  // Validate category
   let category: typeof VALID_CATEGORIES[number] = 'other';
   if (raw.category !== null && raw.category !== undefined) {
-    if (typeof raw.category !== 'string') {
-      throw new Error('category must be a string');
-    }
+    if (typeof raw.category !== 'string') throw new Error('category must be a string');
     const lowerCategory = raw.category.toLowerCase().trim();
     if (VALID_CATEGORIES.includes(lowerCategory as typeof VALID_CATEGORIES[number])) {
       category = lowerCategory as typeof VALID_CATEGORIES[number];
     }
   }
 
-  // Validate and sanitize items array
   const items: LineItem[] = [];
   if (raw.items && Array.isArray(raw.items)) {
     for (const item of raw.items) {
       if (item && typeof item === 'object') {
         const itemObj = item as Record<string, unknown>;
-        const name = typeof itemObj.name === 'string' 
-          ? itemObj.name.trim().slice(0, 200).replace(/[<>'"&]/g, '') 
-          : '';
-        const quantity = typeof itemObj.quantity === 'number' && itemObj.quantity > 0 
-          ? Math.round(itemObj.quantity * 1000) / 1000 // 3 decimal places for weights
-          : 1;
-        // Normalize unit to lowercase and validate
+        const name = typeof itemObj.name === 'string' ? itemObj.name.trim().slice(0, 200).replace(/[<>'"&]/g, '') : '';
+        const quantity = typeof itemObj.quantity === 'number' && itemObj.quantity > 0 ? Math.round(itemObj.quantity * 1000) / 1000 : 1;
         const validUnits = ['ea', 'kg', 'g', 'lb', 'oz', 'l', 'ml', 'each', 'unit', 'pc', 'pcs'];
         let unit = 'ea';
         if (typeof itemObj.unit === 'string') {
           const normalizedUnit = itemObj.unit.toLowerCase().trim();
-          if (validUnits.includes(normalizedUnit)) {
-            unit = normalizedUnit;
-          }
+          if (validUnits.includes(normalizedUnit)) unit = normalizedUnit;
         }
-        const price = typeof itemObj.price === 'number' && itemObj.price >= 0 
-          ? Math.round(itemObj.price * 100) / 100 
-          : 0;
-        
-        if (name) {
-          items.push({ name, quantity, unit, price });
-        }
+        const price = typeof itemObj.price === 'number' && itemObj.price >= 0 ? Math.round(itemObj.price * 100) / 100 : 0;
+        if (name) items.push({ name, quantity, unit, price });
       }
     }
   }
@@ -136,7 +101,6 @@ serve(async (req) => {
   }
 
   try {
-    // Authentication check - require valid JWT
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(
@@ -145,7 +109,7 @@ serve(async (req) => {
       );
     }
 
-     const { image, isPdf } = await req.json();
+    const { image, isPdf } = await req.json();
     
     if (!image) {
       return new Response(
@@ -154,10 +118,11 @@ serve(async (req) => {
       );
     }
 
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
-    if (!GEMINI_API_KEY && !LOVABLE_API_KEY) {
+    if (!OPENROUTER_API_KEY && !GEMINI_API_KEY && !LOVABLE_API_KEY) {
       console.error("Server configuration error: Missing API keys");
       return new Response(
         JSON.stringify({ error: "Server configuration error" }),
@@ -179,18 +144,55 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
 
     const userPrompt = `Extract the vendor name, date, total amount, and ALL individual line items from this receipt ${isPdf ? 'PDF document' : 'image'}. Return JSON only with keys: vendor_name, date, amount, category, items.`;
 
+    const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
+    const mimeType = base64Match ? base64Match[1] : (isPdf ? "application/pdf" : "image/jpeg");
+    const base64Data = base64Match ? base64Match[2] : image;
+
     let resultData: unknown = null;
 
-    // Try Google Gemini API directly first
-    if (GEMINI_API_KEY) {
+    // 1. Try OpenRouter API first
+    if (OPENROUTER_API_KEY) {
+      try {
+        console.log("Trying OpenRouter API");
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.0-flash-001",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        if (orResponse.ok) {
+          const data = await orResponse.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) {
+            resultData = JSON.parse(content);
+            console.log("OpenRouter succeeded");
+          }
+        } else {
+          const errText = await orResponse.text();
+          console.error(`OpenRouter failed: ${orResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("OpenRouter error:", e);
+      }
+    }
+
+    // 2. Fallback to Google Gemini API directly
+    if (!resultData && GEMINI_API_KEY) {
       try {
         console.log("Trying Google Gemini API directly");
-        
-        // Extract base64 data from data URL
-        const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
-        const mimeType = base64Match ? base64Match[1] : (isPdf ? "application/pdf" : "image/jpeg");
-        const base64Data = base64Match ? base64Match[2] : image;
-
         const geminiResponse = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
           {
@@ -216,12 +218,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
                       type: "ARRAY",
                       items: {
                         type: "OBJECT",
-                        properties: {
-                          name: { type: "STRING" },
-                          quantity: { type: "NUMBER" },
-                          unit: { type: "STRING" },
-                          price: { type: "NUMBER" }
-                        },
+                        properties: { name: { type: "STRING" }, quantity: { type: "NUMBER" }, unit: { type: "STRING" }, price: { type: "NUMBER" } },
                         required: ["name", "quantity", "unit", "price"]
                       }
                     }
@@ -249,7 +246,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       }
     }
 
-    // Fallback to Lovable AI gateway
+    // 3. Last resort: Lovable AI gateway
     if (!resultData && LOVABLE_API_KEY) {
       try {
         console.log("Falling back to Lovable AI gateway");
