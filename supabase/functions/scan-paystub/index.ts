@@ -5,16 +5,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const AI_MODELS = [
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-flash-lite",
-  "openai/gpt-5-nano",
-];
-
 const VALID_PLATFORMS = ["uber", "doordash", "skip", "other"] as const;
 const VALID_DOCUMENT_TYPES = ["paystub", "tax_form", "bank_record", "receipt", "other"] as const;
-const MAX_INCOME = 100000; // Max income per paystub
-const MAX_KM = 50000; // Max KM per paystub period
+const MAX_INCOME = 100000;
+const MAX_KM = 50000;
 
 interface PaystubData {
   platform: typeof VALID_PLATFORMS[number] | null;
@@ -34,14 +28,10 @@ function validateAndSanitizePaystubData(data: unknown): PaystubData {
 
   const raw = data as Record<string, unknown>;
   
-  // Validate platform
   let platform: typeof VALID_PLATFORMS[number] | null = null;
   if (raw.platform !== null && raw.platform !== undefined) {
-    if (typeof raw.platform !== 'string') {
-      throw new Error('platform must be a string');
-    }
+    if (typeof raw.platform !== 'string') throw new Error('platform must be a string');
     const lowerPlatform = raw.platform.toLowerCase().trim();
-    // Map common variations
     if (lowerPlatform.includes('uber')) platform = 'uber';
     else if (lowerPlatform.includes('doordash') || lowerPlatform.includes('door dash')) platform = 'doordash';
     else if (lowerPlatform.includes('skip')) platform = 'skip';
@@ -52,25 +42,18 @@ function validateAndSanitizePaystubData(data: unknown): PaystubData {
     }
   }
 
-  // Validate period_year
   let period_year: number | null = null;
   if (raw.period_year !== null && raw.period_year !== undefined) {
     const numYear = Number(raw.period_year);
-    if (!isNaN(numYear) && numYear >= 2020 && numYear <= 2030) {
-      period_year = numYear;
-    }
+    if (!isNaN(numYear) && numYear >= 2020 && numYear <= 2030) period_year = numYear;
   }
 
-  // Validate period_month
   let period_month: number | null = null;
   if (raw.period_month !== null && raw.period_month !== undefined) {
     const numMonth = Number(raw.period_month);
-    if (!isNaN(numMonth) && numMonth >= 1 && numMonth <= 12) {
-      period_month = numMonth;
-    }
+    if (!isNaN(numMonth) && numMonth >= 1 && numMonth <= 12) period_month = numMonth;
   }
 
-  // Validate income_amount
   let income_amount: number | null = null;
   if (raw.income_amount !== null && raw.income_amount !== undefined) {
     const numAmount = Number(raw.income_amount);
@@ -79,7 +62,6 @@ function validateAndSanitizePaystubData(data: unknown): PaystubData {
     }
   }
 
-  // Validate kilometres
   let kilometres: number | null = null;
   let has_km = false;
   if (raw.kilometres !== null && raw.kilometres !== undefined) {
@@ -90,7 +72,6 @@ function validateAndSanitizePaystubData(data: unknown): PaystubData {
     }
   }
 
-  // Determine document type
   let document_type: typeof VALID_DOCUMENT_TYPES[number] = 'paystub';
   if (raw.document_type !== null && raw.document_type !== undefined) {
     if (typeof raw.document_type === 'string') {
@@ -101,19 +82,9 @@ function validateAndSanitizePaystubData(data: unknown): PaystubData {
     }
   }
 
-  // Extract raw text for debugging
   const raw_text = typeof raw.raw_text === 'string' ? raw.raw_text.slice(0, 500) : null;
 
-  return {
-    platform,
-    period_year,
-    period_month,
-    income_amount,
-    kilometres,
-    has_km,
-    document_type,
-    raw_text,
-  };
+  return { platform, period_year, period_month, income_amount, kilometres, has_km, document_type, raw_text };
 }
 
 serve(async (req) => {
@@ -122,7 +93,6 @@ serve(async (req) => {
   }
 
   try {
-    // Authentication check
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(
@@ -140,10 +110,11 @@ serve(async (req) => {
       );
     }
 
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
-    if (!GEMINI_API_KEY && !LOVABLE_API_KEY) {
+    if (!OPENROUTER_API_KEY && !GEMINI_API_KEY && !LOVABLE_API_KEY) {
       console.error("Server configuration error: Missing API keys");
       return new Response(
         JSON.stringify({ error: "Server configuration error" }),
@@ -166,17 +137,55 @@ Return ONLY valid JSON.`;
 
     const userPrompt = `Extract income and kilometer data from this gig economy ${isPdf ? 'PDF document' : 'image'}. Return JSON with platform, period_year, period_month, income_amount, kilometres, document_type.`;
 
+    const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
+    const mimeType = base64Match ? base64Match[1] : (isPdf ? "application/pdf" : "image/jpeg");
+    const base64Data = base64Match ? base64Match[2] : image;
+
     let resultData: unknown = null;
 
-    // Try Google Gemini API directly first
-    if (GEMINI_API_KEY) {
+    // 1. Try OpenRouter API first
+    if (OPENROUTER_API_KEY) {
+      try {
+        console.log("Trying OpenRouter API");
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.0-flash-001",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        if (orResponse.ok) {
+          const data = await orResponse.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) {
+            resultData = JSON.parse(content);
+            console.log("OpenRouter succeeded");
+          }
+        } else {
+          const errText = await orResponse.text();
+          console.error(`OpenRouter failed: ${orResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("OpenRouter error:", e);
+      }
+    }
+
+    // 2. Fallback to Google Gemini API directly
+    if (!resultData && GEMINI_API_KEY) {
       try {
         console.log("Trying Google Gemini API directly");
-        
-        const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
-        const mimeType = base64Match ? base64Match[1] : (isPdf ? "application/pdf" : "image/jpeg");
-        const base64Data = base64Match ? base64Match[2] : image;
-
         const geminiResponse = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
           {
@@ -224,7 +233,7 @@ Return ONLY valid JSON.`;
       }
     }
 
-    // Fallback to Lovable AI gateway
+    // 3. Last resort: Lovable AI gateway
     if (!resultData && LOVABLE_API_KEY) {
       try {
         console.log("Falling back to Lovable AI gateway");
