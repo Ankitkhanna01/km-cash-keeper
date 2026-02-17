@@ -258,54 +258,61 @@ Return ONLY valid JSON.`;
       }
     }
 
-    // 3. Last resort: Google Gemini API directly (low usage tier)
+    // 3. Last resort: Google Gemini API directly (flash-lite for higher quota, with retry+backoff on 429)
     if (!resultData && GEMINI_API_KEY) {
-      try {
-        console.log("Trying Google Gemini API directly (last resort)");
-        const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: `${systemPrompt}\n\n${userPrompt}` },
-                  { inline_data: { mime_type: mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: "OBJECT",
-                  properties: {
-                    platform: { type: "STRING" },
-                    period_year: { type: "INTEGER" },
-                    period_month: { type: "INTEGER" },
-                    income_amount: { type: "NUMBER" },
-                    kilometres: { type: "NUMBER" },
-                    document_type: { type: "STRING", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
-                  },
-                  required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
+      const GEMINI_RETRIES = 3;
+      const GEMINI_BACKOFF = [5000, 10000, 20000];
+      for (let attempt = 0; attempt < GEMINI_RETRIES && !resultData; attempt++) {
+        try {
+          if (attempt > 0) {
+            const waitMs = GEMINI_BACKOFF[attempt - 1] || 20000;
+            console.log(`Gemini retry ${attempt + 1}/${GEMINI_RETRIES}, waiting ${waitMs}ms`);
+            await new Promise(r => setTimeout(r, waitMs));
+          }
+          console.log(`Trying Google Gemini API directly (attempt ${attempt + 1}, flash-lite)`);
+          const geminiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: `${systemPrompt}\n\n${userPrompt}` },
+                    { inline_data: { mime_type: mimeType, data: base64Data } }
+                  ]
+                }],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                      platform: { type: "STRING" },
+                      period_year: { type: "INTEGER" },
+                      period_month: { type: "INTEGER" },
+                      income_amount: { type: "NUMBER" },
+                      kilometres: { type: "NUMBER" },
+                      document_type: { type: "STRING", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
+                    },
+                    required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
+                  }
                 }
-              }
-            }),
+              }),
+            }
+          );
+          if (geminiResponse.ok) {
+            const geminiData = await geminiResponse.json();
+            const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) { resultData = JSON.parse(text); console.log("Google Gemini succeeded"); }
+          } else if (geminiResponse.status === 429) {
+            console.warn(`Gemini 429 rate limited (attempt ${attempt + 1})`);
+            await geminiResponse.text();
+          } else {
+            console.error(`Gemini API failed: ${geminiResponse.status}`);
+            await geminiResponse.text();
+            break;
           }
-        );
-
-        if (geminiResponse.ok) {
-          const geminiData = await geminiResponse.json();
-          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            resultData = JSON.parse(text);
-            console.log("Google Gemini succeeded");
-          }
-        } else {
-          const errText = await geminiResponse.text();
-          console.error(`Gemini API failed: ${geminiResponse.status} - ${errText}`);
-        }
-      } catch (e) {
-        console.error("Gemini API error:", e);
+        } catch (e) { console.error("Gemini API error:", e); break; }
       }
     }
 

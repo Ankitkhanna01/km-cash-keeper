@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Camera, Upload, Loader2, X, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { enqueueAIRequest } from '@/lib/aiRequestQueue';
 import { useAuth } from '@/contexts/AuthContext';
 import type { GigPlatform, DocumentType } from '@/types/documents';
 
@@ -73,9 +74,12 @@ export function PaystubScanner({ onDataExtracted }: PaystubScannerProps) {
 
       const documentUrl = await uploadDocument(file);
 
-      const { data, error } = await supabase.functions.invoke('scan-paystub', {
-        body: { image: base64Data, isPdf: fileIsPdf }
-      });
+      const requestBody = { image: base64Data, isPdf: fileIsPdf };
+      const { data, error } = await enqueueAIRequest(
+        'scan-paystub',
+        requestBody,
+        () => supabase.functions.invoke('scan-paystub', { body: requestBody })
+      );
 
       if (error) {
         throw new Error(error.message);
