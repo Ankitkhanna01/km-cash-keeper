@@ -253,6 +253,69 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Moonshot AI error:", e); }
     }
 
+    // 6. Fallback to Groq
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+    if (!resultData && GROQ_API_KEY) {
+      try {
+        console.log("Statement scan: trying Groq");
+        const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "llama-3.2-90b-vision-preview",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) { resultData = JSON.parse(content); console.log("Groq succeeded"); }
+        } else {
+          console.error(`Groq failed: ${resp.status}`);
+        }
+      } catch (e) { console.error("Groq error:", e); }
+    }
+
+    // 7. Fallback to Cerebras
+    const CEREBRAS_API_KEY = Deno.env.get("CEREBRAS_API_KEY");
+    if (!resultData && CEREBRAS_API_KEY) {
+      try {
+        console.log("Statement scan: trying Cerebras");
+        const resp = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${CEREBRAS_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "llama-3.3-70b",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt }
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) { resultData = JSON.parse(content); console.log("Cerebras succeeded"); }
+        } else {
+          console.error(`Cerebras failed: ${resp.status}`);
+        }
+      } catch (e) { console.error("Cerebras error:", e); }
+    }
+
     if (resultData && typeof resultData === 'object') {
       const raw = resultData as Record<string, unknown>;
       const transactions: StatementTransaction[] = [];
