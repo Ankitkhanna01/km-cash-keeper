@@ -317,9 +317,9 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
             console.log(`Gemini retry ${attempt + 1}/${GEMINI_RETRIES}, waiting ${waitMs}ms`);
             await new Promise(r => setTimeout(r, waitMs));
           }
-          console.log(`Statement scan: trying Gemini (attempt ${attempt + 1}, flash-lite)`);
+          console.log(`Statement scan: trying Gemini (attempt ${attempt + 1}, 2.0-flash — 1500 RPD)`);
           const resp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
