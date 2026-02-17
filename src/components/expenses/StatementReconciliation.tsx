@@ -198,10 +198,11 @@ export function StatementReconciliation({ expenses, onAddExpense, onBulkAdded }:
 
               {/* Quick preview of first few */}
               <div className="max-h-32 overflow-y-auto space-y-1">
-                {transactions.slice(0, 5).map((t, i) => (
-                  <div key={i} className="flex justify-between text-xs text-muted-foreground px-1">
+              {transactions.slice(0, 5).map((t, i) => (
+                  <div key={i} className="flex justify-between text-xs text-muted-foreground px-1 gap-2">
+                    <span className="shrink-0 text-[10px]">{t.date}</span>
                     <span className="truncate flex-1">{t.description}</span>
-                    <span className="shrink-0 ml-2">${t.amount.toFixed(2)}</span>
+                    <span className="shrink-0">${t.amount.toFixed(2)}</span>
                   </div>
                 ))}
                 {transactions.length > 5 && (
