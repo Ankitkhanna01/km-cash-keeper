@@ -258,61 +258,62 @@ Return ONLY valid JSON.`;
       }
     }
 
-    // 3. Last resort: Google Gemini API directly (flash-lite for higher quota, with retry+backoff on 429)
+    // 3. Smart Gemini multi-model rotation (spread load across free tier limits)
+    // Paystub = simpler extraction → Flash models fine, save Pro for complex tasks
     if (!resultData && GEMINI_API_KEY) {
-      const GEMINI_RETRIES = 3;
-      const GEMINI_BACKOFF = [5000, 10000, 20000];
-      for (let attempt = 0; attempt < GEMINI_RETRIES && !resultData; attempt++) {
+      const geminiModels = [
+        { id: "gemini-2.0-flash", rpd: 1500, note: "high capacity" },
+        { id: "gemini-2.0-flash-exp", rpd: 1500, note: "high capacity exp" },
+        { id: "gemini-2.5-pro", rpd: 1500, note: "pro quality" },
+        { id: "gemini-3-pro", rpd: 1500, note: "next-gen" },
+        { id: "gemini-2.5-flash-lite", rpd: 20, note: "low quota lite" },
+        { id: "gemini-2.5-flash", rpd: 20, note: "low quota" },
+        { id: "gemini-3-flash", rpd: 20, note: "low quota next-gen" },
+      ];
+      const paystubSchema = {
+        type: "OBJECT",
+        properties: {
+          platform: { type: "STRING" },
+          period_year: { type: "INTEGER" },
+          period_month: { type: "INTEGER" },
+          income_amount: { type: "NUMBER" },
+          kilometres: { type: "NUMBER" },
+          document_type: { type: "STRING", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
+        },
+        required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
+      };
+
+      for (const model of geminiModels) {
+        if (resultData) break;
         try {
-          if (attempt > 0) {
-            const waitMs = GEMINI_BACKOFF[attempt - 1] || 20000;
-            console.log(`Gemini retry ${attempt + 1}/${GEMINI_RETRIES}, waiting ${waitMs}ms`);
-            await new Promise(r => setTimeout(r, waitMs));
-          }
-          console.log(`Trying Google Gemini API directly (attempt ${attempt + 1}, 2.0-flash — 1500 RPD)`);
+          console.log(`Trying Gemini ${model.id} (${model.note}, ${model.rpd} RPD)`);
           const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent?key=${GEMINI_API_KEY}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: `${systemPrompt}\n\n${userPrompt}` },
-                    { inline_data: { mime_type: mimeType, data: base64Data } }
-                  ]
-                }],
-                generationConfig: {
-                  responseMimeType: "application/json",
-                  responseSchema: {
-                    type: "OBJECT",
-                    properties: {
-                      platform: { type: "STRING" },
-                      period_year: { type: "INTEGER" },
-                      period_month: { type: "INTEGER" },
-                      income_amount: { type: "NUMBER" },
-                      kilometres: { type: "NUMBER" },
-                      document_type: { type: "STRING", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
-                    },
-                    required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
-                  }
-                }
+                contents: [{ parts: [
+                  { text: `${systemPrompt}\n\n${userPrompt}` },
+                  { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]}],
+                generationConfig: { responseMimeType: "application/json", responseSchema: paystubSchema }
               }),
             }
           );
           if (geminiResponse.ok) {
             const geminiData = await geminiResponse.json();
             const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) { resultData = JSON.parse(text); console.log("Google Gemini succeeded"); }
+            if (text) { resultData = JSON.parse(text); console.log(`Gemini ${model.id} succeeded`); }
           } else if (geminiResponse.status === 429) {
-            console.warn(`Gemini 429 rate limited (attempt ${attempt + 1})`);
+            console.warn(`Gemini ${model.id} rate limited (429), trying next model`);
             await geminiResponse.text();
+            await new Promise(r => setTimeout(r, 1000));
           } else {
-            console.error(`Gemini API failed: ${geminiResponse.status}`);
+            console.error(`Gemini ${model.id} failed: ${geminiResponse.status}`);
             await geminiResponse.text();
-            break;
           }
-        } catch (e) { console.error("Gemini API error:", e); break; }
+        } catch (e) { console.error(`Gemini ${model.id} error:`, e); }
       }
     }
 
