@@ -323,8 +323,8 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
     }
 
     return new Response(
-      JSON.stringify({ error: "Receipt scanning service temporarily unavailable. Please try again later." }),
-      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: "All AI providers are currently unavailable (credits/quota exhausted). Please top up your Lovable AI credits in Settings → Workspace → Usage, or try again later." }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error) {
