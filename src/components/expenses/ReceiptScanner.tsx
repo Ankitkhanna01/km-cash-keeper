@@ -141,7 +141,11 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
       });
 
       if (error) {
-        throw new Error(error.message);
+        // supabase SDK wraps non-2xx as generic error, check if body has details
+        const errorMsg = typeof error === 'object' && error.message 
+          ? error.message 
+          : 'Receipt scanning failed. Please try again later.';
+        throw new Error(errorMsg);
       }
 
       if (data?.error) {
