@@ -28,8 +28,9 @@ export default function Expenses() {
     category: Expense['category'];
     notes: string | null;
     receipt_url: string | null;
+    card_last4?: string | null;
   }) => {
-    const result = await addExpense(expenseData);
+    const result = await addExpense({ ...expenseData, card_last4: expenseData.card_last4 || null });
     if (result) {
       toast.success('Expense added successfully');
     }

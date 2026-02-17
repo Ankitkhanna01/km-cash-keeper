@@ -30,6 +30,7 @@ interface ReceiptData {
   amount: number | null;
   category: ExpenseCategory;
   receipt_url: string | null;
+  card_last4: string | null;
   items: LineItem[];
 }
 
@@ -166,6 +167,7 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
           amount: data.data.amount || null,
           category: data.data.category || 'other',
           receipt_url: receiptUrl,
+          card_last4: data.data.card_last4 || null,
           items: itemsData,
         };
         
@@ -186,6 +188,7 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
           amount: null,
           category: 'other',
           receipt_url: receiptUrl,
+          card_last4: null,
           items: [],
         }, null);
         toast.error('Could not extract data, but receipt was saved');

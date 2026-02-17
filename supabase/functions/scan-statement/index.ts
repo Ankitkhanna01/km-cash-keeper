@@ -61,14 +61,16 @@ serve(async (req) => {
     }
 
     const systemPrompt = `You are a credit card/bank statement parser. Extract ALL individual transactions from this statement.
+ALSO extract the card number's last 4 digits from the statement header (e.g. "Account ending in 4532" or "Card ****4532"). Return it as "card_last4".
+
 For each transaction return:
-- date: transaction date in YYYY-MM-DD format
+- date: transaction date in YYYY-MM-DD format (each transaction has its own date — extract the SPECIFIC date for each one)
 - description: the merchant/vendor name or transaction description (clean it up, remove transaction codes)
 - amount: the amount as a positive number (debits/charges as positive)
 - category_hint: one of: fuel, restaurant, grocery, insurance, repairs, subscription, other
 
 Only include actual purchase transactions. Skip payments, credits, interest charges, and fees unless they look like business expenses.
-Return ONLY valid JSON with key "transactions" containing an array.`;
+Return ONLY valid JSON with keys "card_last4" (string or null) and "transactions" containing an array.`;
 
     const userPrompt = "Extract all transactions from this credit card/bank statement. Return JSON only with key: transactions.";
 
@@ -386,6 +388,13 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       const transactions: StatementTransaction[] = [];
       const rawTxns = Array.isArray(raw.transactions) ? raw.transactions : [];
 
+      // Extract card_last4 from statement header
+      let card_last4: string | null = null;
+      if (raw.card_last4 && typeof raw.card_last4 === 'string') {
+        const digits = raw.card_last4.replace(/\D/g, '').slice(-4);
+        if (digits.length === 4) card_last4 = digits;
+      }
+
       for (const t of rawTxns) {
         if (t && typeof t === 'object') {
           const txn = t as Record<string, unknown>;
@@ -400,7 +409,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       }
 
       return new Response(
-        JSON.stringify({ success: true, transactions }),
+        JSON.stringify({ success: true, transactions, card_last4 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

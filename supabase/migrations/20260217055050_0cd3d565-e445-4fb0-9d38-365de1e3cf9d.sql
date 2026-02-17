@@ -1,0 +1,1 @@
+ALTER TABLE public.expenses ADD COLUMN card_last4 text;

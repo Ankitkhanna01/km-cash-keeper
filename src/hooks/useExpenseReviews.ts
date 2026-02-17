@@ -95,25 +95,35 @@ export function useExpenseReviews() {
 
     for (const newExp of newExpenses) {
       // 1. Check for duplicates (same vendor + date + amount within $0.50)
+      // Card matching: if both have card_last4 and they match → high confidence
+      // If both have card_last4 and they differ → NOT a duplicate (different cards)
       const duplicates = existingExpenses.filter(existing => {
         const sameDate = existing.date === newExp.date;
         const amountClose = Math.abs(existing.amount - newExp.amount) < 0.50;
         const nameA = newExp.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
         const nameB = existing.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
         const nameMatch = nameA.includes(nameB) || nameB.includes(nameA);
+        
+        // Card-based filtering: if both have card info and they differ, skip
+        if (newExp.card_last4 && existing.card_last4 && newExp.card_last4 !== existing.card_last4) {
+          return false;
+        }
+        
         return sameDate && amountClose && nameMatch;
       });
 
       if (duplicates.length > 0) {
         const dup = duplicates[0];
         const receiptTag = dup.receipt_url ? ' 📎 has receipt' : '';
+        const cardInfo = dup.card_last4 ? ` (card ****${dup.card_last4})` : '';
+        const newCardInfo = newExp.card_last4 ? ` (card ****${newExp.card_last4})` : '';
         reviewsToCreate.push({
           user_id: user.id,
           expense_id: newExp.id,
           review_type: 'duplicate',
           severity: 'warning',
-          message: `Statement "${newExp.vendor_name}" ($${newExp.amount.toFixed(2)} on ${newExp.date}) matches existing "${dup.vendor_name}" ($${dup.amount.toFixed(2)} on ${dup.date})${receiptTag}`,
-          details: `Statement: $${newExp.amount.toFixed(2)} on ${newExp.date} | Existing: $${dup.amount.toFixed(2)} on ${dup.date} | Diff: $${Math.abs(newExp.amount - dup.amount).toFixed(2)}`,
+          message: `Statement "${newExp.vendor_name}" ($${newExp.amount.toFixed(2)} on ${newExp.date}${newCardInfo}) matches existing "${dup.vendor_name}" ($${dup.amount.toFixed(2)} on ${dup.date}${cardInfo})${receiptTag}`,
+          details: `Statement: $${newExp.amount.toFixed(2)} on ${newExp.date}${newCardInfo} | Existing: $${dup.amount.toFixed(2)} on ${dup.date}${cardInfo} | Diff: $${Math.abs(newExp.amount - dup.amount).toFixed(2)}`,
           related_expense_id: dup.id,
           is_resolved: false,
         });
@@ -124,6 +134,8 @@ export function useExpenseReviews() {
         if (!existing.receipt_url) return false;
         const daysDiff = Math.abs(new Date(existing.date).getTime() - new Date(newExp.date).getTime()) / (1000 * 60 * 60 * 24);
         if (daysDiff > 1) return false;
+        // Skip if different cards
+        if (newExp.card_last4 && existing.card_last4 && newExp.card_last4 !== existing.card_last4) return false;
         const nameA = newExp.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
         const nameB = existing.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
         return nameA.includes(nameB) || nameB.includes(nameA);

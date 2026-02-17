@@ -30,6 +30,7 @@ interface AddExpenseDialogProps {
     category: ExpenseCategory;
     notes: string | null;
     receipt_url: string | null;
+    card_last4?: string | null;
   }) => void;
   existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
 }
@@ -43,6 +44,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
     category: 'fuel' as ExpenseCategory,
     notes: '',
     receiptUrl: null as string | null,
+    cardLast4: null as string | null,
   });
 
   const handleReceiptData = (data: {
@@ -60,7 +62,8 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
       amount: data.amount?.toString() || prev.amount,
       category: data.category || prev.category,
       receiptUrl: data.receipt_url || prev.receiptUrl,
-      notes: itemsNotes || prev.notes, // Auto-fill notes with extracted items
+      cardLast4: (data as { card_last4?: string | null }).card_last4 || prev.cardLast4,
+      notes: itemsNotes || prev.notes,
     }));
   };
 
@@ -74,6 +77,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
       category: formData.category,
       notes: formData.notes || null,
       receipt_url: formData.receiptUrl,
+      card_last4: formData.cardLast4,
     });
 
     setFormData({
@@ -83,6 +87,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
       category: 'fuel',
       notes: '',
       receiptUrl: null,
+      cardLast4: null,
     });
     setOpen(false);
   };

@@ -31,6 +31,7 @@ interface StatementReconciliationProps {
     category: ExpenseCategory;
     notes: string | null;
     receipt_url: string | null;
+    card_last4?: string | null;
   }) => Promise<unknown>;
   onBulkAdded?: (newExpenseIds: string[]) => void;
 }
@@ -40,6 +41,7 @@ export function StatementReconciliation({ expenses, onAddExpense, onBulkAdded }:
   const [isScanning, setIsScanning] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [transactions, setTransactions] = useState<StatementTransaction[] | null>(null);
+  const [statementCardLast4, setStatementCardLast4] = useState<string | null>(null);
   const [addedCount, setAddedCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -77,6 +79,7 @@ export function StatementReconciliation({ expenses, onAddExpense, onBulkAdded }:
 
       if (data?.success && data.transactions && data.transactions.length > 0) {
         setTransactions(data.transactions);
+        setStatementCardLast4(data.card_last4 || null);
         toast.success(`Found ${data.transactions.length} transactions — ready to add`);
       } else {
         toast.error('No transactions found in this document');
@@ -105,6 +108,7 @@ export function StatementReconciliation({ expenses, onAddExpense, onBulkAdded }:
           category: mapCategoryHint(txn.category_hint),
           notes: 'Added from statement',
           receipt_url: null,
+          card_last4: statementCardLast4,
         });
         if (result && typeof result === 'object' && 'id' in result) {
           newExpenseIds.push((result as { id: string }).id);
@@ -194,6 +198,9 @@ export function StatementReconciliation({ expenses, onAddExpense, onBulkAdded }:
                 <p className="text-3xl font-bold">{transactions.length}</p>
                 <p className="text-sm text-muted-foreground">transactions found</p>
                 <p className="text-lg font-semibold text-primary">${totalAmount.toFixed(2)} total</p>
+                {statementCardLast4 && (
+                  <p className="text-xs font-mono text-muted-foreground">Card ****{statementCardLast4}</p>
+                )}
               </div>
 
               {/* Quick preview of first few */}

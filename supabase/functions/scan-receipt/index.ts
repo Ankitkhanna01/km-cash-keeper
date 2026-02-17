@@ -23,6 +23,7 @@ interface ReceiptData {
   date: string | null;
   amount: number | null;
   category: typeof VALID_CATEGORIES[number];
+  card_last4: string | null;
   items: LineItem[];
 }
 
@@ -92,7 +93,14 @@ function validateAndSanitizeReceiptData(data: unknown): ReceiptData {
     }
   }
 
-  return { vendor_name, date, amount, category, items };
+  // Extract card_last4
+  let card_last4: string | null = null;
+  if (raw.card_last4 !== null && raw.card_last4 !== undefined && typeof raw.card_last4 === 'string') {
+    const digits = raw.card_last4.replace(/\D/g, '').slice(-4);
+    if (digits.length === 4) card_last4 = digits;
+  }
+
+  return { vendor_name, date, amount, category, card_last4, items };
 }
 
 serve(async (req) => {
@@ -152,6 +160,7 @@ serve(async (req) => {
 - date: The transaction date in YYYY-MM-DD format
 - amount: The total amount as a number (no currency symbol)
 - category: One of: fuel, repairs, insurance, licence, interest, other
+- card_last4: The last 4 digits of the payment card shown on the receipt (e.g. from "VISA ****4532" extract "4532"). If not visible, use null.
 - items: Array of line items, each with name, quantity (number), unit (ea/kg/g/lb/oz/L/ml), price (number)
 
 For weight-based items, extract the weight as quantity with proper unit. For count items use "ea".
@@ -192,11 +201,12 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
                 parameters: {
                   type: "object",
                   properties: {
-                    vendor_name: { type: "string" },
-                    date: { type: "string" },
-                    amount: { type: "number" },
-                    category: { type: "string", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
-                    items: { type: "array", items: { type: "object", properties: { name: { type: "string" }, quantity: { type: "number" }, unit: { type: "string" }, price: { type: "number" } }, required: ["name", "quantity", "unit", "price"] } }
+                     vendor_name: { type: "string" },
+                     date: { type: "string" },
+                     amount: { type: "number" },
+                     category: { type: "string", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
+                     card_last4: { type: "string", description: "Last 4 digits of the payment card shown on the receipt, or null" },
+                     items: { type: "array", items: { type: "object", properties: { name: { type: "string" }, quantity: { type: "number" }, unit: { type: "string" }, price: { type: "number" } }, required: ["name", "quantity", "unit", "price"] } }
                   },
                   required: ["vendor_name", "date", "amount", "category", "items"]
                 }
@@ -425,6 +435,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
           date: { type: "STRING" },
           amount: { type: "NUMBER" },
           category: { type: "STRING", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
+          card_last4: { type: "STRING" },
           items: {
             type: "ARRAY",
             items: {
