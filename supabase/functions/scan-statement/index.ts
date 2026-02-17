@@ -220,6 +220,39 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Routeway.ai error:", e); }
     }
 
+    // 5. Fallback to Moonshot AI
+    const MOONSHOT_API_KEY = Deno.env.get("MOONSHOT_API_KEY");
+    if (!resultData && MOONSHOT_API_KEY) {
+      try {
+        console.log("Statement scan: trying Moonshot AI");
+        const resp = await fetch("https://api.moonshot.cn/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${MOONSHOT_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "moonshot-v1-auto",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) { resultData = JSON.parse(content); console.log("Moonshot AI succeeded"); }
+        } else {
+          console.error(`Moonshot AI failed: ${resp.status}`);
+        }
+      } catch (e) { console.error("Moonshot AI error:", e); }
+    }
+
     if (resultData && typeof resultData === 'object') {
       const raw = resultData as Record<string, unknown>;
       const transactions: StatementTransaction[] = [];
