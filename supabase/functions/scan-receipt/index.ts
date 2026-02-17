@@ -346,6 +346,46 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       }
     }
 
+    // 5. Fallback to Moonshot AI
+    const MOONSHOT_API_KEY = Deno.env.get("MOONSHOT_API_KEY");
+    if (!resultData && MOONSHOT_API_KEY) {
+      try {
+        console.log("Trying Moonshot AI API");
+        const moonshotResponse = await fetch("https://api.moonshot.cn/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${MOONSHOT_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "moonshot-v1-auto",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        if (moonshotResponse.ok) {
+          const data = await moonshotResponse.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) {
+            resultData = JSON.parse(content);
+            console.log("Moonshot AI succeeded");
+          }
+        } else {
+          const errText = await moonshotResponse.text();
+          console.error(`Moonshot AI failed: ${moonshotResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("Moonshot AI error:", e);
+      }
+    }
+
     if (resultData) {
       try {
         const validatedData = validateAndSanitizeReceiptData(resultData);
