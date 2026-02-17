@@ -63,7 +63,71 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
 
     let resultData: unknown = null;
 
-    // 1. Try OpenRouter
+    // 1. Try Lovable AI gateway first (auto-provisioned)
+    if (!resultData && LOVABLE_API_KEY) {
+      try {
+        console.log("Statement scan: trying Lovable AI");
+        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: image } }
+              ]}
+            ],
+            tools: [{
+              type: "function",
+              function: {
+                name: "extract_statement_transactions",
+                description: "Extract transactions from a credit card statement",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    transactions: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          date: { type: "string" },
+                          description: { type: "string" },
+                          amount: { type: "number" },
+                          category_hint: { type: "string", enum: ["fuel", "restaurant", "grocery", "insurance", "repairs", "subscription", "other"] }
+                        },
+                        required: ["date", "description", "amount", "category_hint"]
+                      }
+                    }
+                  },
+                  required: ["transactions"]
+                }
+              }
+            }],
+            tool_choice: { type: "function", function: { name: "extract_statement_transactions" } }
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+          if (toolCall?.function?.arguments) {
+            resultData = JSON.parse(toolCall.function.arguments);
+            console.log("Lovable AI succeeded");
+          } else {
+            const content = data.choices?.[0]?.message?.content;
+            if (content) resultData = JSON.parse(content);
+          }
+        } else {
+          console.error(`Lovable AI failed: ${resp.status}`);
+        }
+      } catch (e) { console.error("Lovable AI error:", e); }
+    }
+
+    // 2. Fallback to OpenRouter
     if (!resultData && OPENROUTER_API_KEY) {
       try {
         console.log("Statement scan: trying OpenRouter");
@@ -95,7 +159,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("OpenRouter error:", e); }
     }
 
-    // 2. Try Gemini directly
+    // 3. Fallback to Gemini directly
     if (!resultData && GEMINI_API_KEY) {
       try {
         console.log("Statement scan: trying Gemini");
