@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Camera, Upload, Loader2, X, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { enqueueAIRequest } from '@/lib/aiRequestQueue';
 import { ExpenseCategory } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -135,10 +136,13 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
       // Upload receipt to storage
       const receiptUrl = await uploadReceipt(file);
 
-      // Call the edge function for OCR
-      const { data, error } = await supabase.functions.invoke('scan-receipt', {
-        body: { image: base64Data, isPdf: fileIsPdf }
-      });
+      // Call the edge function for OCR (through rate-limited queue with caching)
+      const requestBody = { image: base64Data, isPdf: fileIsPdf };
+      const { data, error } = await enqueueAIRequest(
+        'scan-receipt',
+        requestBody,
+        () => supabase.functions.invoke('scan-receipt', { body: requestBody })
+      );
 
       if (error) {
         // supabase SDK wraps non-2xx as generic error, check if body has details

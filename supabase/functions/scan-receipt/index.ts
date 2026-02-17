@@ -403,54 +403,69 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       } catch (e) { console.error("DeepSeek error:", e); }
     }
 
-    // 8. Fallback to Google Gemini API directly (low usage tier - last cloud resort)
+    // 8. Fallback to Google Gemini API directly (flash-lite for higher quota, with retry+backoff on 429)
     if (!resultData && GEMINI_API_KEY) {
-      try {
-        console.log("Trying Google Gemini API directly (last cloud resort)");
-        const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: `${systemPrompt}\n\n${userPrompt}` },
-                  { inline_data: { mime_type: mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: "OBJECT",
-                  properties: {
-                    vendor_name: { type: "STRING" },
-                    date: { type: "STRING" },
-                    amount: { type: "NUMBER" },
-                    category: { type: "STRING", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
-                    items: {
-                      type: "ARRAY",
-                      items: {
-                        type: "OBJECT",
-                        properties: { name: { type: "STRING" }, quantity: { type: "NUMBER" }, unit: { type: "STRING" }, price: { type: "NUMBER" } },
-                        required: ["name", "quantity", "unit", "price"]
-                      }
-                    }
-                  },
-                  required: ["vendor_name", "date", "amount", "category", "items"]
-                }
-              }
-            }),
+      const GEMINI_RETRIES = 3;
+      const GEMINI_BACKOFF = [5000, 10000, 20000];
+      for (let attempt = 0; attempt < GEMINI_RETRIES && !resultData; attempt++) {
+        try {
+          if (attempt > 0) {
+            const waitMs = GEMINI_BACKOFF[attempt - 1] || 20000;
+            console.log(`Gemini retry ${attempt + 1}/${GEMINI_RETRIES}, waiting ${waitMs}ms`);
+            await new Promise(r => setTimeout(r, waitMs));
           }
-        );
-        if (geminiResponse.ok) {
-          const geminiData = await geminiResponse.json();
-          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) { resultData = JSON.parse(text); console.log("Google Gemini succeeded"); }
-        } else {
-          console.error(`Gemini API failed: ${geminiResponse.status}`);
-        }
-      } catch (e) { console.error("Gemini API error:", e); }
+          console.log(`Trying Google Gemini API directly (attempt ${attempt + 1}, flash-lite)`);
+          const geminiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: `${systemPrompt}\n\n${userPrompt}` },
+                    { inline_data: { mime_type: mimeType, data: base64Data } }
+                  ]
+                }],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                      vendor_name: { type: "STRING" },
+                      date: { type: "STRING" },
+                      amount: { type: "NUMBER" },
+                      category: { type: "STRING", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
+                      items: {
+                        type: "ARRAY",
+                        items: {
+                          type: "OBJECT",
+                          properties: { name: { type: "STRING" }, quantity: { type: "NUMBER" }, unit: { type: "STRING" }, price: { type: "NUMBER" } },
+                          required: ["name", "quantity", "unit", "price"]
+                        }
+                      }
+                    },
+                    required: ["vendor_name", "date", "amount", "category", "items"]
+                  }
+                }
+              }),
+            }
+          );
+          if (geminiResponse.ok) {
+            const geminiData = await geminiResponse.json();
+            const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) { resultData = JSON.parse(text); console.log("Google Gemini succeeded"); }
+          } else if (geminiResponse.status === 429) {
+            console.warn(`Gemini 429 rate limited (attempt ${attempt + 1})`);
+            await geminiResponse.text();
+            // Will retry via loop
+          } else {
+            console.error(`Gemini API failed: ${geminiResponse.status}`);
+            await geminiResponse.text();
+            break; // Non-retryable error
+          }
+        } catch (e) { console.error("Gemini API error:", e); break; }
+      }
     }
 
     // 9. Fallback to Ollama (self-hosted)

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Upload, Loader2, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { enqueueAIRequest } from '@/lib/aiRequestQueue';
 import { Expense } from '@/hooks/useExpensesDB';
 import { EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS, ExpenseCategory } from '@/types';
 import {
@@ -120,9 +121,12 @@ export function StatementReconciliation({ expenses, onAddExpense }: StatementRec
       });
       const base64Data = await base64Promise;
 
-      const { data, error } = await supabase.functions.invoke('scan-statement', {
-        body: { image: base64Data }
-      });
+      const requestBody = { image: base64Data };
+      const { data, error } = await enqueueAIRequest(
+        'scan-statement',
+        requestBody,
+        () => supabase.functions.invoke('scan-statement', { body: requestBody })
+      );
 
       if (error) throw new Error(error.message || 'Failed to scan statement');
       if (data?.error) throw new Error(data.error);
