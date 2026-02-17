@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Check, CheckCheck, Info, Trash2, Merge, ArrowRight, Receipt } from 'lucide-react';
+import { AlertTriangle, Check, CheckCheck, Info, Trash2, Merge, ArrowRight, Receipt, Image as ImageIcon } from 'lucide-react';
 import { ExpenseReview, useExpenseReviews } from '@/hooks/useExpenseReviews';
 import { Expense } from '@/hooks/useExpensesDB';
 import { supabase } from '@/integrations/supabase/client';
+import { useSecureStorage } from '@/hooks/useSecureStorage';
 import { toast } from 'sonner';
 import {
   Sheet,
@@ -24,6 +25,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog';
 
 interface ExpenseReviewInboxProps {
   onExpenseDeleted?: () => void;
@@ -37,10 +42,13 @@ interface MergeCandidate {
 
 export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps) {
   const { reviews, unresolvedCount, resolveReview, resolveAll, deleteExpenseAndReviews } = useExpenseReviews();
+  const { getSignedUrl } = useSecureStorage();
   const [open, setOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ExpenseReview | null>(null);
   const [mergeView, setMergeView] = useState<MergeCandidate | null>(null);
   const [relatedExpenses, setRelatedExpenses] = useState<Record<string, Expense>>({});
+  const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
   // Fetch related expenses for side-by-side view
   useEffect(() => {
@@ -65,6 +73,20 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
         setRelatedExpenses(map);
       });
   }, [open, reviews]);
+
+  // Generate signed URLs for receipts when merge view opens
+  useEffect(() => {
+    if (!mergeView) return;
+    const expenses = [mergeView.newExpense, mergeView.existingExpense].filter(Boolean) as Expense[];
+    expenses.forEach(async (exp) => {
+      if (exp.receipt_url && !receiptUrls[exp.id]) {
+        const url = await getSignedUrl('receipts', exp.receipt_url);
+        if (url) {
+          setReceiptUrls(prev => ({ ...prev, [exp.id]: url }));
+        }
+      }
+    });
+  }, [mergeView, getSignedUrl]);
 
   const handleResolve = async (review: ExpenseReview) => {
     await resolveReview(review.id);
@@ -91,19 +113,15 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
   };
 
   const handleMerge = async (review: ExpenseReview, keepId: string, deleteId: string) => {
-    // Merge: update the kept expense with the receipt from the deleted one (if it has one),
-    // and optionally update the amount to the statement amount
     const keepExp = relatedExpenses[keepId];
     const deleteExp = relatedExpenses[deleteId];
     if (!keepExp || !deleteExp) return;
 
     try {
       const updates: Record<string, unknown> = {};
-      // Transfer receipt if the deleted one has it and kept one doesn't
       if (deleteExp.receipt_url && !keepExp.receipt_url) {
         updates.receipt_url = deleteExp.receipt_url;
       }
-      // Transfer notes if the deleted one has richer notes
       if (deleteExp.notes && (!keepExp.notes || deleteExp.notes.length > keepExp.notes.length)) {
         updates.notes = deleteExp.notes;
       }
@@ -112,13 +130,9 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
         await supabase.from('expenses').update(updates).eq('id', keepId);
       }
 
-      // Delete the other expense
       await supabase.from('expenses').delete().eq('id', deleteId);
-      
-      // Resolve the review
       await resolveReview(review.id);
-      
-      // Update local state
+
       setRelatedExpenses(prev => {
         const next = { ...prev };
         if (Object.keys(updates).length > 0) {
@@ -170,6 +184,58 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
   const hasMergeable = (review: ExpenseReview) =>
     review.related_expense_id && (review.review_type === 'duplicate' || review.review_type === 'receipt_match');
 
+  const ExpenseCompareCard = ({ expense, label, labelClass, showReceipt }: {
+    expense: Expense;
+    label: string;
+    labelClass: string;
+    showReceipt?: boolean;
+  }) => {
+    const signedUrl = receiptUrls[expense.id];
+    const hasReceipt = !!expense.receipt_url;
+
+    return (
+      <Card className={`p-3 space-y-2 border-${labelClass}/30`}>
+        <Badge variant="secondary" className={`text-[10px] bg-${labelClass}/20 text-${labelClass}`}>
+          {label}
+        </Badge>
+        <p className="text-sm font-medium truncate">{expense.vendor_name}</p>
+        <p className="text-lg font-bold">${expense.amount.toFixed(2)}</p>
+        <p className="text-xs text-muted-foreground">{expense.date}</p>
+        <p className="text-[10px] text-muted-foreground capitalize">{expense.category}</p>
+
+        {hasReceipt && (
+          <div className="flex items-center gap-1 text-xs text-primary">
+            <Receipt className="w-3 h-3" /> Has receipt
+          </div>
+        )}
+
+        {/* Receipt image preview */}
+        {showReceipt && hasReceipt && signedUrl && (
+          <div
+            className="mt-2 cursor-pointer rounded-md overflow-hidden border border-border"
+            onClick={() => setFullscreenImage(signedUrl)}
+          >
+            <img
+              src={signedUrl}
+              alt={`Receipt from ${expense.vendor_name}`}
+              className="w-full h-28 object-cover"
+            />
+            <p className="text-[10px] text-center text-muted-foreground py-1">Tap to enlarge</p>
+          </div>
+        )}
+        {showReceipt && hasReceipt && !signedUrl && (
+          <div className="mt-2 flex items-center justify-center h-20 rounded-md border border-dashed border-border bg-muted/30">
+            <ImageIcon className="w-5 h-5 text-muted-foreground animate-pulse" />
+          </div>
+        )}
+
+        {expense.notes && (
+          <p className="text-xs text-muted-foreground line-clamp-2">{expense.notes}</p>
+        )}
+      </Card>
+    );
+  };
+
   return (
     <>
       <Sheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) setMergeView(null); }}>
@@ -197,7 +263,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
 
           <div className="space-y-3 mt-4">
             <p className="text-xs text-muted-foreground">
-              Issues found after adding expenses. Tap Compare to see both entries side-by-side.
+              Issues found after adding expenses. Tap Compare to see both entries side-by-side with receipts.
             </p>
 
             {/* Merge detail view */}
@@ -206,41 +272,20 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
                 <Button variant="ghost" size="sm" onClick={() => setMergeView(null)} className="text-xs gap-1 -ml-2">
                   ← Back to list
                 </Button>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Statement entry */}
-                  <Card className="p-3 space-y-2 border-yellow-500/30">
-                    <Badge variant="secondary" className="text-[10px] bg-yellow-500/20 text-yellow-500">Statement</Badge>
-                    <p className="text-sm font-medium truncate">{mergeView.newExpense.vendor_name}</p>
-                    <p className="text-lg font-bold">${mergeView.newExpense.amount.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground">{mergeView.newExpense.date}</p>
-                    {mergeView.newExpense.receipt_url && (
-                      <div className="flex items-center gap-1 text-xs text-primary">
-                        <Receipt className="w-3 h-3" /> Has receipt
-                      </div>
-                    )}
-                    {mergeView.newExpense.notes && (
-                      <p className="text-xs text-muted-foreground line-clamp-2">{mergeView.newExpense.notes}</p>
-                    )}
-                  </Card>
 
-                  {/* Receipt / existing entry */}
-                  <Card className="p-3 space-y-2 border-primary/30">
-                    <Badge variant="secondary" className="text-[10px] bg-primary/20 text-primary">
-                      {mergeView.existingExpense.receipt_url ? 'Receipt' : 'Existing'}
-                    </Badge>
-                    <p className="text-sm font-medium truncate">{mergeView.existingExpense.vendor_name}</p>
-                    <p className="text-lg font-bold">${mergeView.existingExpense.amount.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground">{mergeView.existingExpense.date}</p>
-                    {mergeView.existingExpense.receipt_url && (
-                      <div className="flex items-center gap-1 text-xs text-primary">
-                        <Receipt className="w-3 h-3" /> Has receipt
-                      </div>
-                    )}
-                    {mergeView.existingExpense.notes && (
-                      <p className="text-xs text-muted-foreground line-clamp-2">{mergeView.existingExpense.notes}</p>
-                    )}
-                  </Card>
+                <div className="grid grid-cols-2 gap-3">
+                  <ExpenseCompareCard
+                    expense={mergeView.newExpense}
+                    label="Statement"
+                    labelClass="yellow-500"
+                    showReceipt
+                  />
+                  <ExpenseCompareCard
+                    expense={mergeView.existingExpense}
+                    label={mergeView.existingExpense.receipt_url ? 'Receipt' : 'Existing'}
+                    labelClass="primary"
+                    showReceipt
+                  />
                 </div>
 
                 {/* Amount difference highlight */}
@@ -265,7 +310,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
                     )}
                   >
                     <Merge className="w-4 h-4" />
-                    Keep Statement Amount (${mergeView.newExpense.amount.toFixed(2)})
+                    Keep Statement (${mergeView.newExpense.amount.toFixed(2)})
                   </Button>
                   <Button
                     variant="outline"
@@ -277,7 +322,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
                     )}
                   >
                     <Merge className="w-4 h-4" />
-                    Keep Receipt Amount (${mergeView.existingExpense.amount.toFixed(2)})
+                    Keep Receipt (${mergeView.existingExpense.amount.toFixed(2)})
                   </Button>
                   <div className="flex gap-2">
                     <Button
@@ -356,6 +401,19 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Fullscreen receipt image */}
+      <Dialog open={!!fullscreenImage} onOpenChange={() => setFullscreenImage(null)}>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] p-1 bg-black/90">
+          {fullscreenImage && (
+            <img
+              src={fullscreenImage}
+              alt="Receipt"
+              className="w-full h-full object-contain max-h-[90vh]"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
