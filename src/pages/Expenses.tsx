@@ -4,13 +4,16 @@ import { ExpenseCard } from '@/components/expenses/ExpenseCard';
 import { AddExpenseDialog } from '@/components/expenses/AddExpenseDialog';
 import { CategorySummary } from '@/components/expenses/CategorySummary';
 import { StatementReconciliation } from '@/components/expenses/StatementReconciliation';
+import { ExpenseReviewInbox } from '@/components/expenses/ExpenseReviewInbox';
 import { useExpensesDB, Expense } from '@/hooks/useExpensesDB';
+import { useExpenseReviews } from '@/hooks/useExpenseReviews';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
 export default function Expenses() {
-  const { expenses, loading, addExpense, deleteExpense, getTotalByCategory } = useExpensesDB();
+  const { expenses, loading, addExpense, deleteExpense, getTotalByCategory, refetch } = useExpensesDB();
+  const { analyzeExpenses } = useExpenseReviews();
 
   const currentYear = new Date().getFullYear();
   const yearExpenses = expenses.filter(
@@ -30,11 +33,40 @@ export default function Expenses() {
     if (result) {
       toast.success('Expense added successfully');
     }
+    return result;
   };
 
   const handleDelete = async (id: string) => {
     await deleteExpense(id);
     toast.success('Expense deleted');
+  };
+
+  // After bulk-adding from statement, run background analysis
+  const handleBulkAdded = async (newExpenseIds: string[]) => {
+    // Small delay to let DB settle
+    await new Promise(r => setTimeout(r, 1000));
+    await refetch();
+    
+    // Re-fetch to get updated list including new expenses
+    const { data: allExpenses } = await (await import('@/integrations/supabase/client')).supabase
+      .from('expenses')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (allExpenses) {
+      const mapped = allExpenses.map(e => ({
+        ...e,
+        amount: Number(e.amount),
+        category: e.category as Expense['category']
+      }));
+      const flagCount = await analyzeExpenses(newExpenseIds, mapped);
+      if (flagCount && flagCount > 0) {
+        toast.info(`Found ${flagCount} issue${flagCount > 1 ? 's' : ''} to review`, {
+          description: 'Tap "Review" to see flagged expenses',
+          duration: 5000,
+        });
+      }
+    }
   };
 
   // Map DB expense to component format
@@ -64,8 +96,13 @@ export default function Expenses() {
         title="Expenses"
         subtitle="T2125 Categories"
         action={
-          <div className="flex gap-2">
-            <StatementReconciliation expenses={expenses} onAddExpense={handleAddExpense} />
+          <div className="flex gap-2 items-center">
+            <ExpenseReviewInbox onExpenseDeleted={refetch} />
+            <StatementReconciliation 
+              expenses={expenses} 
+              onAddExpense={handleAddExpense}
+              onBulkAdded={handleBulkAdded}
+            />
             <AddExpenseDialog 
               onAdd={handleAddExpense} 
               existingExpenses={expenses.map(e => ({

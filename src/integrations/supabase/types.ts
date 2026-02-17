@@ -122,6 +122,66 @@ export type Database = {
         }
         Relationships: []
       }
+      expense_reviews: {
+        Row: {
+          created_at: string
+          details: string | null
+          expense_id: string | null
+          id: string
+          is_resolved: boolean
+          message: string
+          related_expense_id: string | null
+          resolved_at: string | null
+          review_type: string
+          severity: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          details?: string | null
+          expense_id?: string | null
+          id?: string
+          is_resolved?: boolean
+          message: string
+          related_expense_id?: string | null
+          resolved_at?: string | null
+          review_type: string
+          severity?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          details?: string | null
+          expense_id?: string | null
+          id?: string
+          is_resolved?: boolean
+          message?: string
+          related_expense_id?: string | null
+          resolved_at?: string | null
+          review_type?: string
+          severity?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_reviews_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_reviews_related_expense_id_fkey"
+            columns: ["related_expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expenses: {
         Row: {
           amount: number
