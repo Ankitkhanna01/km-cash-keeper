@@ -391,7 +391,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "llama-3.2-90b-vision-preview",
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: [
@@ -424,7 +424,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "llama-3.3-70b",
+            model: "gpt-oss-120b",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
