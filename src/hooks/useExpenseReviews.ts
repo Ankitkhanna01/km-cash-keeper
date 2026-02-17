@@ -105,14 +105,16 @@ export function useExpenseReviews() {
       });
 
       if (duplicates.length > 0) {
+        const dup = duplicates[0];
+        const receiptTag = dup.receipt_url ? ' 📎 has receipt' : '';
         reviewsToCreate.push({
           user_id: user.id,
           expense_id: newExp.id,
           review_type: 'duplicate',
           severity: 'warning',
-          message: `Possible duplicate of "${duplicates[0].vendor_name}" ($${duplicates[0].amount.toFixed(2)} on ${duplicates[0].date})`,
-          details: `New: $${newExp.amount.toFixed(2)} | Existing: $${duplicates[0].amount.toFixed(2)} | Difference: $${Math.abs(newExp.amount - duplicates[0].amount).toFixed(2)}`,
-          related_expense_id: duplicates[0].id,
+          message: `Statement "${newExp.vendor_name}" ($${newExp.amount.toFixed(2)} on ${newExp.date}) matches existing "${dup.vendor_name}" ($${dup.amount.toFixed(2)} on ${dup.date})${receiptTag}`,
+          details: `Statement: $${newExp.amount.toFixed(2)} on ${newExp.date} | Existing: $${dup.amount.toFixed(2)} on ${dup.date} | Diff: $${Math.abs(newExp.amount - dup.amount).toFixed(2)}`,
+          related_expense_id: dup.id,
           is_resolved: false,
         });
       }
@@ -136,8 +138,8 @@ export function useExpenseReviews() {
             expense_id: newExp.id,
             review_type: 'receipt_match',
             severity: diff > rm.amount * 0.3 ? 'warning' : 'info',
-            message: `Receipt exists for "${rm.vendor_name}" but amounts differ ($${diff.toFixed(2)} ${newExp.amount > rm.amount ? 'more — tip?' : 'less'})`,
-            details: `Statement: $${newExp.amount.toFixed(2)} | Receipt: $${rm.amount.toFixed(2)}`,
+            message: `Statement "${newExp.vendor_name}" ($${newExp.amount.toFixed(2)} on ${newExp.date}) vs receipt "${rm.vendor_name}" ($${rm.amount.toFixed(2)} on ${rm.date}) — $${diff.toFixed(2)} ${newExp.amount > rm.amount ? 'more (tip?)' : 'less'}`,
+            details: `Statement: $${newExp.amount.toFixed(2)} on ${newExp.date} | Receipt: $${rm.amount.toFixed(2)} on ${rm.date} 📎`,
             related_expense_id: rm.id,
             is_resolved: false,
           });
@@ -186,8 +188,8 @@ export function useExpenseReviews() {
               expense_id: b.id,
               review_type: 'duplicate',
               severity: 'warning',
-              message: `Duplicate in same batch: "${a.vendor_name}" and "${b.vendor_name}" on ${a.date}`,
-              details: `$${a.amount.toFixed(2)} vs $${b.amount.toFixed(2)}`,
+              message: `Same-batch duplicate: "${a.vendor_name}" ($${a.amount.toFixed(2)} on ${a.date}) and "${b.vendor_name}" ($${b.amount.toFixed(2)} on ${b.date})`,
+              details: `Entry 1: $${a.amount.toFixed(2)} on ${a.date} | Entry 2: $${b.amount.toFixed(2)} on ${b.date}`,
               related_expense_id: a.id,
               is_resolved: false,
             });
