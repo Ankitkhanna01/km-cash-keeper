@@ -273,37 +273,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Groq error:", e); }
     }
 
-    // 6. Fallback to Cerebras
-    const CEREBRAS_API_KEY = Deno.env.get("CEREBRAS_API_KEY");
-    if (!resultData && CEREBRAS_API_KEY) {
-      try {
-        console.log("Statement scan: trying Cerebras");
-        const resp = await fetch("https://api.cerebras.ai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${CEREBRAS_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-oss-120b",
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt }
-            ],
-            response_format: { type: "json_object" },
-          }),
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          const content = data.choices?.[0]?.message?.content;
-          if (content) { resultData = JSON.parse(content); console.log("Cerebras succeeded"); }
-        } else {
-          console.error(`Cerebras failed: ${resp.status}`);
-        }
-      } catch (e) { console.error("Cerebras error:", e); }
-    }
-
-    // 7. Fallback to DeepSeek
+    // 6. Fallback to DeepSeek (Cerebras skipped - text-only, can't read images)
     const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
     if (!resultData && DEEPSEEK_API_KEY) {
       try {
