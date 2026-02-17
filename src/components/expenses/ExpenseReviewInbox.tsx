@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Check, CheckCheck, Info, Trash2, X, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Check, CheckCheck, Info, Trash2, Merge, ArrowRight, Receipt } from 'lucide-react';
 import { ExpenseReview, useExpenseReviews } from '@/hooks/useExpenseReviews';
+import { Expense } from '@/hooks/useExpensesDB';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
   Sheet,
@@ -27,14 +29,47 @@ interface ExpenseReviewInboxProps {
   onExpenseDeleted?: () => void;
 }
 
+interface MergeCandidate {
+  review: ExpenseReview;
+  newExpense: Expense | null;
+  existingExpense: Expense | null;
+}
+
 export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps) {
   const { reviews, unresolvedCount, resolveReview, resolveAll, deleteExpenseAndReviews } = useExpenseReviews();
   const [open, setOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ExpenseReview | null>(null);
+  const [mergeView, setMergeView] = useState<MergeCandidate | null>(null);
+  const [relatedExpenses, setRelatedExpenses] = useState<Record<string, Expense>>({});
+
+  // Fetch related expenses for side-by-side view
+  useEffect(() => {
+    if (!open || reviews.length === 0) return;
+    const ids = new Set<string>();
+    reviews.forEach(r => {
+      if (r.expense_id) ids.add(r.expense_id);
+      if (r.related_expense_id) ids.add(r.related_expense_id);
+    });
+    if (ids.size === 0) return;
+
+    supabase
+      .from('expenses')
+      .select('*')
+      .in('id', Array.from(ids))
+      .then(({ data }) => {
+        if (!data) return;
+        const map: Record<string, Expense> = {};
+        data.forEach(e => {
+          map[e.id] = { ...e, amount: Number(e.amount), category: e.category as Expense['category'] };
+        });
+        setRelatedExpenses(map);
+      });
+  }, [open, reviews]);
 
   const handleResolve = async (review: ExpenseReview) => {
     await resolveReview(review.id);
     toast.success('Marked as resolved');
+    setMergeView(null);
   };
 
   const handleResolveAll = async () => {
@@ -52,6 +87,62 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
       toast.error('Failed to delete expense');
     }
     setDeleteConfirm(null);
+    setMergeView(null);
+  };
+
+  const handleMerge = async (review: ExpenseReview, keepId: string, deleteId: string) => {
+    // Merge: update the kept expense with the receipt from the deleted one (if it has one),
+    // and optionally update the amount to the statement amount
+    const keepExp = relatedExpenses[keepId];
+    const deleteExp = relatedExpenses[deleteId];
+    if (!keepExp || !deleteExp) return;
+
+    try {
+      const updates: Record<string, unknown> = {};
+      // Transfer receipt if the deleted one has it and kept one doesn't
+      if (deleteExp.receipt_url && !keepExp.receipt_url) {
+        updates.receipt_url = deleteExp.receipt_url;
+      }
+      // Transfer notes if the deleted one has richer notes
+      if (deleteExp.notes && (!keepExp.notes || deleteExp.notes.length > keepExp.notes.length)) {
+        updates.notes = deleteExp.notes;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('expenses').update(updates).eq('id', keepId);
+      }
+
+      // Delete the other expense
+      await supabase.from('expenses').delete().eq('id', deleteId);
+      
+      // Resolve the review
+      await resolveReview(review.id);
+      
+      // Update local state
+      setRelatedExpenses(prev => {
+        const next = { ...prev };
+        if (Object.keys(updates).length > 0) {
+          next[keepId] = { ...next[keepId], ...updates } as Expense;
+        }
+        delete next[deleteId];
+        return next;
+      });
+
+      toast.success('Expenses merged successfully');
+      onExpenseDeleted?.();
+      setMergeView(null);
+    } catch (e) {
+      console.error('Error merging:', e);
+      toast.error('Failed to merge expenses');
+    }
+  };
+
+  const openMergeView = (review: ExpenseReview) => {
+    setMergeView({
+      review,
+      newExpense: review.expense_id ? relatedExpenses[review.expense_id] || null : null,
+      existingExpense: review.related_expense_id ? relatedExpenses[review.related_expense_id] || null : null,
+    });
   };
 
   const severityIcon = (severity: string) => {
@@ -76,9 +167,12 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
 
   if (unresolvedCount === 0) return null;
 
+  const hasMergeable = (review: ExpenseReview) =>
+    review.related_expense_id && (review.review_type === 'duplicate' || review.review_type === 'receipt_match');
+
   return (
     <>
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) setMergeView(null); }}>
         <SheetTrigger asChild>
           <Button variant="outline" size="sm" className="relative gap-2">
             <AlertTriangle className="w-4 h-4" />
@@ -88,7 +182,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
             </span>
           </Button>
         </SheetTrigger>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between">
               <span>Expense Review ({unresolvedCount})</span>
@@ -103,47 +197,162 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
 
           <div className="space-y-3 mt-4">
             <p className="text-xs text-muted-foreground">
-              Issues found after adding expenses. Fix or dismiss at your convenience — your data is already saved.
+              Issues found after adding expenses. Tap Compare to see both entries side-by-side.
             </p>
 
-            {reviews.map(review => (
-              <Card key={review.id} className="p-3 space-y-2">
-                <div className="flex items-start gap-2">
-                  {severityIcon(review.severity)}
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {reviewTypeBadge(review.review_type)}
-                    </div>
-                    <p className="text-sm">{review.message}</p>
-                    {review.details && (
-                      <p className="text-xs text-muted-foreground">{review.details}</p>
+            {/* Merge detail view */}
+            {mergeView && mergeView.newExpense && mergeView.existingExpense ? (
+              <div className="space-y-3">
+                <Button variant="ghost" size="sm" onClick={() => setMergeView(null)} className="text-xs gap-1 -ml-2">
+                  ← Back to list
+                </Button>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Statement entry */}
+                  <Card className="p-3 space-y-2 border-yellow-500/30">
+                    <Badge variant="secondary" className="text-[10px] bg-yellow-500/20 text-yellow-500">Statement</Badge>
+                    <p className="text-sm font-medium truncate">{mergeView.newExpense.vendor_name}</p>
+                    <p className="text-lg font-bold">${mergeView.newExpense.amount.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">{mergeView.newExpense.date}</p>
+                    {mergeView.newExpense.receipt_url && (
+                      <div className="flex items-center gap-1 text-xs text-primary">
+                        <Receipt className="w-3 h-3" /> Has receipt
+                      </div>
                     )}
-                  </div>
+                    {mergeView.newExpense.notes && (
+                      <p className="text-xs text-muted-foreground line-clamp-2">{mergeView.newExpense.notes}</p>
+                    )}
+                  </Card>
+
+                  {/* Receipt / existing entry */}
+                  <Card className="p-3 space-y-2 border-primary/30">
+                    <Badge variant="secondary" className="text-[10px] bg-primary/20 text-primary">
+                      {mergeView.existingExpense.receipt_url ? 'Receipt' : 'Existing'}
+                    </Badge>
+                    <p className="text-sm font-medium truncate">{mergeView.existingExpense.vendor_name}</p>
+                    <p className="text-lg font-bold">${mergeView.existingExpense.amount.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">{mergeView.existingExpense.date}</p>
+                    {mergeView.existingExpense.receipt_url && (
+                      <div className="flex items-center gap-1 text-xs text-primary">
+                        <Receipt className="w-3 h-3" /> Has receipt
+                      </div>
+                    )}
+                    {mergeView.existingExpense.notes && (
+                      <p className="text-xs text-muted-foreground line-clamp-2">{mergeView.existingExpense.notes}</p>
+                    )}
+                  </Card>
                 </div>
-                <div className="flex gap-2 pt-1">
+
+                {/* Amount difference highlight */}
+                {mergeView.newExpense.amount !== mergeView.existingExpense.amount && (
+                  <Card className="p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Amount difference</p>
+                    <p className="text-sm font-semibold">
+                      ${Math.abs(mergeView.newExpense.amount - mergeView.existingExpense.amount).toFixed(2)}
+                      {mergeView.newExpense.amount > mergeView.existingExpense.amount ? ' more on statement (tip?)' : ' less on statement'}
+                    </p>
+                  </Card>
+                )}
+
+                {/* Action buttons */}
+                <div className="space-y-2 pt-2">
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    className="flex-1 gap-1 text-xs h-8"
-                    onClick={() => handleResolve(review)}
+                    className="w-full gap-2"
+                    onClick={() => handleMerge(
+                      mergeView.review,
+                      mergeView.newExpense!.id,
+                      mergeView.existingExpense!.id
+                    )}
                   >
-                    <Check className="w-3.5 h-3.5" />
-                    Dismiss
+                    <Merge className="w-4 h-4" />
+                    Keep Statement Amount (${mergeView.newExpense.amount.toFixed(2)})
                   </Button>
-                  {review.expense_id && (review.review_type === 'duplicate') && (
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={() => handleMerge(
+                      mergeView.review,
+                      mergeView.existingExpense!.id,
+                      mergeView.newExpense!.id
+                    )}
+                  >
+                    <Merge className="w-4 h-4" />
+                    Keep Receipt Amount (${mergeView.existingExpense.amount.toFixed(2)})
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1 text-xs"
+                      onClick={() => handleResolve(mergeView.review)}
+                    >
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                      Keep Both
+                    </Button>
                     <Button
                       variant="destructive"
                       size="sm"
-                      className="flex-1 gap-1 text-xs h-8"
-                      onClick={() => setDeleteConfirm(review)}
+                      className="flex-1 text-xs"
+                      onClick={() => setDeleteConfirm(mergeView.review)}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Delete Expense
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                      Delete New
                     </Button>
-                  )}
+                  </div>
                 </div>
-              </Card>
-            ))}
+              </div>
+            ) : (
+              /* Review list */
+              reviews.map(review => (
+                <Card key={review.id} className="p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    {severityIcon(review.severity)}
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {reviewTypeBadge(review.review_type)}
+                      </div>
+                      <p className="text-sm">{review.message}</p>
+                      {review.details && (
+                        <p className="text-xs text-muted-foreground">{review.details}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    {hasMergeable(review) ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 gap-1 text-xs h-8"
+                        onClick={() => openMergeView(review)}
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                        Compare
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1 gap-1 text-xs h-8"
+                      onClick={() => handleResolve(review)}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      Dismiss
+                    </Button>
+                    {review.expense_id && review.review_type === 'duplicate' && !hasMergeable(review) && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="flex-1 gap-1 text-xs h-8"
+                        onClick={() => setDeleteConfirm(review)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              ))
+            )}
           </div>
         </SheetContent>
       </Sheet>
