@@ -316,6 +316,39 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Cerebras error:", e); }
     }
 
+    // 8. Fallback to DeepSeek
+    const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
+    if (!resultData && DEEPSEEK_API_KEY) {
+      try {
+        console.log("Statement scan: trying DeepSeek");
+        const resp = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) { resultData = JSON.parse(content); console.log("DeepSeek succeeded"); }
+        } else {
+          console.error(`DeepSeek failed: ${resp.status}`);
+        }
+      } catch (e) { console.error("DeepSeek error:", e); }
+    }
+
     if (resultData && typeof resultData === 'object') {
       const raw = resultData as Record<string, unknown>;
       const transactions: StatementTransaction[] = [];
