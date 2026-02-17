@@ -11,6 +11,7 @@ import { getLocalDateString, getLocalTimeString } from '@/lib/dateUtils';
 import { TripPurposeDialog, TripPurpose, DeliveryCompany } from './TripPurposeDialog';
 import { NearbyPlacesSuggestions } from './NearbyPlacesSuggestions';
 import { EndLocationPicker } from './EndLocationPicker';
+import { LiveTripMap } from './LiveTripMap';
 
 interface StopLocation {
   address: string;
@@ -84,6 +85,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
   const [pendingEndLocation, setPendingEndLocation] = useState<StopLocation | null>(null);
   const lastWaypointTime = useRef<number>(0);
   const startTimestamp = useRef<number>(0);
+  const [currentPosition, setCurrentPosition] = useState<{ lat: number; lon: number } | null>(null);
   
   // Nearby places state
   const [showStartNearby, setShowStartNearby] = useState(false);
@@ -175,6 +177,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
 
     const handlePosition = (position: GeolocationPosition) => {
       const { latitude, longitude } = position.coords;
+      
+      // Always update current position for map
+      setCurrentPosition({ lat: latitude, lon: longitude });
       
       // Only add waypoint if moved more than 50 meters from last point
       const distance = getDistance(lastLat, lastLon, latitude, longitude);
@@ -617,6 +622,24 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
               <span className="text-primary font-medium">• {waypoints.length} point{waypoints.length !== 1 ? 's' : ''}</span>
             )}
           </div>
+
+          {/* Live Map */}
+          {startLocation && (
+            <LiveTripMap
+              startLocation={startLocation}
+              stops={stops}
+              waypoints={waypoints}
+              currentLat={currentPosition?.lat}
+              currentLon={currentPosition?.lon}
+              onManualWaypointAdd={(lat, lon) => {
+                setWaypoints(prev => [...prev, {
+                  lat,
+                  lon,
+                  time: getLocalTimeString(),
+                }]);
+              }}
+            />
+          )}
 
           {/* Start Location */}
           <div className="space-y-1">
