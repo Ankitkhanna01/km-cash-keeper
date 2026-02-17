@@ -1,28 +1,28 @@
 project_id = "jdjrdshcacrfskqzluxi"
 
 [functions.scan-receipt]
-verify_jwt = true
+verify_jwt = false
 
 [functions.geocode]
-verify_jwt = true
+verify_jwt = false
 
 [functions.reverse-geocode]
-verify_jwt = true
+verify_jwt = false
 
 [functions.smart-address]
-verify_jwt = true
+verify_jwt = false
 
 [functions.adjust-km]
-verify_jwt = true
+verify_jwt = false
 
 [functions.nearby-places]
-verify_jwt = true
+verify_jwt = false
 
 [functions.scan-paystub]
-verify_jwt = true
+verify_jwt = false
 
 [functions.calculate-route]
-verify_jwt = true
+verify_jwt = false
 
 [functions.scan-statement]
-verify_jwt = true
+verify_jwt = false
