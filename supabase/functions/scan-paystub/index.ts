@@ -269,9 +269,9 @@ Return ONLY valid JSON.`;
             console.log(`Gemini retry ${attempt + 1}/${GEMINI_RETRIES}, waiting ${waitMs}ms`);
             await new Promise(r => setTimeout(r, waitMs));
           }
-          console.log(`Trying Google Gemini API directly (attempt ${attempt + 1}, flash-lite)`);
+          console.log(`Trying Google Gemini API directly (attempt ${attempt + 1}, 2.0-flash — 1500 RPD)`);
           const geminiResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
