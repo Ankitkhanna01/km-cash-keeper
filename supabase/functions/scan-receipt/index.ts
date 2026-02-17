@@ -306,6 +306,46 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       }
     }
 
+    // 4. Fallback to Routeway.ai
+    const ROUTEWAY_API_KEY = Deno.env.get("ROUTEWAY_API_KEY");
+    if (!resultData && ROUTEWAY_API_KEY) {
+      try {
+        console.log("Trying Routeway.ai API");
+        const routewayResponse = await fetch("https://api.routeway.ai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${ROUTEWAY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        if (routewayResponse.ok) {
+          const data = await routewayResponse.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) {
+            resultData = JSON.parse(content);
+            console.log("Routeway.ai succeeded");
+          }
+        } else {
+          const errText = await routewayResponse.text();
+          console.error(`Routeway.ai failed: ${routewayResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("Routeway.ai error:", e);
+      }
+    }
+
     if (resultData) {
       try {
         const validatedData = validateAndSanitizeReceiptData(resultData);
