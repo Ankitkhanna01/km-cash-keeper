@@ -475,6 +475,34 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       } catch (e) { console.error("DeepSeek error:", e); }
     }
 
+    // 9. Fallback to Ollama (self-hosted)
+    const OLLAMA_BASE_URL = Deno.env.get("OLLAMA_BASE_URL");
+    if (!resultData && OLLAMA_BASE_URL) {
+      try {
+        console.log("Trying Ollama API");
+        const resp = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama3.2-vision",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt, images: [base64Data] }
+            ],
+            format: "json",
+            stream: false,
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const content = data.message?.content;
+          if (content) { resultData = JSON.parse(content); console.log("Ollama succeeded"); }
+        } else {
+          console.error(`Ollama failed: ${resp.status}`);
+        }
+      } catch (e) { console.error("Ollama error:", e); }
+    }
+
     if (resultData) {
       try {
         const validatedData = validateAndSanitizeReceiptData(resultData);
