@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { ExpenseCard } from '@/components/expenses/ExpenseCard';
 import { AddExpenseDialog } from '@/components/expenses/AddExpenseDialog';
 import { CategorySummary } from '@/components/expenses/CategorySummary';
+import { StatementReconciliation } from '@/components/expenses/StatementReconciliation';
 import { useExpensesDB, Expense } from '@/hooks/useExpensesDB';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { toast } from 'sonner';
@@ -63,14 +64,17 @@ export default function Expenses() {
         title="Expenses"
         subtitle="T2125 Categories"
         action={
-          <AddExpenseDialog 
-            onAdd={handleAddExpense} 
-            existingExpenses={expenses.map(e => ({
-              vendor_name: e.vendor_name,
-              date: e.date,
-              amount: e.amount
-            }))}
-          />
+          <div className="flex gap-2">
+            <StatementReconciliation expenses={expenses} onAddExpense={handleAddExpense} />
+            <AddExpenseDialog 
+              onAdd={handleAddExpense} 
+              existingExpenses={expenses.map(e => ({
+                vendor_name: e.vendor_name,
+                date: e.date,
+                amount: e.amount
+              }))}
+            />
+          </div>
         }
       />
 
