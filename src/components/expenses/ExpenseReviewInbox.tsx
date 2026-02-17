@@ -201,6 +201,9 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
         <p className="text-sm font-medium truncate">{expense.vendor_name}</p>
         <p className="text-lg font-bold">${expense.amount.toFixed(2)}</p>
         <p className="text-xs text-muted-foreground">{expense.date}</p>
+        {expense.card_last4 && (
+          <p className="text-xs font-mono text-muted-foreground">Card ****{expense.card_last4}</p>
+        )}
         <p className="text-[10px] text-muted-foreground capitalize">{expense.category}</p>
 
         {hasReceipt && (

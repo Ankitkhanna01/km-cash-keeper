@@ -14,6 +14,7 @@ export interface Expense {
   category: ExpenseCategory;
   notes: string | null;
   receipt_url: string | null;
+  card_last4: string | null;
   created_at: string;
 }
 
@@ -63,6 +64,7 @@ export function useExpensesDB() {
           category: expenseData.category,
           notes: expenseData.notes,
           receipt_url: expenseData.receipt_url,
+          card_last4: expenseData.card_last4 || null,
         })
         .select()
         .single();
