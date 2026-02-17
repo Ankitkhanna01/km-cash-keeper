@@ -264,64 +264,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       }
     }
 
-    // 3. Fallback to Google Gemini API directly
-    if (!resultData && GEMINI_API_KEY) {
-      try {
-        console.log("Trying Google Gemini API directly");
-        const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: `${systemPrompt}\n\n${userPrompt}` },
-                  { inline_data: { mime_type: mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: "OBJECT",
-                  properties: {
-                    vendor_name: { type: "STRING" },
-                    date: { type: "STRING" },
-                    amount: { type: "NUMBER" },
-                    category: { type: "STRING", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
-                    items: {
-                      type: "ARRAY",
-                      items: {
-                        type: "OBJECT",
-                        properties: { name: { type: "STRING" }, quantity: { type: "NUMBER" }, unit: { type: "STRING" }, price: { type: "NUMBER" } },
-                        required: ["name", "quantity", "unit", "price"]
-                      }
-                    }
-                  },
-                  required: ["vendor_name", "date", "amount", "category", "items"]
-                }
-              }
-            }),
-          }
-        );
-
-        if (geminiResponse.ok) {
-          const geminiData = await geminiResponse.json();
-          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            resultData = JSON.parse(text);
-            console.log("Google Gemini succeeded");
-          }
-        } else {
-          const errText = await geminiResponse.text();
-          console.error(`Gemini API failed: ${geminiResponse.status} - ${errText}`);
-        }
-      } catch (e) {
-        console.error("Gemini API error:", e);
-      }
-    }
-
-    // 4. Fallback to Routeway.ai
+    // 3. Fallback to Routeway.ai (was #4)
     const ROUTEWAY_API_KEY = Deno.env.get("ROUTEWAY_API_KEY");
     if (!resultData && ROUTEWAY_API_KEY) {
       try {
@@ -361,7 +304,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       }
     }
 
-    // 5. Fallback to Moonshot AI
+    // 4. Fallback to Moonshot AI
     const MOONSHOT_API_KEY = Deno.env.get("MOONSHOT_API_KEY");
     if (!resultData && MOONSHOT_API_KEY) {
       try {
@@ -394,7 +337,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       } catch (e) { console.error("Moonshot AI error:", e); }
     }
 
-    // 6. Fallback to Groq
+    // 5. Fallback to Groq
     const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
     if (!resultData && GROQ_API_KEY) {
       try {
@@ -427,7 +370,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       } catch (e) { console.error("Groq error:", e); }
     }
 
-    // 7. Fallback to Cerebras
+    // 6. Fallback to Cerebras
     const CEREBRAS_API_KEY = Deno.env.get("CEREBRAS_API_KEY");
     if (!resultData && CEREBRAS_API_KEY) {
       try {
@@ -457,7 +400,7 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
       } catch (e) { console.error("Cerebras error:", e); }
     }
 
-    // 8. Fallback to DeepSeek
+    // 7. Fallback to DeepSeek
     const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
     if (!resultData && DEEPSEEK_API_KEY) {
       try {
@@ -488,6 +431,56 @@ Extract ALL individual items. If you cannot extract a field, use null.`;
           console.error(`DeepSeek failed: ${resp.status}`);
         }
       } catch (e) { console.error("DeepSeek error:", e); }
+    }
+
+    // 8. Fallback to Google Gemini API directly (low usage tier - last cloud resort)
+    if (!resultData && GEMINI_API_KEY) {
+      try {
+        console.log("Trying Google Gemini API directly (last cloud resort)");
+        const geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: `${systemPrompt}\n\n${userPrompt}` },
+                  { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]
+              }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: "OBJECT",
+                  properties: {
+                    vendor_name: { type: "STRING" },
+                    date: { type: "STRING" },
+                    amount: { type: "NUMBER" },
+                    category: { type: "STRING", enum: ["fuel", "repairs", "insurance", "licence", "interest", "other"] },
+                    items: {
+                      type: "ARRAY",
+                      items: {
+                        type: "OBJECT",
+                        properties: { name: { type: "STRING" }, quantity: { type: "NUMBER" }, unit: { type: "STRING" }, price: { type: "NUMBER" } },
+                        required: ["name", "quantity", "unit", "price"]
+                      }
+                    }
+                  },
+                  required: ["vendor_name", "date", "amount", "category", "items"]
+                }
+              }
+            }),
+          }
+        );
+        if (geminiResponse.ok) {
+          const geminiData = await geminiResponse.json();
+          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) { resultData = JSON.parse(text); console.log("Google Gemini succeeded"); }
+        } else {
+          console.error(`Gemini API failed: ${geminiResponse.status}`);
+        }
+      } catch (e) { console.error("Gemini API error:", e); }
     }
 
     // 9. Fallback to Ollama (self-hosted)

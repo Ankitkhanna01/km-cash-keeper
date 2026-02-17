@@ -174,35 +174,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("OpenRouter error:", e); }
     }
 
-    // 3. Fallback to Gemini directly
-    if (!resultData && GEMINI_API_KEY) {
-      try {
-        console.log("Statement scan: trying Gemini");
-        const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [
-                { text: `${systemPrompt}\n\n${userPrompt}` },
-                { inline_data: { mime_type: mimeType, data: base64Data } }
-              ]}],
-              generationConfig: { responseMimeType: "application/json" }
-            }),
-          }
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) { resultData = JSON.parse(text); console.log("Gemini succeeded"); }
-        } else {
-          console.error(`Gemini failed: ${resp.status}`);
-        }
-      } catch (e) { console.error("Gemini error:", e); }
-    }
-
-    // 4. Fallback to Routeway.ai
+    // 3. Fallback to Routeway.ai
     const ROUTEWAY_API_KEY = Deno.env.get("ROUTEWAY_API_KEY");
     if (!resultData && ROUTEWAY_API_KEY) {
       try {
@@ -235,7 +207,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Routeway.ai error:", e); }
     }
 
-    // 5. Fallback to Moonshot AI
+    // 4. Fallback to Moonshot AI
     const MOONSHOT_API_KEY = Deno.env.get("MOONSHOT_API_KEY");
     if (!resultData && MOONSHOT_API_KEY) {
       try {
@@ -268,7 +240,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Moonshot AI error:", e); }
     }
 
-    // 6. Fallback to Groq
+    // 5. Fallback to Groq
     const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
     if (!resultData && GROQ_API_KEY) {
       try {
@@ -301,7 +273,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Groq error:", e); }
     }
 
-    // 7. Fallback to Cerebras
+    // 6. Fallback to Cerebras
     const CEREBRAS_API_KEY = Deno.env.get("CEREBRAS_API_KEY");
     if (!resultData && CEREBRAS_API_KEY) {
       try {
@@ -331,7 +303,7 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
       } catch (e) { console.error("Cerebras error:", e); }
     }
 
-    // 8. Fallback to DeepSeek
+    // 7. Fallback to DeepSeek
     const DEEPSEEK_API_KEY = Deno.env.get("DEEPSEEK_API_KEY");
     if (!resultData && DEEPSEEK_API_KEY) {
       try {
@@ -362,6 +334,34 @@ Return ONLY valid JSON with key "transactions" containing an array.`;
           console.error(`DeepSeek failed: ${resp.status}`);
         }
       } catch (e) { console.error("DeepSeek error:", e); }
+    }
+
+    // 8. Fallback to Google Gemini API directly (low usage tier - last cloud resort)
+    if (!resultData && GEMINI_API_KEY) {
+      try {
+        console.log("Statement scan: trying Gemini (last cloud resort)");
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [
+                { text: `${systemPrompt}\n\n${userPrompt}` },
+                { inline_data: { mime_type: mimeType, data: base64Data } }
+              ]}],
+              generationConfig: { responseMimeType: "application/json" }
+            }),
+          }
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) { resultData = JSON.parse(text); console.log("Gemini succeeded"); }
+        } else {
+          console.error(`Gemini failed: ${resp.status}`);
+        }
+      } catch (e) { console.error("Gemini error:", e); }
     }
 
     // 9. Fallback to Ollama (self-hosted)

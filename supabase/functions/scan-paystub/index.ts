@@ -158,100 +158,10 @@ Return ONLY valid JSON.`;
 
     let resultData: unknown = null;
 
-    // 1. Try OpenRouter API first
-    if (OPENROUTER_API_KEY) {
-      try {
-        console.log("Trying OpenRouter API");
-        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.0-flash-001",
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: [
-                { type: "text", text: userPrompt },
-                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
-              ]}
-            ],
-            response_format: { type: "json_object" },
-          }),
-        });
-
-        if (orResponse.ok) {
-          const data = await orResponse.json();
-          const content = data.choices?.[0]?.message?.content;
-          if (content) {
-            resultData = JSON.parse(content);
-            console.log("OpenRouter succeeded");
-          }
-        } else {
-          const errText = await orResponse.text();
-          console.error(`OpenRouter failed: ${orResponse.status} - ${errText}`);
-        }
-      } catch (e) {
-        console.error("OpenRouter error:", e);
-      }
-    }
-
-    // 2. Fallback to Google Gemini API directly
-    if (!resultData && GEMINI_API_KEY) {
-      try {
-        console.log("Trying Google Gemini API directly");
-        const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: `${systemPrompt}\n\n${userPrompt}` },
-                  { inline_data: { mime_type: mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: "OBJECT",
-                  properties: {
-                    platform: { type: "STRING" },
-                    period_year: { type: "INTEGER" },
-                    period_month: { type: "INTEGER" },
-                    income_amount: { type: "NUMBER" },
-                    kilometres: { type: "NUMBER" },
-                    document_type: { type: "STRING", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
-                  },
-                  required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
-                }
-              }
-            }),
-          }
-        );
-
-        if (geminiResponse.ok) {
-          const geminiData = await geminiResponse.json();
-          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            resultData = JSON.parse(text);
-            console.log("Google Gemini succeeded");
-          }
-        } else {
-          const errText = await geminiResponse.text();
-          console.error(`Gemini API failed: ${geminiResponse.status} - ${errText}`);
-        }
-      } catch (e) {
-        console.error("Gemini API error:", e);
-      }
-    }
-
-    // 3. Last resort: Lovable AI gateway
+    // 1. Try Lovable AI gateway first (auto-provisioned)
     if (!resultData && LOVABLE_API_KEY) {
       try {
-        console.log("Falling back to Lovable AI gateway");
+        console.log("Trying Lovable AI gateway");
         const lovableResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -306,6 +216,96 @@ Return ONLY valid JSON.`;
         }
       } catch (e) {
         console.error("Lovable AI error:", e);
+      }
+    }
+
+    // 2. Fallback to OpenRouter
+    if (!resultData && OPENROUTER_API_KEY) {
+      try {
+        console.log("Trying OpenRouter API");
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.0-flash-001",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: [
+                { type: "text", text: userPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+              ]}
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        if (orResponse.ok) {
+          const data = await orResponse.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content) {
+            resultData = JSON.parse(content);
+            console.log("OpenRouter succeeded");
+          }
+        } else {
+          const errText = await orResponse.text();
+          console.error(`OpenRouter failed: ${orResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("OpenRouter error:", e);
+      }
+    }
+
+    // 3. Last resort: Google Gemini API directly (low usage tier)
+    if (!resultData && GEMINI_API_KEY) {
+      try {
+        console.log("Trying Google Gemini API directly (last resort)");
+        const geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: `${systemPrompt}\n\n${userPrompt}` },
+                  { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]
+              }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: "OBJECT",
+                  properties: {
+                    platform: { type: "STRING" },
+                    period_year: { type: "INTEGER" },
+                    period_month: { type: "INTEGER" },
+                    income_amount: { type: "NUMBER" },
+                    kilometres: { type: "NUMBER" },
+                    document_type: { type: "STRING", enum: ["paystub", "tax_form", "bank_record", "receipt", "other"] }
+                  },
+                  required: ["platform", "period_year", "period_month", "income_amount", "document_type"]
+                }
+              }
+            }),
+          }
+        );
+
+        if (geminiResponse.ok) {
+          const geminiData = await geminiResponse.json();
+          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            resultData = JSON.parse(text);
+            console.log("Google Gemini succeeded");
+          }
+        } else {
+          const errText = await geminiResponse.text();
+          console.error(`Gemini API failed: ${geminiResponse.status} - ${errText}`);
+        }
+      } catch (e) {
+        console.error("Gemini API error:", e);
       }
     }
 
