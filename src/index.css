@@ -68,10 +68,13 @@
 
   html {
     font-family: 'Inter', system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
+    overscroll-behavior-y: contain;
   }
 }
 
