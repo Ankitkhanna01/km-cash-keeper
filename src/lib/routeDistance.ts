@@ -1,24 +1,24 @@
 /**
- * Uses OSRM (free, no API key) to calculate actual driving distance
- * along a set of GPS waypoints. Falls back to haversine if OSRM fails.
+ * Calls the calculate-route edge function which uses Google Routes API
+ * (primary) with OSRM fallback for accurate driving distance.
  */
+import { supabase } from '@/integrations/supabase/client';
 
 interface Coordinate {
   lat: number;
   lon: number;
 }
 
-interface OSRMRouteResponse {
-  code: string;
-  routes: Array<{
-    distance: number; // meters
-    duration: number; // seconds
-    geometry: string; // encoded polyline
-  }>;
+export interface RouteResult {
+  distanceKm: number;
+  durationMinutes: number;
+  polyline?: string;
+  source: 'google' | 'osrm' | 'fallback';
+  usageWarning?: string;
 }
 
 /**
- * Decode an OSRM encoded polyline (precision 5) into lat/lon pairs.
+ * Decode an encoded polyline (Google or OSRM, precision 5) into lat/lon pairs.
  */
 export function decodePolyline(encoded: string): Array<[number, number]> {
   const points: Array<[number, number]> = [];
@@ -55,51 +55,51 @@ export function decodePolyline(encoded: string): Array<[number, number]> {
 }
 
 /**
- * OSRM has a max of ~100 coordinates per request.
- * If we have more waypoints, we sample them down.
+ * Calculate driving distance via the calculate-route edge function.
+ * Uses Google Routes API (primary) with OSRM fallback.
+ * Supports intermediate waypoints for route accuracy.
  */
-function sampleCoordinates(coords: Coordinate[], maxPoints: number = 80): Coordinate[] {
-  if (coords.length <= maxPoints) return coords;
-
-  const result: Coordinate[] = [coords[0]]; // always keep first
-  const step = (coords.length - 1) / (maxPoints - 1);
-
-  for (let i = 1; i < maxPoints - 1; i++) {
-    result.push(coords[Math.round(i * step)]);
-  }
-  result.push(coords[coords.length - 1]); // always keep last
-
-  return result;
-}
-
-/**
- * Calculate actual driving distance using OSRM public router.
- * Returns { distanceKm, geometry } or null if it fails.
- */
-export async function getOSRMRouteDistance(
+export async function getRouteDistance(
   coordinates: Coordinate[]
-): Promise<{ distanceKm: number; geometry: Array<[number, number]> } | null> {
+): Promise<RouteResult | null> {
   if (coordinates.length < 2) return null;
 
   try {
-    const sampled = sampleCoordinates(coordinates);
-    // OSRM expects lon,lat format
-    const coordString = sampled.map(c => `${c.lon},${c.lat}`).join(';');
-    const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=polyline`;
+    const origin = coordinates[0];
+    const destination = coordinates[coordinates.length - 1];
+    
+    // Sample intermediate waypoints (Google Routes limits intermediates)
+    let waypoints: Coordinate[] | undefined;
+    if (coordinates.length > 2) {
+      const intermediates = coordinates.slice(1, -1);
+      // Google Routes allows up to 25 intermediates; sample if more
+      if (intermediates.length > 25) {
+        const step = intermediates.length / 25;
+        waypoints = Array.from({ length: 25 }, (_, i) => 
+          intermediates[Math.round(i * step)]
+        );
+      } else {
+        waypoints = intermediates;
+      }
+    }
 
-    const response = await fetch(url);
-    if (!response.ok) return null;
+    const { data, error } = await supabase.functions.invoke('calculate-route', {
+      body: {
+        origin,
+        destination,
+        waypoints,
+        mode: 'DRIVE',
+      },
+    });
 
-    const data: OSRMRouteResponse = await response.json();
-    if (data.code !== 'Ok' || !data.routes?.length) return null;
+    if (error) {
+      console.error('calculate-route error:', error);
+      return null;
+    }
 
-    const route = data.routes[0];
-    const distanceKm = Math.round((route.distance / 1000) * 10) / 10;
-    const geometry = decodePolyline(route.geometry);
-
-    return { distanceKm, geometry };
+    return data as RouteResult;
   } catch (error) {
-    console.error('OSRM route calculation failed:', error);
+    console.error('Route distance calculation failed:', error);
     return null;
   }
 }

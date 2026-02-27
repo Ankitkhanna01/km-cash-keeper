@@ -12,7 +12,7 @@ import { TripPurposeDialog, TripPurpose, DeliveryCompany } from './TripPurposeDi
 import { NearbyPlacesSuggestions } from './NearbyPlacesSuggestions';
 import { EndLocationPicker } from './EndLocationPicker';
 import { LiveTripMap } from './LiveTripMap';
-import { getOSRMRouteDistance } from '@/lib/routeDistance';
+import { getRouteDistance } from '@/lib/routeDistance';
 
 interface StopLocation {
   address: string;
@@ -468,10 +468,10 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
 
     // Try OSRM for real driving distance, fall back to haversine
     let kilometres: number;
-    const osrmResult = await getOSRMRouteDistance(allCoords);
-    if (osrmResult) {
-      kilometres = osrmResult.distanceKm;
-      console.log(`OSRM route distance: ${kilometres} km (haversine would be ${calculateTotalDistance(allCoords)} km)`);
+    const routeResult = await getRouteDistance(allCoords);
+    if (routeResult) {
+      kilometres = routeResult.distanceKm;
+      console.log(`Route distance (${routeResult.source}): ${kilometres} km (haversine would be ${calculateTotalDistance(allCoords)} km)`);
     } else {
       kilometres = calculateTotalDistance(allCoords);
       console.log(`Using haversine fallback: ${kilometres} km`);

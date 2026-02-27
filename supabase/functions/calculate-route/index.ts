@@ -209,7 +209,7 @@ async function calculateRouteOSRM(request: RouteRequest): Promise<RouteResponse 
     
     coords += `;${request.destination.lon},${request.destination.lat}`;
 
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=polyline`;
     console.log(`OSRM (fallback): ${request.origin.lat},${request.origin.lon} → ${request.destination.lat},${request.destination.lon}`);
     
     const response = await fetch(url, {
@@ -229,11 +229,15 @@ async function calculateRouteOSRM(request: RouteRequest): Promise<RouteResponse 
     }
 
     const route = data.routes[0];
-    return {
-      distanceKm: Math.round(route.distance / 100) / 10, // Round to 0.1 km
+    const result: RouteResponse = {
+      distanceKm: Math.round(route.distance / 100) / 10,
       durationMinutes: Math.round(route.duration / 60),
       source: 'osrm',
     };
+    if (route.geometry) {
+      result.polyline = route.geometry;
+    }
+    return result;
   } catch (err) {
     console.error(`OSRM error: ${err}`);
     return null;
