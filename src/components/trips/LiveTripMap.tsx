@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Button } from '@/components/ui/button';
-import { Locate, Pencil, X } from 'lucide-react';
+import { Locate, Pencil, X, Route } from 'lucide-react';
+import { getOSRMRouteDistance } from '@/lib/routeDistance';
 
 interface Waypoint {
   lat: number;
@@ -87,6 +88,9 @@ export function LiveTripMap({
   const [isManualMode, setIsManualMode] = useState(false);
   const [manualPoints, setManualPoints] = useState<L.LatLng[]>([]);
   const [autoFollow, setAutoFollow] = useState(true);
+  const [isSnapping, setIsSnapping] = useState(false);
+  const [snappedDistance, setSnappedDistance] = useState<number | null>(null);
+  const snappedLineRef = useRef<L.Polyline | null>(null);
 
   // Initialize map
   useEffect(() => {
@@ -231,6 +235,44 @@ export function LiveTripMap({
     setIsManualMode(!isManualMode);
   };
 
+  const handleSnapToRoad = async () => {
+    if (waypoints.length < 2) {
+      return;
+    }
+    setIsSnapping(true);
+    try {
+      const coords = [
+        { lat: startLocation.lat, lon: startLocation.lon },
+        ...waypoints.map(w => ({ lat: w.lat, lon: w.lon })),
+      ];
+      if (currentLat != null && currentLon != null) {
+        coords.push({ lat: currentLat, lon: currentLon });
+      }
+      const result = await getOSRMRouteDistance(coords);
+      if (result && mapRef.current) {
+        setSnappedDistance(result.distanceKm);
+        // Remove old snapped line
+        if (snappedLineRef.current) {
+          snappedLineRef.current.remove();
+        }
+        // Draw the road-snapped route
+        const latLngs: L.LatLngExpression[] = result.geometry.map(([lat, lon]) => [lat, lon]);
+        snappedLineRef.current = L.polyline(latLngs, {
+          color: '#3b82f6',
+          weight: 5,
+          opacity: 0.85,
+        }).addTo(mapRef.current);
+        // Fit map to the snapped route
+        mapRef.current.fitBounds(snappedLineRef.current.getBounds(), { padding: [20, 20] });
+        setAutoFollow(false);
+      }
+    } catch (e) {
+      console.error('Snap to road failed:', e);
+    } finally {
+      setIsSnapping(false);
+    }
+  };
+
   return (
     <div className="relative rounded-lg overflow-hidden border border-border">
       <div ref={mapContainerRef} className="w-full h-48 z-0" />
@@ -255,7 +297,28 @@ export function LiveTripMap({
         >
           {isManualMode ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
         </Button>
+        <Button
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8 bg-background/90 backdrop-blur shadow-md"
+          onClick={handleSnapToRoad}
+          disabled={isSnapping || waypoints.length < 2}
+          title="Calculate actual road distance"
+        >
+          {isSnapping ? (
+            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Route className="w-4 h-4" />
+          )}
+        </Button>
       </div>
+
+      {/* Snapped distance display */}
+      {snappedDistance !== null && (
+        <div className="absolute top-2 left-2 bg-background/90 backdrop-blur rounded px-2 py-1 text-xs font-semibold text-primary z-[1000]">
+          🛣️ {snappedDistance} km (road)
+        </div>
+      )}
 
       {/* Manual mode banner */}
       {isManualMode && (

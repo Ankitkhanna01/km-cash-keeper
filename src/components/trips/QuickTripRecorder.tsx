@@ -12,6 +12,7 @@ import { TripPurposeDialog, TripPurpose, DeliveryCompany } from './TripPurposeDi
 import { NearbyPlacesSuggestions } from './NearbyPlacesSuggestions';
 import { EndLocationPicker } from './EndLocationPicker';
 import { LiveTripMap } from './LiveTripMap';
+import { getOSRMRouteDistance } from '@/lib/routeDistance';
 
 interface StopLocation {
   address: string;
@@ -448,7 +449,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     setShowEndLocationPicker(true);
   };
 
-  const handleEndLocationConfirmed = (finalEndLocation: StopLocation, shouldChainTrip: boolean = false) => {
+  const handleEndLocationConfirmed = async (finalEndLocation: StopLocation, shouldChainTrip: boolean = false) => {
     console.log('handleEndLocationConfirmed called', { shouldChainTrip, selectedPurpose, finalEndLocation: finalEndLocation.address });
     if (!startLocation || !selectedPurpose) {
       console.log('Missing data', { startLocation: !!startLocation, selectedPurpose });
@@ -465,7 +466,16 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       { lat: finalEndLocation.lat, lon: finalEndLocation.lon },
     ];
 
-    const kilometres = calculateTotalDistance(allCoords);
+    // Try OSRM for real driving distance, fall back to haversine
+    let kilometres: number;
+    const osrmResult = await getOSRMRouteDistance(allCoords);
+    if (osrmResult) {
+      kilometres = osrmResult.distanceKm;
+      console.log(`OSRM route distance: ${kilometres} km (haversine would be ${calculateTotalDistance(allCoords)} km)`);
+    } else {
+      kilometres = calculateTotalDistance(allCoords);
+      console.log(`Using haversine fallback: ${kilometres} km`);
+    }
 
     // Build end location string
     const allStopAddresses = [...stops.map(s => s.address), finalEndLocation.address];
