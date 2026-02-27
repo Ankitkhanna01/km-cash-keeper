@@ -3,7 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Button } from '@/components/ui/button';
 import { Locate, Pencil, X, Route } from 'lucide-react';
-import { getOSRMRouteDistance } from '@/lib/routeDistance';
+import { getRouteDistance, decodePolyline } from '@/lib/routeDistance';
 
 interface Waypoint {
   lat: number;
@@ -248,22 +248,23 @@ export function LiveTripMap({
       if (currentLat != null && currentLon != null) {
         coords.push({ lat: currentLat, lon: currentLon });
       }
-      const result = await getOSRMRouteDistance(coords);
+      const result = await getRouteDistance(coords);
       if (result && mapRef.current) {
         setSnappedDistance(result.distanceKm);
         // Remove old snapped line
         if (snappedLineRef.current) {
           snappedLineRef.current.remove();
         }
-        // Draw the road-snapped route
-        const latLngs: L.LatLngExpression[] = result.geometry.map(([lat, lon]) => [lat, lon]);
-        snappedLineRef.current = L.polyline(latLngs, {
-          color: '#3b82f6',
-          weight: 5,
-          opacity: 0.85,
-        }).addTo(mapRef.current);
-        // Fit map to the snapped route
-        mapRef.current.fitBounds(snappedLineRef.current.getBounds(), { padding: [20, 20] });
+        // Draw the road-snapped route if polyline available
+        if (result.polyline) {
+          const latLngs: L.LatLngExpression[] = decodePolyline(result.polyline).map(([lat, lon]) => [lat, lon]);
+          snappedLineRef.current = L.polyline(latLngs, {
+            color: '#3b82f6',
+            weight: 5,
+            opacity: 0.85,
+          }).addTo(mapRef.current);
+          mapRef.current.fitBounds(snappedLineRef.current.getBounds(), { padding: [20, 20] });
+        }
         setAutoFollow(false);
       }
     } catch (e) {
