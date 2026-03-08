@@ -50,6 +50,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
   const [relatedExpenses, setRelatedExpenses] = useState<Record<string, Expense>>({});
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [dismissAllConfirm, setDismissAllConfirm] = useState(false);
 
   // Fetch related expenses for side-by-side view
   useEffect(() => {
@@ -281,18 +282,10 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between">
               <span>Expense Review ({unresolvedCount})</span>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="sm" onClick={handleReAnalyze} disabled={reanalyzing} className="gap-1 text-xs">
-                  <RefreshCw className={`w-3.5 h-3.5 ${reanalyzing ? 'animate-spin' : ''}`} />
-                  Re-scan
-                </Button>
-                {unresolvedCount > 1 && (
-                  <Button variant="ghost" size="sm" onClick={handleResolveAll} className="gap-1 text-xs">
-                    <CheckCheck className="w-3.5 h-3.5" />
-                    Dismiss All
-                  </Button>
-                )}
-              </div>
+              <Button variant="ghost" size="sm" onClick={handleReAnalyze} disabled={reanalyzing} className="gap-1 text-xs">
+                <RefreshCw className={`w-3.5 h-3.5 ${reanalyzing ? 'animate-spin' : ''}`} />
+                Re-scan
+              </Button>
             </SheetTitle>
           </SheetHeader>
 
@@ -485,6 +478,21 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
               ))
             )}
           </div>
+
+          {/* Dismiss All at bottom, well separated */}
+          {unresolvedCount > 1 && !mergeView && (
+            <div className="mt-6 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1 text-xs text-muted-foreground"
+                onClick={() => setDismissAllConfirm(true)}
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                Dismiss All ({unresolvedCount})
+              </Button>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
 
@@ -517,6 +525,24 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
               onClick={() => deleteConfirm && handleDeleteExpense(deleteConfirm)}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dismiss All confirmation */}
+      <AlertDialog open={dismissAllConfirm} onOpenChange={setDismissAllConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss All Reviews?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark all {unresolvedCount} reviews as resolved. You can re-scan later to find matches again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { handleResolveAll(); setDismissAllConfirm(false); }}>
+              Dismiss All
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
