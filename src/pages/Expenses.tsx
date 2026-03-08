@@ -97,7 +97,7 @@ export default function Expenses() {
         title="Expenses"
         subtitle="T2125 Categories"
         action={
-          <div className="flex gap-2 items-center">
+          <>
             <ExpenseReviewInbox onExpenseDeleted={refetch} />
             <StatementReconciliation 
               expenses={expenses} 
@@ -112,7 +112,7 @@ export default function Expenses() {
                 amount: e.amount
               }))}
             />
-          </div>
+          </>
         }
       />
 
