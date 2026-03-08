@@ -160,12 +160,12 @@ serve(async (req) => {
 - amount: The total amount as a number (no currency symbol)
 - category: One of: fuel, repairs, insurance, licence, interest, other
 - card_last4: The last 4 digits of the payment card shown on the receipt (e.g. from "VISA ****4532" extract "4532"). If not visible, use null.
-- items: Array of line items, each with name, quantity (number), unit (ea/kg/g/lb/oz/L/ml), price (number)
+- items: Array of ALL purchased line items, each with name (string), quantity (number), unit (ea/kg/g/lb/oz/L/ml), price (number)
 
-For weight-based items, extract the weight as quantity with proper unit. For count items use "ea".
-Extract ALL individual items. If you cannot extract a field, use null.`;
+CRITICAL: The "items" array is MANDATORY and must contain EVERY individual product/item listed on the receipt. Do NOT return an empty items array if there are products visible. Each line on the receipt that shows a product name and price is an item. For weight-based items, extract the weight as quantity with proper unit. For count items use "ea" as unit and the count as quantity (default 1).
+If you cannot extract a field, use null. But items MUST be extracted if any are visible.`;
 
-    const userPrompt = `Extract the vendor name, date, total amount, and ALL individual line items from this receipt ${isPdf ? 'PDF document' : 'image'}. Return JSON only with keys: vendor_name, date, amount, category, items.`;
+    const userPrompt = `Extract the vendor name, date, total amount, card last 4 digits, and EVERY individual line item/product from this receipt ${isPdf ? 'PDF document' : 'image'}. The items array MUST list every product with name, quantity, unit, and price. Return JSON only with keys: vendor_name, date, amount, category, card_last4, items.`;
 
     const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
     const mimeType = base64Match ? base64Match[1] : (isPdf ? "application/pdf" : "image/jpeg");
