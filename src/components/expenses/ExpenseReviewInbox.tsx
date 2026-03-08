@@ -41,9 +41,10 @@ interface MergeCandidate {
 }
 
 export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps) {
-  const { reviews, unresolvedCount, resolveReview, resolveAll, deleteExpenseAndReviews } = useExpenseReviews();
+  const { reviews, unresolvedCount, resolveReview, resolveAll, deleteExpenseAndReviews, reAnalyzeAll } = useExpenseReviews();
   const { getSignedUrl } = useSecureStorage();
   const [open, setOpen] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ExpenseReview | null>(null);
   const [mergeView, setMergeView] = useState<MergeCandidate | null>(null);
   const [relatedExpenses, setRelatedExpenses] = useState<Record<string, Expense>>({});
