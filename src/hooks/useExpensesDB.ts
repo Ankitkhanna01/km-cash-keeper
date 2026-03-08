@@ -15,6 +15,7 @@ export interface Expense {
   notes: string | null;
   receipt_url: string | null;
   card_last4: string | null;
+  purpose: ExpensePurpose;
   created_at: string;
   deleted_at?: string | null;
 }
