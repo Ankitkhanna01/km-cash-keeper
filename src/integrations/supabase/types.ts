@@ -189,6 +189,7 @@ export type Database = {
           category: string
           created_at: string
           date: string
+          deleted_at: string | null
           id: string
           notes: string | null
           receipt_url: string | null
@@ -201,6 +202,7 @@ export type Database = {
           category: string
           created_at?: string
           date: string
+          deleted_at?: string | null
           id?: string
           notes?: string | null
           receipt_url?: string | null
@@ -213,6 +215,7 @@ export type Database = {
           category?: string
           created_at?: string
           date?: string
+          deleted_at?: string | null
           id?: string
           notes?: string | null
           receipt_url?: string | null
