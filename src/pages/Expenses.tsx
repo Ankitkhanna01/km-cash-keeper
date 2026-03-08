@@ -106,7 +106,17 @@ export default function Expenses() {
     <AppLayout>
       <PageHeader
         title="Expenses"
-        subtitle="T2125 Categories"
+        subtitle={
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentYear(y => y - 1)} disabled={currentYear <= thisYear - 5}>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span>Tax Year {currentYear}</span>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentYear(y => y + 1)} disabled={currentYear >= thisYear}>
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        }
         action={
           <>
             <ExpenseReviewInbox onExpenseDeleted={refetch} />
