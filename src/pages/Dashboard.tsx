@@ -5,6 +5,7 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { BusinessPercentageRing } from '@/components/dashboard/BusinessPercentageRing';
 import { OdometerCard } from '@/components/dashboard/OdometerCard';
 import { KmDetailView } from '@/components/dashboard/KmDetailView';
+import { KmEstimationCard } from '@/components/dashboard/KmEstimationCard';
 import { ExpenseDetailView } from '@/components/dashboard/ExpenseDetailView';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTripsDB } from '@/hooks/useTripsDB';
@@ -69,6 +70,9 @@ export default function Dashboard() {
 
       {/* Odometer Tracking */}
       <OdometerCard year={currentYear} />
+
+      {/* KM Estimation */}
+      <KmEstimationCard year={currentYear} />
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 my-4 sm:my-6">
