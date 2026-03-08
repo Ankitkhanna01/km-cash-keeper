@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, Upload, Loader2, X, FileText } from 'lucide-react';
+import { Camera, Upload, Loader2, X, FileText, ImageOff } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { enqueueAIRequest } from '@/lib/aiRequestQueue';
@@ -16,6 +16,40 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+
+// Helper component to load and display an existing receipt image from storage
+function ExistingReceiptImage({ receiptUrl }: { receiptUrl: string | null }) {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!receiptUrl) return;
+    supabase.storage
+      .from('receipts')
+      .createSignedUrl(receiptUrl, 300)
+      .then(({ data }) => {
+        if (data?.signedUrl) setSignedUrl(data.signedUrl);
+      });
+  }, [receiptUrl]);
+
+  if (!receiptUrl) {
+    return (
+      <div className="w-full h-28 flex items-center justify-center bg-muted rounded text-xs text-muted-foreground gap-1">
+        <ImageOff className="w-4 h-4" />
+        No receipt
+      </div>
+    );
+  }
+
+  if (!signedUrl) {
+    return (
+      <div className="w-full h-28 flex items-center justify-center bg-muted rounded">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <img src={signedUrl} alt="Existing receipt" className="w-full h-28 object-cover rounded" />;
+}
 
 interface LineItem {
   name: string;
@@ -38,11 +72,12 @@ interface PotentialDuplicate {
   vendor_name: string;
   date: string;
   amount: number;
+  receipt_url: string | null;
 }
 
 interface ReceiptScannerProps {
   onDataExtracted: (data: ReceiptData, itemsNotes: string | null) => void;
-  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
+  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number; receipt_url?: string | null }>;
 }
 
 export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: ReceiptScannerProps) {
@@ -72,7 +107,8 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
       return {
         vendor_name: duplicate.vendor_name,
         date: duplicate.date,
-        amount: duplicate.amount
+        amount: duplicate.amount,
+        receipt_url: duplicate.receipt_url || null,
       };
     }
     return null;
@@ -315,21 +351,48 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
 
       {/* Duplicate Warning Dialog */}
       <AlertDialog open={!!duplicateWarning} onOpenChange={() => {}}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-warning">⚠️ Possible Duplicate Receipt</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <p>This receipt appears to match an existing expense:</p>
-              {duplicateWarning && (
-                <div className="bg-muted p-3 rounded-lg text-sm">
-                  <p><strong>Vendor:</strong> {duplicateWarning.vendor_name}</p>
-                  <p><strong>Date:</strong> {duplicateWarning.date}</p>
-                  <p><strong>Amount:</strong> ${duplicateWarning.amount.toFixed(2)}</p>
-                </div>
-              )}
-              <p className="text-muted-foreground">
-                Are you sure you want to add this as a new expense?
-              </p>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>This receipt appears to match an existing expense:</p>
+                {duplicateWarning && pendingData && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* New receipt (just scanned) */}
+                    <div className="border border-border rounded-lg p-2 space-y-2">
+                      <p className="text-xs font-semibold text-center text-primary">New Receipt</p>
+                      {preview && !isPdf ? (
+                        <img src={preview} alt="New receipt" className="w-full h-28 object-cover rounded" />
+                      ) : preview === 'pdf' ? (
+                        <div className="w-full h-28 flex items-center justify-center bg-muted rounded">
+                          <FileText className="w-8 h-8 text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <div className="w-full h-28 flex items-center justify-center bg-muted rounded text-xs text-muted-foreground">No image</div>
+                      )}
+                      <div className="text-xs space-y-0.5">
+                        <p className="font-medium truncate">{pendingData.receiptData.vendor_name || 'Unknown'}</p>
+                        <p>{pendingData.receiptData.date || '—'}</p>
+                        <p className="font-semibold">${pendingData.receiptData.amount?.toFixed(2) || '0.00'}</p>
+                      </div>
+                    </div>
+                    {/* Existing receipt */}
+                    <div className="border border-border rounded-lg p-2 space-y-2">
+                      <p className="text-xs font-semibold text-center text-destructive">Existing Expense</p>
+                      <ExistingReceiptImage receiptUrl={duplicateWarning.receipt_url} />
+                      <div className="text-xs space-y-0.5">
+                        <p className="font-medium truncate">{duplicateWarning.vendor_name}</p>
+                        <p>{duplicateWarning.date}</p>
+                        <p className="font-semibold">${duplicateWarning.amount.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <p className="text-muted-foreground text-sm">
+                  Are you sure you want to add this as a new expense?
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
