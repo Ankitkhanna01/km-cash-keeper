@@ -478,6 +478,21 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
               ))
             )}
           </div>
+
+          {/* Dismiss All at bottom, well separated */}
+          {unresolvedCount > 1 && !mergeView && (
+            <div className="mt-6 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1 text-xs text-muted-foreground"
+                onClick={() => setDismissAllConfirm(true)}
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                Dismiss All ({unresolvedCount})
+              </Button>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
 
