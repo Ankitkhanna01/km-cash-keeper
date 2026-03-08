@@ -42,12 +42,15 @@ export function KmEstimationCard({ year, onEstimationChange }: KmEstimationCardP
 
   const currentYearRatios = ratios.filter(r => r.year === year);
   const priorYearRatios = ratios.filter(r => r.year === priorYear);
+  // Include ALL ratios so estimation can fall back to nearest available year
+  const allRatios = ratios;
 
   const estimation = useKmEstimation({
     currentYearTrips,
     priorYearTrips,
     currentYearRatios,
     priorYearRatios,
+    allRatios,
     monthlyIncome,
     currentYear: year,
   });
