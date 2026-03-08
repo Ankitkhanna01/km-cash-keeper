@@ -1,12 +1,55 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, Upload, Loader2, X, FileText } from 'lucide-react';
+import { Camera, Upload, Loader2, X, FileText, ImageOff } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { enqueueAIRequest } from '@/lib/aiRequestQueue';
 import { ExpenseCategory } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+// Helper component to load and display an existing receipt image from storage
+function ExistingReceiptImage({ receiptUrl }: { receiptUrl: string | null }) {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!receiptUrl) return;
+    supabase.storage
+      .from('receipts')
+      .createSignedUrl(receiptUrl, 300)
+      .then(({ data }) => {
+        if (data?.signedUrl) setSignedUrl(data.signedUrl);
+      });
+  }, [receiptUrl]);
+
+  if (!receiptUrl) {
+    return (
+      <div className="w-full h-28 flex items-center justify-center bg-muted rounded text-xs text-muted-foreground gap-1">
+        <ImageOff className="w-4 h-4" />
+        No receipt
+      </div>
+    );
+  }
+
+  if (!signedUrl) {
+    return (
+      <div className="w-full h-28 flex items-center justify-center bg-muted rounded">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <img src={signedUrl} alt="Existing receipt" className="w-full h-28 object-cover rounded" />;
+}
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,

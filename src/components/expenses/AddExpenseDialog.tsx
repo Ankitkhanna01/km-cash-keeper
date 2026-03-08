@@ -33,7 +33,7 @@ interface AddExpenseDialogProps {
     card_last4?: string | null;
     purpose?: ExpensePurpose;
   }) => void;
-  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
+  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number; receipt_url?: string | null }>;
 }
 
 export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDialogProps) {

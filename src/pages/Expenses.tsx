@@ -117,7 +117,8 @@ export default function Expenses() {
               existingExpenses={expenses.map(e => ({
                 vendor_name: e.vendor_name,
                 date: e.date,
-                amount: e.amount
+                amount: e.amount,
+                receipt_url: e.receipt_url,
               }))}
             />
           </>
