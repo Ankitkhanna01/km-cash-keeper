@@ -148,8 +148,11 @@ export function useDocumentsDB() {
       const newDoc = mapDbToDocument(data);
       setDocuments(prev => [newDoc, ...prev]);
       
-      // Recalculate ratios after adding a document with verified KM
-      if (newDoc.has_verified_km) {
+      // Recalculate ratios after adding any document with income
+      // (ratios now also use logged trip KM as fallback)
+      if (newDoc.income_amount && newDoc.income_amount > 0) {
+        // Refetch documents first so recalculateRatios has fresh state
+        await fetchDocuments();
         await recalculateRatios();
       }
       
@@ -228,23 +231,53 @@ export function useDocumentsDB() {
     }
   };
 
-  // Calculate performance ratios from all documents with verified KM and income
+  // Calculate performance ratios from documents with income, using either
+  // document-verified KM or logged trip KM for the same year/month
   const recalculateRatios = async () => {
     if (!user) return;
 
-    const docsWithKm = documents.filter(d => 
-      d.has_verified_km && 
-      d.kilometres !== null && 
-      d.income_amount !== null && 
-      d.income_amount > 0
+    // Get all documents that have income
+    const docsWithIncome = documents.filter(d => 
+      d.income_amount !== null && d.income_amount > 0
     );
 
-    if (docsWithKm.length === 0) return;
+    if (docsWithIncome.length === 0) return;
+
+    // Fetch logged business trip KM grouped by year/month to use as fallback
+    let tripKmByMonth: Map<string, number> = new Map();
+    try {
+      const { data: tripData } = await supabase
+        .from('trips')
+        .select('date, kilometres, category')
+        .eq('category', 'business');
+
+      if (tripData) {
+        for (const trip of tripData) {
+          const d = new Date(trip.date + 'T12:00:00');
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          tripKmByMonth.set(key, (tripKmByMonth.get(key) || 0) + Number(trip.kilometres));
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching trips for ratio calc:', e);
+    }
 
     // Group by year and platform
     const yearGroups = new Map<number, Map<GigPlatform | 'combined', { km: number; income: number; count: number }>>();
 
-    for (const doc of docsWithKm) {
+    for (const doc of docsWithIncome) {
+      // Determine KM: prefer document-verified KM, then fall back to logged trip KM
+      let km = 0;
+      if (doc.has_verified_km && doc.kilometres !== null) {
+        km = doc.kilometres;
+      } else {
+        const tripKey = `${doc.period_year}-${doc.period_month}`;
+        km = tripKmByMonth.get(tripKey) || 0;
+      }
+
+      // Skip if no KM from either source
+      if (km <= 0) continue;
+
       if (!yearGroups.has(doc.period_year)) {
         yearGroups.set(doc.period_year, new Map());
       }
@@ -254,7 +287,7 @@ export function useDocumentsDB() {
       if (doc.platform) {
         const existing = platformGroup.get(doc.platform) || { km: 0, income: 0, count: 0 };
         platformGroup.set(doc.platform, {
-          km: existing.km + (doc.kilometres || 0),
+          km: existing.km + km,
           income: existing.income + (doc.income_amount || 0),
           count: existing.count + 1,
         });
@@ -263,7 +296,7 @@ export function useDocumentsDB() {
       // Combined ratio
       const combined = platformGroup.get('combined') || { km: 0, income: 0, count: 0 };
       platformGroup.set('combined', {
-        km: combined.km + (doc.kilometres || 0),
+        km: combined.km + km,
         income: combined.income + (doc.income_amount || 0),
         count: combined.count + 1,
       });
