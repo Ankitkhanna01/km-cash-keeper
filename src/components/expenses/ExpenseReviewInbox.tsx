@@ -50,6 +50,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
   const [relatedExpenses, setRelatedExpenses] = useState<Record<string, Expense>>({});
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [dismissAllConfirm, setDismissAllConfirm] = useState(false);
 
   // Fetch related expenses for side-by-side view
   useEffect(() => {
