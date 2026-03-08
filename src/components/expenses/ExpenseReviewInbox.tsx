@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Check, CheckCheck, Info, Trash2, Merge, ArrowRight, Receipt, Image as ImageIcon } from 'lucide-react';
+import { AlertTriangle, Check, CheckCheck, Info, Trash2, Merge, ArrowRight, Receipt, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { ExpenseReview, useExpenseReviews } from '@/hooks/useExpenseReviews';
 import { Expense } from '@/hooks/useExpensesDB';
 import { supabase } from '@/integrations/supabase/client';
