@@ -21,6 +21,11 @@ export function ExpenseTrash() {
   const [expanded, setExpanded] = useState(false);
   const [emptyConfirm, setEmptyConfirm] = useState(false);
 
+  // Always fetch trashed count on mount
+  useEffect(() => {
+    fetchTrashed();
+  }, []);
+
   useEffect(() => {
     if (expanded) {
       fetchTrashed();
