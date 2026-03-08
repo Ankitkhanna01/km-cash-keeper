@@ -182,7 +182,7 @@ export function StatementReconciliation({ expenses, onAddExpense, onBulkAdded }:
           .eq('id', receiptExpense.id);
 
         // Delete the statement duplicate
-        await supabase.from('expenses').delete().eq('id', statementExp.id);
+        await supabase.from('expenses').update({ deleted_at: new Date().toISOString() }).eq('id', statementExp.id);
         toast.success(`Merged & removed duplicate: ${statementTxn.description}`);
       } else {
         // No matching statement expense found — just update the receipt expense
