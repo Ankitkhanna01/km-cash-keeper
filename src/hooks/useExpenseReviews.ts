@@ -71,12 +71,17 @@ export function useExpenseReviews() {
 
   const deleteExpenseAndReviews = async (expenseId: string) => {
     try {
-      // Reviews cascade-delete with the expense
+      // Soft-delete the expense
       const { error } = await supabase
         .from('expenses')
-        .delete()
+        .update({ deleted_at: new Date().toISOString() })
         .eq('id', expenseId);
       if (error) throw error;
+      // Resolve related reviews
+      await supabase
+        .from('expense_reviews')
+        .update({ is_resolved: true, resolved_at: new Date().toISOString() })
+        .or(`expense_id.eq.${expenseId},related_expense_id.eq.${expenseId}`);
       setReviews(prev => prev.filter(r => r.expense_id !== expenseId));
       return true;
     } catch (e) {
