@@ -180,7 +180,32 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
     return <Badge variant="secondary" className={`text-[10px] ${config.className}`}>{config.label}</Badge>;
   };
 
-  if (unresolvedCount === 0) return null;
+  const handleReAnalyze = async () => {
+    setReanalyzing(true);
+    try {
+      const count = await reAnalyzeAll();
+      if (count && count > 0) {
+        toast.success(`Found ${count} new match${count > 1 ? 'es' : ''} to review`);
+        if (!open) setOpen(true);
+      } else {
+        toast.info('No new matches found');
+      }
+    } catch {
+      toast.error('Failed to re-analyze');
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  if (unresolvedCount === 0) {
+    // Still show re-analyze button even with no current reviews
+    return (
+      <Button variant="outline" size="sm" className="gap-2" onClick={handleReAnalyze} disabled={reanalyzing}>
+        <RefreshCw className={`w-4 h-4 ${reanalyzing ? 'animate-spin' : ''}`} />
+        {reanalyzing ? 'Scanning...' : 'Re-scan'}
+      </Button>
+    );
+  }
 
   const hasMergeable = (review: ExpenseReview) =>
     review.related_expense_id && (review.review_type === 'duplicate' || review.review_type === 'receipt_match');
