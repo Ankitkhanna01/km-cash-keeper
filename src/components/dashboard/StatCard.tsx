@@ -40,7 +40,7 @@ export function StatCard({
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               {title}
             </p>
-            <p className={cn('text-2xl font-bold', variantStyles[variant])}>
+            <p className={cn('text-xl sm:text-2xl font-bold', variantStyles[variant])}>
               {value}
             </p>
             {subtitle && (

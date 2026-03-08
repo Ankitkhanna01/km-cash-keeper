@@ -71,7 +71,7 @@ export default function Dashboard() {
       <OdometerCard year={currentYear} />
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-3 my-6">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 my-4 sm:my-6">
         <StatCard
           title="Business KM"
           value={tripStats.businessKilometres.toFixed(0)}
