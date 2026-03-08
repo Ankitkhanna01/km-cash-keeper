@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { ExpenseCard } from '@/components/expenses/ExpenseCard';
@@ -10,13 +11,15 @@ import { useExpensesDB, Expense } from '@/hooks/useExpensesDB';
 import { useExpenseReviews } from '@/hooks/useExpenseReviews';
 import { parseLocalDate } from '@/lib/dateUtils';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export default function Expenses() {
   const { expenses, loading, addExpense, deleteExpense, getTotalByCategory, refetch } = useExpensesDB();
   const { analyzeExpenses } = useExpenseReviews();
 
-  const currentYear = new Date().getFullYear();
+  const thisYear = new Date().getFullYear();
+  const [currentYear, setCurrentYear] = useState(thisYear - 1);
   const yearExpenses = expenses.filter(
     (e) => parseLocalDate(e.date).getFullYear() === currentYear
   );
