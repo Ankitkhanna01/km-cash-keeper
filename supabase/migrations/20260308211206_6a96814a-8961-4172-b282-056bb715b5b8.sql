@@ -1,0 +1,1 @@
+ALTER TABLE public.expenses ADD COLUMN purpose text NOT NULL DEFAULT 'business';
