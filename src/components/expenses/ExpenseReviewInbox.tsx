@@ -70,7 +70,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
         if (!data) return;
         const map: Record<string, Expense> = {};
         data.forEach(e => {
-          map[e.id] = { ...e, amount: Number(e.amount), category: e.category as Expense['category'] };
+          map[e.id] = mapExpense(e);
         });
         setRelatedExpenses(map);
       });
