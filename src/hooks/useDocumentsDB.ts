@@ -148,8 +148,11 @@ export function useDocumentsDB() {
       const newDoc = mapDbToDocument(data);
       setDocuments(prev => [newDoc, ...prev]);
       
-      // Recalculate ratios after adding a document with verified KM
-      if (newDoc.has_verified_km) {
+      // Recalculate ratios after adding any document with income
+      // (ratios now also use logged trip KM as fallback)
+      if (newDoc.income_amount && newDoc.income_amount > 0) {
+        // Refetch documents first so recalculateRatios has fresh state
+        await fetchDocuments();
         await recalculateRatios();
       }
       
