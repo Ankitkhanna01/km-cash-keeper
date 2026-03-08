@@ -24,6 +24,7 @@ const mapExpense = (e: any): Expense => ({
   ...e,
   amount: Number(e.amount),
   category: e.category as ExpenseCategory,
+  purpose: (e.purpose || 'business') as ExpensePurpose,
 });
 
 export function useExpensesDB() {
