@@ -73,7 +73,8 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
       return {
         vendor_name: duplicate.vendor_name,
         date: duplicate.date,
-        amount: duplicate.amount
+        amount: duplicate.amount,
+        receipt_url: duplicate.receipt_url || null,
       };
     }
     return null;
