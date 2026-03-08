@@ -57,7 +57,7 @@ export default function Dashboard() {
 
       {/* Business Use Percentage */}
       <Card variant="glow" className="mb-6">
-        <CardContent className="p-6 flex flex-col items-center">
+        <CardContent className="p-4 sm:p-6 flex flex-col items-center">
           <BusinessPercentageRing percentage={businessPercentage} />
           <p className="text-sm text-muted-foreground mt-4 text-center">
             {odometerTotalKm !== null 
@@ -71,7 +71,7 @@ export default function Dashboard() {
       <OdometerCard year={currentYear} />
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-3 my-6">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 my-4 sm:my-6">
         <StatCard
           title="Business KM"
           value={tripStats.businessKilometres.toFixed(0)}

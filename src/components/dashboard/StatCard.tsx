@@ -34,13 +34,13 @@ export function StatCard({
       className={cn('animate-fade-in', onClick && 'cursor-pointer hover:bg-secondary/50 transition-colors', className)}
       onClick={onClick}
     >
-      <CardContent className="p-4">
+      <CardContent className="p-3 sm:p-4">
         <div className="flex items-start justify-between">
           <div className="space-y-1 flex-1">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               {title}
             </p>
-            <p className={cn('text-2xl font-bold', variantStyles[variant])}>
+            <p className={cn('text-xl sm:text-2xl font-bold', variantStyles[variant])}>
               {value}
             </p>
             {subtitle && (
