@@ -282,20 +282,26 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between">
               <span>Expense Review ({unresolvedCount})</span>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="sm" onClick={handleReAnalyze} disabled={reanalyzing} className="gap-1 text-xs">
-                  <RefreshCw className={`w-3.5 h-3.5 ${reanalyzing ? 'animate-spin' : ''}`} />
-                  Re-scan
-                </Button>
-                {unresolvedCount > 1 && (
-                  <Button variant="ghost" size="sm" onClick={handleResolveAll} className="gap-1 text-xs">
-                    <CheckCheck className="w-3.5 h-3.5" />
-                    Dismiss All
-                  </Button>
-                )}
-              </div>
+              <Button variant="ghost" size="sm" onClick={handleReAnalyze} disabled={reanalyzing} className="gap-1 text-xs">
+                <RefreshCw className={`w-3.5 h-3.5 ${reanalyzing ? 'animate-spin' : ''}`} />
+                Re-scan
+              </Button>
             </SheetTitle>
           </SheetHeader>
+          {/* Dismiss All moved to bottom of list, separated from main actions */}
+          {unresolvedCount > 1 && !mergeView && (
+            <div className="mt-6 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1 text-xs text-muted-foreground"
+                onClick={() => setDismissAllConfirm(true)}
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                Dismiss All ({unresolvedCount})
+              </Button>
+            </div>
+          )}
 
           <div className="space-y-3 mt-4">
             <p className="text-xs text-muted-foreground">
