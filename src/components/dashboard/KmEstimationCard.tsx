@@ -15,7 +15,12 @@ import { parseLocalDate } from '@/lib/dateUtils';
 import { Calculator, FileText, TrendingUp, ChevronRight, Copy, Check, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
-export function KmEstimationCard({ year }: { year: number }) {
+interface KmEstimationCardProps {
+  year: number;
+  onEstimationChange?: (estimatedBusinessKm: number) => void;
+}
+
+export function KmEstimationCard({ year, onEstimationChange }: KmEstimationCardProps) {
   const { trips } = useTripsDB();
   const { documents, ratios } = useDocumentsDB();
   const [showDetail, setShowDetail] = useState(false);
