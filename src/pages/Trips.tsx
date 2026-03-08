@@ -10,14 +10,20 @@ import { useTripsDB, Trip as DBTrip } from '@/hooks/useTripsDB';
 import { Trip as ComponentTrip } from '@/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 export default function Trips() {
   const { trips, loading, addTrip, updateTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
   const [activeTab, setActiveTab] = useState('uncategorized');
+  const thisYear = new Date().getFullYear();
+  const [currentYear, setCurrentYear] = useState(thisYear - 1);
 
   const uncategorizedTrips = getUncategorizedTrips();
-  const categorizedTrips = trips.filter((t) => t.category !== 'uncategorized');
+  const categorizedTrips = trips
+    .filter((t) => t.category !== 'uncategorized')
+    .filter((t) => parseLocalDate(t.date).getFullYear() === currentYear);
 
   const handleCategorize = async (id: string, category: 'business' | 'personal', notes?: string) => {
     if (notes) {
@@ -109,7 +115,17 @@ export default function Trips() {
     <AppLayout>
       <PageHeader
         title="Mileage Tracker"
-        subtitle="CRA-compliant trip log"
+        subtitle={
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentYear(y => y - 1)} disabled={currentYear <= thisYear - 5}>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span>Tax Year {currentYear}</span>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentYear(y => y + 1)} disabled={currentYear >= thisYear}>
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        }
         action={<AddTripDialog onAdd={handleAddTrip} />}
       />
 
