@@ -5,6 +5,7 @@ import { AddExpenseDialog } from '@/components/expenses/AddExpenseDialog';
 import { CategorySummary } from '@/components/expenses/CategorySummary';
 import { StatementReconciliation } from '@/components/expenses/StatementReconciliation';
 import { ExpenseReviewInbox } from '@/components/expenses/ExpenseReviewInbox';
+import { ExpenseTrash } from '@/components/expenses/ExpenseTrash';
 import { useExpensesDB, Expense } from '@/hooks/useExpensesDB';
 import { useExpenseReviews } from '@/hooks/useExpenseReviews';
 import { parseLocalDate } from '@/lib/dateUtils';
