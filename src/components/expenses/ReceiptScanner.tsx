@@ -317,21 +317,48 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
 
       {/* Duplicate Warning Dialog */}
       <AlertDialog open={!!duplicateWarning} onOpenChange={() => {}}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-warning">⚠️ Possible Duplicate Receipt</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <p>This receipt appears to match an existing expense:</p>
-              {duplicateWarning && (
-                <div className="bg-muted p-3 rounded-lg text-sm">
-                  <p><strong>Vendor:</strong> {duplicateWarning.vendor_name}</p>
-                  <p><strong>Date:</strong> {duplicateWarning.date}</p>
-                  <p><strong>Amount:</strong> ${duplicateWarning.amount.toFixed(2)}</p>
-                </div>
-              )}
-              <p className="text-muted-foreground">
-                Are you sure you want to add this as a new expense?
-              </p>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>This receipt appears to match an existing expense:</p>
+                {duplicateWarning && pendingData && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* New receipt (just scanned) */}
+                    <div className="border border-border rounded-lg p-2 space-y-2">
+                      <p className="text-xs font-semibold text-center text-primary">New Receipt</p>
+                      {preview && !isPdf ? (
+                        <img src={preview} alt="New receipt" className="w-full h-28 object-cover rounded" />
+                      ) : preview === 'pdf' ? (
+                        <div className="w-full h-28 flex items-center justify-center bg-muted rounded">
+                          <FileText className="w-8 h-8 text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <div className="w-full h-28 flex items-center justify-center bg-muted rounded text-xs text-muted-foreground">No image</div>
+                      )}
+                      <div className="text-xs space-y-0.5">
+                        <p className="font-medium truncate">{pendingData.receiptData.vendor_name || 'Unknown'}</p>
+                        <p>{pendingData.receiptData.date || '—'}</p>
+                        <p className="font-semibold">${pendingData.receiptData.amount?.toFixed(2) || '0.00'}</p>
+                      </div>
+                    </div>
+                    {/* Existing receipt */}
+                    <div className="border border-border rounded-lg p-2 space-y-2">
+                      <p className="text-xs font-semibold text-center text-destructive">Existing Expense</p>
+                      <ExistingReceiptImage receiptUrl={duplicateWarning.receipt_url} />
+                      <div className="text-xs space-y-0.5">
+                        <p className="font-medium truncate">{duplicateWarning.vendor_name}</p>
+                        <p>{duplicateWarning.date}</p>
+                        <p className="font-semibold">${duplicateWarning.amount.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <p className="text-muted-foreground text-sm">
+                  Are you sure you want to add this as a new expense?
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
