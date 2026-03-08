@@ -1,15 +1,18 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Expense, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS } from '@/types';
+import { Badge } from '@/components/ui/badge';
+import { Expense, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS, EXPENSE_PURPOSE_LABELS, EXPENSE_PURPOSE_COLORS } from '@/types';
 import { formatDateForDisplay } from '@/lib/dateUtils';
 import { Trash2 } from 'lucide-react';
 
 interface ExpenseCardProps {
-  expense: Expense;
+  expense: Expense & { purpose?: string };
   onDelete?: (id: string) => void;
 }
 
 export function ExpenseCard({ expense, onDelete }: ExpenseCardProps) {
+  const purpose = (expense.purpose || 'business') as keyof typeof EXPENSE_PURPOSE_LABELS;
+  
   return (
     <Card variant="default" className="animate-fade-in">
       <CardContent className="p-3 sm:p-4">
@@ -20,9 +23,14 @@ export function ExpenseCard({ expense, onDelete }: ExpenseCardProps) {
             </div>
             <div>
               <p className="font-semibold text-foreground">{expense.vendorName}</p>
-              <p className="text-xs text-muted-foreground">
-                {EXPENSE_CATEGORY_LABELS[expense.category]}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xs text-muted-foreground">
+                  {EXPENSE_CATEGORY_LABELS[expense.category]}
+                </p>
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${EXPENSE_PURPOSE_COLORS[purpose]}`}>
+                  {EXPENSE_PURPOSE_LABELS[purpose]}
+                </Badge>
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {formatDateForDisplay(expense.date)}
               </p>
