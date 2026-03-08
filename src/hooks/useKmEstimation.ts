@@ -43,6 +43,7 @@ interface UseKmEstimationParams {
   priorYearTrips: Trip[];
   currentYearRatios: PerformanceRatio[];
   priorYearRatios: PerformanceRatio[];
+  allRatios?: PerformanceRatio[];
   monthlyIncome: Map<number, number>; // month -> income
   currentYear: number;
 }
