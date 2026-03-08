@@ -17,9 +17,13 @@ import { parseLocalDate } from '@/lib/dateUtils';
 export default function Trips() {
   const { trips, loading, addTrip, updateTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
   const [activeTab, setActiveTab] = useState('uncategorized');
+  const thisYear = new Date().getFullYear();
+  const [currentYear, setCurrentYear] = useState(thisYear - 1);
 
   const uncategorizedTrips = getUncategorizedTrips();
-  const categorizedTrips = trips.filter((t) => t.category !== 'uncategorized');
+  const categorizedTrips = trips
+    .filter((t) => t.category !== 'uncategorized')
+    .filter((t) => parseLocalDate(t.date).getFullYear() === currentYear);
 
   const handleCategorize = async (id: string, category: 'business' | 'personal', notes?: string) => {
     if (notes) {
