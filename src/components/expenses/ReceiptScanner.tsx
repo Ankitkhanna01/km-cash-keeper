@@ -38,11 +38,12 @@ interface PotentialDuplicate {
   vendor_name: string;
   date: string;
   amount: number;
+  receipt_url: string | null;
 }
 
 interface ReceiptScannerProps {
   onDataExtracted: (data: ReceiptData, itemsNotes: string | null) => void;
-  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
+  existingExpenses?: Array<{ vendor_name: string; date: string; amount: number; receipt_url?: string | null }>;
 }
 
 export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: ReceiptScannerProps) {
