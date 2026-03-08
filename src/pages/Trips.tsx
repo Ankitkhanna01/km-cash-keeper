@@ -10,7 +10,9 @@ import { useTripsDB, Trip as DBTrip } from '@/hooks/useTripsDB';
 import { Trip as ComponentTrip } from '@/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { parseLocalDate } from '@/lib/dateUtils';
 
 export default function Trips() {
   const { trips, loading, addTrip, updateTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
