@@ -50,15 +50,6 @@ function ExistingReceiptImage({ receiptUrl }: { receiptUrl: string | null }) {
 
   return <img src={signedUrl} alt="Existing receipt" className="w-full h-28 object-cover rounded" />;
 }
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 
 interface LineItem {
   name: string;
