@@ -31,6 +31,7 @@ interface AddExpenseDialogProps {
     notes: string | null;
     receipt_url: string | null;
     card_last4?: string | null;
+    purpose?: ExpensePurpose;
   }) => void;
   existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
 }
