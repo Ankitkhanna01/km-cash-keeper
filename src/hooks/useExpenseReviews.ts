@@ -255,6 +255,7 @@ export function useExpenseReviews() {
       const { data: allData, error: fetchError } = await supabase
         .from('expenses')
         .select('*')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false });
       if (fetchError) throw fetchError;
       if (!allData || allData.length === 0) return 0;
