@@ -50,6 +50,7 @@ export function KmEstimationCard({ year, onEstimationChange }: KmEstimationCardP
     priorYearTrips,
     currentYearRatios,
     priorYearRatios,
+    allRatios,
     monthlyIncome,
     currentYear: year,
   });
