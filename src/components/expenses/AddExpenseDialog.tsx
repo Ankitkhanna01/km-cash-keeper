@@ -91,6 +91,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
       notes: '',
       receiptUrl: null,
       cardLast4: null,
+      purpose: 'business',
     });
     setOpen(false);
   };
