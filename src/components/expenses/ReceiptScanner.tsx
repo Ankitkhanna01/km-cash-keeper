@@ -438,7 +438,7 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
                     {/* Existing receipt */}
                     <div className="border border-border rounded-lg p-2 space-y-2">
                       <p className="text-xs font-semibold text-center text-destructive">Existing Expense</p>
-                      <ExistingReceiptImage receiptUrl={duplicateWarning.receipt_url} />
+                      <ZoomableExistingReceipt receiptUrl={duplicateWarning.receipt_url} />
                       <div className="text-xs space-y-0.5">
                         <p className="font-medium truncate">{duplicateWarning.vendor_name}</p>
                         <p>{duplicateWarning.date}</p>
