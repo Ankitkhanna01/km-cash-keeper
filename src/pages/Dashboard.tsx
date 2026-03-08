@@ -25,7 +25,8 @@ export default function Dashboard() {
   const [showExpenses, setShowExpenses] = useState(false);
   const [showDeductible, setShowDeductible] = useState(false);
 
-  const currentYear = new Date().getFullYear();
+  const thisYear = new Date().getFullYear();
+  const [currentYear, setCurrentYear] = useState(thisYear - 1); // Default to prior tax year (2025)
   const tripStats = getTripStats(currentYear);
   const expenseStats = getExpenseStats(currentYear);
   const uncategorizedTrips = getUncategorizedTrips();
