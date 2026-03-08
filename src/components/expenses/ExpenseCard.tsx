@@ -15,7 +15,7 @@ export function ExpenseCard({ expense, onDelete }: ExpenseCardProps) {
       <CardContent className="p-3 sm:p-4">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-3">
-            <div className="text-2xl">
+            <div className="text-xl sm:text-2xl">
               {EXPENSE_CATEGORY_ICONS[expense.category]}
             </div>
             <div>

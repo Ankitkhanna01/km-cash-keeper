@@ -13,7 +13,7 @@ export function CategorySummary({ totals, className }: CategorySummaryProps) {
 
   return (
     <Card variant="elevated" className={cn('animate-fade-in', className)}>
-      <CardContent className="p-4">
+      <CardContent className="p-3 sm:p-4">
         <h3 className="text-sm font-semibold text-foreground mb-3">
           Expense Breakdown (T2125)
         </h3>
