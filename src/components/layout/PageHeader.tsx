@@ -3,7 +3,7 @@ import { UserMenu } from './UserMenu';
 
 interface PageHeaderProps {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   action?: ReactNode;
   showUserMenu?: boolean;
 }
