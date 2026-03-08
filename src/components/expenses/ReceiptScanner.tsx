@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, Upload, Loader2, X, FileText, ImageOff } from 'lucide-react';
+import { Camera, Upload, Loader2, X, FileText, ImageOff, ZoomIn } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { enqueueAIRequest } from '@/lib/aiRequestQueue';
