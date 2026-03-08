@@ -421,7 +421,7 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
                     <div className="border border-border rounded-lg p-2 space-y-2">
                       <p className="text-xs font-semibold text-center text-primary">New Receipt</p>
                       {preview && !isPdf ? (
-                        <img src={preview} alt="New receipt" className="w-full h-28 object-cover rounded" />
+                        <ZoomableImage src={preview} alt="New receipt" className="w-full h-28 object-cover rounded" />
                       ) : preview === 'pdf' ? (
                         <div className="w-full h-28 flex items-center justify-center bg-muted rounded">
                           <FileText className="w-8 h-8 text-muted-foreground" />
