@@ -119,38 +119,55 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
     const deleteExp = relatedExpenses[deleteId];
     if (!keepExp || !deleteExp) return;
 
-    try {
-      const updates: Record<string, unknown> = {};
-      if (deleteExp.receipt_url && !keepExp.receipt_url) {
-        updates.receipt_url = deleteExp.receipt_url;
-      }
-      if (deleteExp.notes && (!keepExp.notes || deleteExp.notes.length > keepExp.notes.length)) {
-        updates.notes = deleteExp.notes;
-      }
+    // Optimistically update UI
+    setRelatedExpenses(prev => {
+      const next = { ...prev };
+      delete next[deleteId];
+      return next;
+    });
+    setMergeView(null);
 
-      if (Object.keys(updates).length > 0) {
-        await supabase.from('expenses').update(updates).eq('id', keepId);
-      }
-
-      await supabase.from('expenses').delete().eq('id', deleteId);
-      await resolveReview(review.id);
-
-      setRelatedExpenses(prev => {
-        const next = { ...prev };
-        if (Object.keys(updates).length > 0) {
-          next[keepId] = { ...next[keepId], ...updates } as Expense;
-        }
-        delete next[deleteId];
-        return next;
-      });
-
-      toast.success('Expenses merged successfully');
-      onExpenseDeleted?.();
-      setMergeView(null);
-    } catch (e) {
-      console.error('Error merging:', e);
-      toast.error('Failed to merge expenses');
+    // Prepare updates
+    const updates: Record<string, unknown> = {};
+    if (deleteExp.receipt_url && !keepExp.receipt_url) {
+      updates.receipt_url = deleteExp.receipt_url;
     }
+    if (deleteExp.notes && (!keepExp.notes || deleteExp.notes.length > keepExp.notes.length)) {
+      updates.notes = deleteExp.notes;
+    }
+
+    // Delayed commit with undo
+    let undone = false;
+    const commitTimeout = setTimeout(async () => {
+      if (undone) return;
+      try {
+        if (Object.keys(updates).length > 0) {
+          await supabase.from('expenses').update(updates).eq('id', keepId);
+        }
+        await supabase.from('expenses').delete().eq('id', deleteId);
+        await resolveReview(review.id);
+        onExpenseDeleted?.();
+      } catch (e) {
+        console.error('Error merging:', e);
+        toast.error('Failed to merge expenses');
+        // Restore UI
+        setRelatedExpenses(prev => ({ ...prev, [deleteId]: deleteExp }));
+      }
+    }, 8000);
+
+    toast.success('Expenses merged', {
+      duration: 8000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          undone = true;
+          clearTimeout(commitTimeout);
+          // Restore UI
+          setRelatedExpenses(prev => ({ ...prev, [deleteId]: deleteExp }));
+          toast.info('Merge undone');
+        },
+      },
+    });
   };
 
   const openMergeView = (review: ExpenseReview) => {
