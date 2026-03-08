@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus } from 'lucide-react';
-import { ExpenseCategory, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS } from '@/types';
+import { ExpenseCategory, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS, ExpensePurpose, EXPENSE_PURPOSE_LABELS } from '@/types';
 import { format } from 'date-fns';
 import { ReceiptScanner } from './ReceiptScanner';
 
