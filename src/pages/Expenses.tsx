@@ -140,6 +140,8 @@ export default function Expenses() {
           ))
         )}
       </div>
+
+      <ExpenseTrash />
     </AppLayout>
   );
 }
