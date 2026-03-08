@@ -101,7 +101,7 @@ export default function Dashboard() {
       <OdometerCard year={currentYear} />
 
       {/* KM Estimation */}
-      <KmEstimationCard year={currentYear} />
+      <KmEstimationCard year={currentYear} onEstimationChange={setEstimatedBusinessKm} />
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 my-4 sm:my-6">
