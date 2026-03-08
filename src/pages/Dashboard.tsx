@@ -107,8 +107,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-2 sm:gap-3 my-4 sm:my-6">
         <StatCard
           title="Business KM"
-          value={tripStats.businessKilometres.toFixed(0)}
-          subtitle={`${tripStats.businessTrips} trips`}
+          value={effectiveBusinessKm.toFixed(0)}
+          subtitle={estimatedBusinessKm > tripStats.businessKilometres 
+            ? `${tripStats.businessTrips} trips + estimated`
+            : `${tripStats.businessTrips} trips`}
           icon={Briefcase}
           variant="primary"
           onClick={() => setShowBusinessKm(true)}
