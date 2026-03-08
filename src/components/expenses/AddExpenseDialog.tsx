@@ -80,6 +80,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
       notes: formData.notes || null,
       receipt_url: formData.receiptUrl,
       card_last4: formData.cardLast4,
+      purpose: formData.purpose,
     });
 
     setFormData({
