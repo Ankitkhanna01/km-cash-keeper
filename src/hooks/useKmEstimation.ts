@@ -64,6 +64,7 @@ export function useKmEstimation({
   priorYearTrips,
   currentYearRatios,
   priorYearRatios,
+  allRatios = [],
   monthlyIncome,
   currentYear,
 }: UseKmEstimationParams): KmEstimationResult {
@@ -72,10 +73,18 @@ export function useKmEstimation({
     const businessTrips = currentYearTrips.filter(t => t.category === 'business');
     const priorBusinessTrips = priorYearTrips.filter(t => t.category === 'business');
 
-    // Get combined ratio (prefer current year, fallback to prior year)
-    const combinedRatio =
+    // Get combined ratio: prefer current year, then prior year, then nearest available year
+    let combinedRatio =
       currentYearRatios.find(r => r.platform === 'combined') ||
       priorYearRatios.find(r => r.platform === 'combined');
+    
+    // Fallback: find the nearest year's combined ratio from ALL ratios
+    if (!combinedRatio && allRatios.length > 0) {
+      const combinedRatios = allRatios
+        .filter(r => r.platform === 'combined')
+        .sort((a, b) => Math.abs(a.year - currentYear) - Math.abs(b.year - currentYear));
+      combinedRatio = combinedRatios[0] || null;
+    }
 
     const currentMonth = new Date().getMonth() + 1;
 
