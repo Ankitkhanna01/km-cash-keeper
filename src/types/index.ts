@@ -30,6 +30,20 @@ export type ExpenseCategory =
   | 'interest'
   | 'other';
 
+export type ExpensePurpose = 'business' | 'personal' | 'mixed';
+
+export const EXPENSE_PURPOSE_LABELS: Record<ExpensePurpose, string> = {
+  business: 'Business',
+  personal: 'Personal',
+  mixed: 'Mixed',
+};
+
+export const EXPENSE_PURPOSE_COLORS: Record<ExpensePurpose, string> = {
+  business: 'text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400',
+  personal: 'text-orange-600 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400',
+  mixed: 'text-blue-600 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400',
+};
+
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   fuel: 'Fuel',
   repairs: 'Repairs & Maintenance',

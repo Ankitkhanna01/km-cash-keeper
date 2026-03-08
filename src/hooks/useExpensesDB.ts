@@ -87,6 +87,7 @@ export function useExpensesDB() {
           notes: expenseData.notes,
           receipt_url: expenseData.receipt_url,
           card_last4: expenseData.card_last4 || null,
+          purpose: expenseData.purpose || 'business',
         })
         .select()
         .single();
