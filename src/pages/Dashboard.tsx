@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTripsDB } from '@/hooks/useTripsDB';
 import { useExpensesDB } from '@/hooks/useExpensesDB';
 import { useOdometerDB } from '@/hooks/useOdometerDB';
-import { Car, Receipt, Briefcase, TrendingUp, Loader2 } from 'lucide-react';
+import { Car, Receipt, Briefcase, TrendingUp, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
@@ -25,7 +25,8 @@ export default function Dashboard() {
   const [showExpenses, setShowExpenses] = useState(false);
   const [showDeductible, setShowDeductible] = useState(false);
 
-  const currentYear = new Date().getFullYear();
+  const thisYear = new Date().getFullYear();
+  const [currentYear, setCurrentYear] = useState(thisYear - 1); // Default to prior tax year (2025)
   const tripStats = getTripStats(currentYear);
   const expenseStats = getExpenseStats(currentYear);
   const uncategorizedTrips = getUncategorizedTrips();
@@ -52,7 +53,29 @@ export default function Dashboard() {
     <AppLayout>
       <PageHeader
         title="DriverTax"
-        subtitle={`Tax Year ${currentYear}`}
+        subtitle={
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setCurrentYear(y => y - 1)}
+              disabled={currentYear <= thisYear - 5}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span>Tax Year {currentYear}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setCurrentYear(y => y + 1)}
+              disabled={currentYear >= thisYear}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        }
         showUserMenu
       />
 
