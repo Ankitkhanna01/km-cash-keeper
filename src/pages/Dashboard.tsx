@@ -71,6 +71,9 @@ export default function Dashboard() {
       {/* Odometer Tracking */}
       <OdometerCard year={currentYear} />
 
+      {/* KM Estimation */}
+      <KmEstimationCard year={currentYear} />
+
       {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 my-4 sm:my-6">
         <StatCard
