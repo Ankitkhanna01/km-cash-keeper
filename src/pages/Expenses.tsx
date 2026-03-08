@@ -86,6 +86,7 @@ export default function Expenses() {
     category: expense.category,
     notes: expense.notes || undefined,
     createdAt: expense.created_at,
+    purpose: expense.purpose,
   });
 
   if (loading) {
