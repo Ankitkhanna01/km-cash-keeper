@@ -46,6 +46,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
     notes: '',
     receiptUrl: null as string | null,
     cardLast4: null as string | null,
+    purpose: 'business' as ExpensePurpose,
   });
 
   const handleReceiptData = (data: {
