@@ -5,6 +5,7 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { BusinessPercentageRing } from '@/components/dashboard/BusinessPercentageRing';
 import { OdometerCard } from '@/components/dashboard/OdometerCard';
 import { KmDetailView } from '@/components/dashboard/KmDetailView';
+import { KmEstimationCard } from '@/components/dashboard/KmEstimationCard';
 import { ExpenseDetailView } from '@/components/dashboard/ExpenseDetailView';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTripsDB } from '@/hooks/useTripsDB';
