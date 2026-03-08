@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { ExpenseCategory } from '@/types';
+import { ExpenseCategory, ExpensePurpose } from '@/types';
 import { parseLocalDate } from '@/lib/dateUtils';
 
 export interface Expense {
@@ -15,6 +15,7 @@ export interface Expense {
   notes: string | null;
   receipt_url: string | null;
   card_last4: string | null;
+  purpose: ExpensePurpose;
   created_at: string;
   deleted_at?: string | null;
 }
@@ -23,6 +24,7 @@ const mapExpense = (e: any): Expense => ({
   ...e,
   amount: Number(e.amount),
   category: e.category as ExpenseCategory,
+  purpose: (e.purpose || 'business') as ExpensePurpose,
 });
 
 export function useExpensesDB() {
@@ -85,6 +87,7 @@ export function useExpensesDB() {
           notes: expenseData.notes,
           receipt_url: expenseData.receipt_url,
           card_last4: expenseData.card_last4 || null,
+          purpose: expenseData.purpose || 'business',
         })
         .select()
         .single();

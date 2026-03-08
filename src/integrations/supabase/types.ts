@@ -192,6 +192,7 @@ export type Database = {
           deleted_at: string | null
           id: string
           notes: string | null
+          purpose: string
           receipt_url: string | null
           user_id: string
           vendor_name: string
@@ -205,6 +206,7 @@ export type Database = {
           deleted_at?: string | null
           id?: string
           notes?: string | null
+          purpose?: string
           receipt_url?: string | null
           user_id: string
           vendor_name: string
@@ -218,6 +220,7 @@ export type Database = {
           deleted_at?: string | null
           id?: string
           notes?: string | null
+          purpose?: string
           receipt_url?: string | null
           user_id?: string
           vendor_name?: string

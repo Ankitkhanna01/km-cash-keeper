@@ -30,8 +30,13 @@ export default function Expenses() {
     notes: string | null;
     receipt_url: string | null;
     card_last4?: string | null;
+    purpose?: Expense['purpose'];
   }) => {
-    const result = await addExpense({ ...expenseData, card_last4: expenseData.card_last4 || null });
+    const result = await addExpense({ 
+      ...expenseData, 
+      card_last4: expenseData.card_last4 || null,
+      purpose: expenseData.purpose || 'business',
+    });
     if (result) {
       toast.success('Expense added successfully');
     }
@@ -56,10 +61,11 @@ export default function Expenses() {
       .order('created_at', { ascending: false });
 
     if (allExpenses) {
-      const mapped = allExpenses.map(e => ({
+      const mapped: Expense[] = allExpenses.map(e => ({
         ...e,
         amount: Number(e.amount),
-        category: e.category as Expense['category']
+        category: e.category as Expense['category'],
+        purpose: (e.purpose || 'business') as Expense['purpose'],
       }));
       const flagCount = await analyzeExpenses(newExpenseIds, mapped);
       if (flagCount && flagCount > 0) {
@@ -80,6 +86,7 @@ export default function Expenses() {
     category: expense.category,
     notes: expense.notes || undefined,
     createdAt: expense.created_at,
+    purpose: expense.purpose,
   });
 
   if (loading) {

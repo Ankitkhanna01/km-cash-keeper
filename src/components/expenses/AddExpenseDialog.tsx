@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus } from 'lucide-react';
-import { ExpenseCategory, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS } from '@/types';
+import { ExpenseCategory, EXPENSE_CATEGORY_LABELS, EXPENSE_CATEGORY_ICONS, ExpensePurpose, EXPENSE_PURPOSE_LABELS } from '@/types';
 import { format } from 'date-fns';
 import { ReceiptScanner } from './ReceiptScanner';
 
@@ -31,6 +31,7 @@ interface AddExpenseDialogProps {
     notes: string | null;
     receipt_url: string | null;
     card_last4?: string | null;
+    purpose?: ExpensePurpose;
   }) => void;
   existingExpenses?: Array<{ vendor_name: string; date: string; amount: number }>;
 }
@@ -45,6 +46,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
     notes: '',
     receiptUrl: null as string | null,
     cardLast4: null as string | null,
+    purpose: 'business' as ExpensePurpose,
   });
 
   const handleReceiptData = (data: {
@@ -78,6 +80,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
       notes: formData.notes || null,
       receipt_url: formData.receiptUrl,
       card_last4: formData.cardLast4,
+      purpose: formData.purpose,
     });
 
     setFormData({
@@ -88,6 +91,7 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
       notes: '',
       receiptUrl: null,
       cardLast4: null,
+      purpose: 'business',
     });
     setOpen(false);
   };
@@ -183,7 +187,25 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
                   </SelectItem>
                 ))}
               </SelectContent>
-            </Select>
+          </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Purpose</Label>
+            <div className="flex gap-2">
+              {(['business', 'personal', 'mixed'] as ExpensePurpose[]).map((p) => (
+                <Button
+                  key={p}
+                  type="button"
+                  size="sm"
+                  variant={formData.purpose === p ? 'default' : 'outline'}
+                  className="flex-1"
+                  onClick={() => setFormData({ ...formData, purpose: p })}
+                >
+                  {EXPENSE_PURPOSE_LABELS[p]}
+                </Button>
+              ))}
+            </div>
           </div>
 
           <div className="space-y-2">
