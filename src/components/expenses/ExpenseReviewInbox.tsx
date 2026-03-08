@@ -323,6 +323,16 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
                   />
                 </div>
 
+                {/* Exact match recommendation */}
+                {mergeView.newExpense.amount === mergeView.existingExpense.amount && (
+                  <Card className="p-3 bg-primary/10 border-primary/30">
+                    <p className="text-xs font-semibold text-primary">✓ Exact match — merge recommended</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Same vendor, date & amount. Merging keeps the receipt and removes the duplicate.
+                    </p>
+                  </Card>
+                )}
+
                 {/* Amount difference highlight */}
                 {mergeView.newExpense.amount !== mergeView.existingExpense.amount && (
                   <Card className="p-3 bg-muted/50">
@@ -335,51 +345,92 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
                 )}
 
                 {/* Action buttons */}
-                <div className="space-y-2 pt-2">
-                  <Button
-                    className="w-full gap-2"
-                    onClick={() => handleMerge(
-                      mergeView.review,
-                      mergeView.newExpense!.id,
-                      mergeView.existingExpense!.id
-                    )}
-                  >
-                    <Merge className="w-4 h-4" />
-                    Keep Statement (${mergeView.newExpense.amount.toFixed(2)})
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={() => handleMerge(
-                      mergeView.review,
-                      mergeView.existingExpense!.id,
-                      mergeView.newExpense!.id
-                    )}
-                  >
-                    <Merge className="w-4 h-4" />
-                    Keep Receipt (${mergeView.existingExpense.amount.toFixed(2)})
-                  </Button>
-                  <div className="flex gap-2">
+                {mergeView.newExpense.amount === mergeView.existingExpense.amount && mergeView.existingExpense.receipt_url ? (
+                  // Exact match with receipt → single clear merge button
+                  <div className="space-y-2 pt-2">
                     <Button
-                      variant="ghost"
-                      size="sm"
-                      className="flex-1 text-xs"
-                      onClick={() => handleResolve(mergeView.review)}
+                      className="w-full gap-2 text-base h-12"
+                      onClick={() => handleMerge(
+                        mergeView.review,
+                        mergeView.existingExpense!.id,
+                        mergeView.newExpense!.id
+                      )}
                     >
-                      <Check className="w-3.5 h-3.5 mr-1" />
-                      Keep Both
+                      <Merge className="w-5 h-5" />
+                      Merge — Keep Receipt Entry
                     </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="flex-1 text-xs"
-                      onClick={() => setDeleteConfirm(mergeView.review)}
-                    >
-                      <Trash2 className="w-3.5 h-3.5 mr-1" />
-                      Delete New
-                    </Button>
+                    <p className="text-[10px] text-center text-muted-foreground">
+                      Removes the statement duplicate, keeps the receipt-backed entry
+                    </p>
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => handleResolve(mergeView.review)}
+                      >
+                        <Check className="w-3.5 h-3.5 mr-1" />
+                        Keep Both
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => setDeleteConfirm(mergeView.review)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1" />
+                        Delete Statement
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  // Different amounts or no receipt → show both options
+                  <div className="space-y-2 pt-2">
+                    <Button
+                      className="w-full gap-2"
+                      onClick={() => handleMerge(
+                        mergeView.review,
+                        mergeView.newExpense!.id,
+                        mergeView.existingExpense!.id
+                      )}
+                    >
+                      <Merge className="w-4 h-4" />
+                      Keep Statement (${mergeView.newExpense.amount.toFixed(2)})
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => handleMerge(
+                        mergeView.review,
+                        mergeView.existingExpense!.id,
+                        mergeView.newExpense!.id
+                      )}
+                    >
+                      <Merge className="w-4 h-4" />
+                      Keep Receipt (${mergeView.existingExpense.amount.toFixed(2)})
+                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => handleResolve(mergeView.review)}
+                      >
+                        <Check className="w-3.5 h-3.5 mr-1" />
+                        Keep Both
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        onClick={() => setDeleteConfirm(mergeView.review)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1" />
+                        Delete New
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               /* Review list */
