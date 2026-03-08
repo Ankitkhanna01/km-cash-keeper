@@ -144,7 +144,7 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
         if (Object.keys(updates).length > 0) {
           await supabase.from('expenses').update(updates).eq('id', keepId);
         }
-        await supabase.from('expenses').delete().eq('id', deleteId);
+        await supabase.from('expenses').update({ deleted_at: new Date().toISOString() }).eq('id', deleteId);
         await resolveReview(review.id);
         onExpenseDeleted?.();
       } catch (e) {

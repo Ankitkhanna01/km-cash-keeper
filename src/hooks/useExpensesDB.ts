@@ -16,11 +16,19 @@ export interface Expense {
   receipt_url: string | null;
   card_last4: string | null;
   created_at: string;
+  deleted_at?: string | null;
 }
+
+const mapExpense = (e: any): Expense => ({
+  ...e,
+  amount: Number(e.amount),
+  category: e.category as ExpenseCategory,
+});
 
 export function useExpensesDB() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [trashedExpenses, setTrashedExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchExpenses = async () => {
@@ -30,15 +38,11 @@ export function useExpensesDB() {
       const { data, error } = await supabase
         .from('expenses')
         .select('*')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      
-      setExpenses(data?.map(e => ({
-        ...e,
-        amount: Number(e.amount),
-        category: e.category as ExpenseCategory
-      })) || []);
+      setExpenses(data?.map(mapExpense) || []);
     } catch (error) {
       console.error('Error fetching expenses:', error);
     } finally {
@@ -46,11 +50,27 @@ export function useExpensesDB() {
     }
   };
 
+  const fetchTrashed = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('*')
+        .not('deleted_at', 'is', null)
+        .order('deleted_at', { ascending: false });
+
+      if (error) throw error;
+      setTrashedExpenses(data?.map(mapExpense) || []);
+    } catch (error) {
+      console.error('Error fetching trashed expenses:', error);
+    }
+  };
+
   useEffect(() => {
     fetchExpenses();
   }, [user]);
 
-  const addExpense = async (expenseData: Omit<Expense, 'id' | 'user_id' | 'created_at'>) => {
+  const addExpense = async (expenseData: Omit<Expense, 'id' | 'user_id' | 'created_at' | 'deleted_at'>) => {
     if (!user) return null;
 
     try {
@@ -71,12 +91,7 @@ export function useExpensesDB() {
 
       if (error) throw error;
       
-      const newExpense = {
-        ...data,
-        amount: Number(data.amount),
-        category: data.category as ExpenseCategory
-      };
-      
+      const newExpense = mapExpense(data);
       setExpenses(prev => [newExpense, ...prev]);
       return newExpense;
     } catch (error) {
@@ -104,11 +119,12 @@ export function useExpensesDB() {
     }
   };
 
+  // Soft-delete: set deleted_at timestamp
   const deleteExpense = async (id: string) => {
     try {
       const { error } = await supabase
         .from('expenses')
-        .delete()
+        .update({ deleted_at: new Date().toISOString() })
         .eq('id', id);
 
       if (error) throw error;
@@ -117,6 +133,63 @@ export function useExpensesDB() {
     } catch (error) {
       console.error('Error deleting expense:', error);
       toast.error('Failed to delete expense');
+    }
+  };
+
+  // Restore from trash
+  const restoreExpense = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .update({ deleted_at: null })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      const restored = trashedExpenses.find(e => e.id === id);
+      if (restored) {
+        setTrashedExpenses(prev => prev.filter(e => e.id !== id));
+        setExpenses(prev => [{ ...restored, deleted_at: null }, ...prev]);
+      }
+      return true;
+    } catch (error) {
+      console.error('Error restoring expense:', error);
+      toast.error('Failed to restore expense');
+      return false;
+    }
+  };
+
+  // Permanent delete
+  const permanentlyDeleteExpense = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      setTrashedExpenses(prev => prev.filter(e => e.id !== id));
+      return true;
+    } catch (error) {
+      console.error('Error permanently deleting expense:', error);
+      toast.error('Failed to permanently delete expense');
+      return false;
+    }
+  };
+
+  const emptyTrash = async () => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .delete()
+        .not('deleted_at', 'is', null);
+
+      if (error) throw error;
+      setTrashedExpenses([]);
+    } catch (error) {
+      console.error('Error emptying trash:', error);
+      toast.error('Failed to empty trash');
     }
   };
 
@@ -150,10 +223,15 @@ export function useExpensesDB() {
 
   return {
     expenses,
+    trashedExpenses,
     loading,
     addExpense,
     updateExpense,
     deleteExpense,
+    restoreExpense,
+    permanentlyDeleteExpense,
+    emptyTrash,
+    fetchTrashed,
     getExpensesByYear,
     getTotalByCategory,
     getStats,
