@@ -52,6 +52,9 @@ export function KmEstimationCard({ year, onEstimationChange }: KmEstimationCardP
     currentYear: year,
   });
 
+  // Notify parent of estimated KM
+  const { useEffect } = require('react');
+  // We need to use a proper import - let me fix this inline
   const hasData = estimation.totalEstimatedKm > 0;
 
   const handleCopyExplanation = () => {
