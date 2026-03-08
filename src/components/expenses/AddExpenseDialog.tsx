@@ -187,7 +187,25 @@ export function AddExpenseDialog({ onAdd, existingExpenses = [] }: AddExpenseDia
                   </SelectItem>
                 ))}
               </SelectContent>
-            </Select>
+          </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Purpose</Label>
+            <div className="flex gap-2">
+              {(['business', 'personal', 'mixed'] as ExpensePurpose[]).map((p) => (
+                <Button
+                  key={p}
+                  type="button"
+                  size="sm"
+                  variant={formData.purpose === p ? 'default' : 'outline'}
+                  className="flex-1"
+                  onClick={() => setFormData({ ...formData, purpose: p })}
+                >
+                  {EXPENSE_PURPOSE_LABELS[p]}
+                </Button>
+              ))}
+            </div>
           </div>
 
           <div className="space-y-2">
