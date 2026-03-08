@@ -57,7 +57,7 @@ export default function Dashboard() {
 
       {/* Business Use Percentage */}
       <Card variant="glow" className="mb-6">
-        <CardContent className="p-6 flex flex-col items-center">
+        <CardContent className="p-4 sm:p-6 flex flex-col items-center">
           <BusinessPercentageRing percentage={businessPercentage} />
           <p className="text-sm text-muted-foreground mt-4 text-center">
             {odometerTotalKm !== null 
