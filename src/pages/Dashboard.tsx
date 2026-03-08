@@ -89,7 +89,9 @@ export default function Dashboard() {
           <BusinessPercentageRing percentage={businessPercentage} />
           <p className="text-sm text-muted-foreground mt-4 text-center">
             {odometerTotalKm !== null 
-              ? 'Based on odometer readings (CRA compliant)'
+              ? (estimatedBusinessKm > tripStats.businessKilometres
+                ? 'Includes CRA-defensible estimated KM (based on income & historical data)'
+                : 'Based on odometer readings (CRA compliant)')
               : 'Based on logged trips only — add odometer readings for CRA compliance'}
           </p>
         </CardContent>
