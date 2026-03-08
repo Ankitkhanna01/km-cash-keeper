@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [showTotalKm, setShowTotalKm] = useState(false);
   const [showExpenses, setShowExpenses] = useState(false);
   const [showDeductible, setShowDeductible] = useState(false);
+  const [estimatedBusinessKm, setEstimatedBusinessKm] = useState(0);
 
   const thisYear = new Date().getFullYear();
   const [currentYear, setCurrentYear] = useState(thisYear - 1); // Default to prior tax year (2025)
@@ -31,11 +32,14 @@ export default function Dashboard() {
   const expenseStats = getExpenseStats(currentYear);
   const uncategorizedTrips = getUncategorizedTrips();
 
+  // Use estimated KM if higher than logged, otherwise use logged
+  const effectiveBusinessKm = Math.max(tripStats.businessKilometres, estimatedBusinessKm);
+
   // Use odometer-based percentage if available, otherwise fall back to trip-based
   const odometerTotalKm = getTotalKmForYear(currentYear);
   const businessPercentage = odometerTotalKm !== null
-    ? getBusinessPercentage(currentYear, tripStats.businessKilometres)
-    : tripStats.businessPercentage;
+    ? getBusinessPercentage(currentYear, effectiveBusinessKm)
+    : (tripStats.totalKilometres > 0 ? (effectiveBusinessKm / tripStats.totalKilometres) * 100 : 0);
 
   const loading = tripsLoading || expensesLoading || odometerLoading;
 
