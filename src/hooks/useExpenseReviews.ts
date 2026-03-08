@@ -130,10 +130,11 @@ export function useExpenseReviews() {
       }
 
       // 2. Check for receipt-backed match (same vendor+date but has receipt)
+      // Always check independently of duplicates — receipt matches should always offer merge
       const receiptMatches = existingExpenses.filter(existing => {
         if (!existing.receipt_url) return false;
         const daysDiff = Math.abs(new Date(existing.date).getTime() - new Date(newExp.date).getTime()) / (1000 * 60 * 60 * 24);
-        if (daysDiff > 1) return false;
+        if (daysDiff > 3) return false;
         // Skip if different cards
         if (newExp.card_last4 && existing.card_last4 && newExp.card_last4 !== existing.card_last4) return false;
         const nameA = newExp.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -141,16 +142,29 @@ export function useExpenseReviews() {
         return nameA.includes(nameB) || nameB.includes(nameA);
       });
 
-      if (receiptMatches.length > 0 && duplicates.length === 0) {
+      if (receiptMatches.length > 0) {
         const rm = receiptMatches[0];
         const diff = Math.abs(newExp.amount - rm.amount);
-        if (diff > 0.01) {
+        // Skip if already flagged as duplicate for the same existing expense
+        const alreadyFlaggedAsDup = duplicates.some(d => d.id === rm.id);
+        
+        if (alreadyFlaggedAsDup) {
+          // Upgrade the existing duplicate review to receipt_match type for better merge UX
+          const dupReviewIdx = reviewsToCreate.findIndex(
+            r => r.expense_id === newExp.id && r.review_type === 'duplicate' && r.related_expense_id === rm.id
+          );
+          if (dupReviewIdx >= 0) {
+            reviewsToCreate[dupReviewIdx].review_type = 'receipt_match';
+            reviewsToCreate[dupReviewIdx].message = `Statement "${newExp.vendor_name}" ($${newExp.amount.toFixed(2)}) matches receipt "${rm.vendor_name}" ($${rm.amount.toFixed(2)}) 📎${diff > 0.01 ? ` — $${diff.toFixed(2)} ${newExp.amount > rm.amount ? 'more (tip?)' : 'less'}` : ' — exact match, merge recommended'}`;
+          }
+        } else {
+          // New receipt match not caught by duplicate check
           reviewsToCreate.push({
             user_id: user.id,
             expense_id: newExp.id,
             review_type: 'receipt_match',
             severity: diff > rm.amount * 0.3 ? 'warning' : 'info',
-            message: `Statement "${newExp.vendor_name}" ($${newExp.amount.toFixed(2)} on ${newExp.date}) vs receipt "${rm.vendor_name}" ($${rm.amount.toFixed(2)} on ${rm.date}) — $${diff.toFixed(2)} ${newExp.amount > rm.amount ? 'more (tip?)' : 'less'}`,
+            message: `Statement "${newExp.vendor_name}" ($${newExp.amount.toFixed(2)}) matches receipt "${rm.vendor_name}" ($${rm.amount.toFixed(2)}) 📎${diff > 0.01 ? ` — $${diff.toFixed(2)} ${newExp.amount > rm.amount ? 'more (tip?)' : 'less'}` : ' — exact match, merge recommended'}`,
             details: `Statement: $${newExp.amount.toFixed(2)} on ${newExp.date} | Receipt: $${rm.amount.toFixed(2)} on ${rm.date} 📎`,
             related_expense_id: rm.id,
             is_resolved: false,
