@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, Upload, Loader2, X, FileText, ImageOff } from 'lucide-react';
+import { Camera, Upload, Loader2, X, FileText, ImageOff, ZoomIn } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { enqueueAIRequest } from '@/lib/aiRequestQueue';
@@ -16,6 +16,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog';
 
 // Helper component to load and display an existing receipt image from storage
 function ExistingReceiptImage({ receiptUrl }: { receiptUrl: string | null }) {
@@ -48,7 +52,61 @@ function ExistingReceiptImage({ receiptUrl }: { receiptUrl: string | null }) {
     );
   }
 
-  return <img src={signedUrl} alt="Existing receipt" className="w-full h-28 object-cover rounded" />;
+  return <img src={signedUrl} alt="Existing receipt" className="w-full h-28 object-cover rounded cursor-zoom-in" />;
+}
+
+// Zoomable image wrapper
+function ZoomableImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [zoomed, setZoomed] = useState(false);
+  return (
+    <>
+      <div className="relative group cursor-zoom-in" onClick={() => setZoomed(true)}>
+        <img src={src} alt={alt} className={className} />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors rounded">
+          <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+        </div>
+      </div>
+      <Dialog open={zoomed} onOpenChange={setZoomed}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 flex items-center justify-center">
+          <img src={src} alt={alt} className="max-w-full max-h-[85vh] object-contain rounded" />
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// Zoomable existing receipt (fetches signed URL then renders zoomable)
+function ZoomableExistingReceipt({ receiptUrl }: { receiptUrl: string | null }) {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!receiptUrl) return;
+    supabase.storage
+      .from('receipts')
+      .createSignedUrl(receiptUrl, 300)
+      .then(({ data }) => {
+        if (data?.signedUrl) setSignedUrl(data.signedUrl);
+      });
+  }, [receiptUrl]);
+
+  if (!receiptUrl) {
+    return (
+      <div className="w-full h-28 flex items-center justify-center bg-muted rounded text-xs text-muted-foreground gap-1">
+        <ImageOff className="w-4 h-4" />
+        No receipt
+      </div>
+    );
+  }
+
+  if (!signedUrl) {
+    return (
+      <div className="w-full h-28 flex items-center justify-center bg-muted rounded">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <ZoomableImage src={signedUrl} alt="Existing receipt" className="w-full h-28 object-cover rounded" />;
 }
 
 interface LineItem {
@@ -363,7 +421,7 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
                     <div className="border border-border rounded-lg p-2 space-y-2">
                       <p className="text-xs font-semibold text-center text-primary">New Receipt</p>
                       {preview && !isPdf ? (
-                        <img src={preview} alt="New receipt" className="w-full h-28 object-cover rounded" />
+                        <ZoomableImage src={preview} alt="New receipt" className="w-full h-28 object-cover rounded" />
                       ) : preview === 'pdf' ? (
                         <div className="w-full h-28 flex items-center justify-center bg-muted rounded">
                           <FileText className="w-8 h-8 text-muted-foreground" />
@@ -380,7 +438,7 @@ export function ReceiptScanner({ onDataExtracted, existingExpenses = [] }: Recei
                     {/* Existing receipt */}
                     <div className="border border-border rounded-lg p-2 space-y-2">
                       <p className="text-xs font-semibold text-center text-destructive">Existing Expense</p>
-                      <ExistingReceiptImage receiptUrl={duplicateWarning.receipt_url} />
+                      <ZoomableExistingReceipt receiptUrl={duplicateWarning.receipt_url} />
                       <div className="text-xs space-y-0.5">
                         <p className="font-medium truncate">{duplicateWarning.vendor_name}</p>
                         <p>{duplicateWarning.date}</p>
