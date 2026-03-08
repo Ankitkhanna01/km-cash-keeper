@@ -227,5 +227,5 @@ export function useKmEstimation({
       methodologySummary,
       craExplanation,
     };
-  }, [currentYearTrips, priorYearTrips, currentYearRatios, priorYearRatios, monthlyIncome, currentYear]);
+  }, [currentYearTrips, priorYearTrips, currentYearRatios, priorYearRatios, allRatios, monthlyIncome, currentYear]);
 }
