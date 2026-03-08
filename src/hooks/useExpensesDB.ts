@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { ExpenseCategory } from '@/types';
+import { ExpenseCategory, ExpensePurpose } from '@/types';
 import { parseLocalDate } from '@/lib/dateUtils';
 
 export interface Expense {
