@@ -281,12 +281,18 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between">
               <span>Expense Review ({unresolvedCount})</span>
-              {unresolvedCount > 1 && (
-                <Button variant="ghost" size="sm" onClick={handleResolveAll} className="gap-1 text-xs">
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  Dismiss All
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={handleReAnalyze} disabled={reanalyzing} className="gap-1 text-xs">
+                  <RefreshCw className={`w-3.5 h-3.5 ${reanalyzing ? 'animate-spin' : ''}`} />
+                  Re-scan
                 </Button>
-              )}
+                {unresolvedCount > 1 && (
+                  <Button variant="ghost" size="sm" onClick={handleResolveAll} className="gap-1 text-xs">
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    Dismiss All
+                  </Button>
+                )}
+              </div>
             </SheetTitle>
           </SheetHeader>
 
