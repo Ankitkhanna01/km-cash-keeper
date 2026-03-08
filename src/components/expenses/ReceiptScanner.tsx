@@ -16,6 +16,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog';
 
 // Helper component to load and display an existing receipt image from storage
 function ExistingReceiptImage({ receiptUrl }: { receiptUrl: string | null }) {
