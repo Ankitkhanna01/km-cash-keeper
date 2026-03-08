@@ -61,10 +61,11 @@ export default function Expenses() {
       .order('created_at', { ascending: false });
 
     if (allExpenses) {
-      const mapped = allExpenses.map(e => ({
+      const mapped: Expense[] = allExpenses.map(e => ({
         ...e,
         amount: Number(e.amount),
-        category: e.category as Expense['category']
+        category: e.category as Expense['category'],
+        purpose: (e.purpose || 'business') as Expense['purpose'],
       }));
       const flagCount = await analyzeExpenses(newExpenseIds, mapped);
       if (flagCount && flagCount > 0) {
