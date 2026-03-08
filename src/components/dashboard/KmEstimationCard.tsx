@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,7 +15,12 @@ import { parseLocalDate } from '@/lib/dateUtils';
 import { Calculator, FileText, TrendingUp, ChevronRight, Copy, Check, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
-export function KmEstimationCard({ year }: { year: number }) {
+interface KmEstimationCardProps {
+  year: number;
+  onEstimationChange?: (estimatedBusinessKm: number) => void;
+}
+
+export function KmEstimationCard({ year, onEstimationChange }: KmEstimationCardProps) {
   const { trips } = useTripsDB();
   const { documents, ratios } = useDocumentsDB();
   const [showDetail, setShowDetail] = useState(false);
@@ -46,6 +51,11 @@ export function KmEstimationCard({ year }: { year: number }) {
     monthlyIncome,
     currentYear: year,
   });
+
+  // Report estimated KM to parent
+  useEffect(() => {
+    onEstimationChange?.(estimation.totalEstimatedKm);
+  }, [estimation.totalEstimatedKm, onEstimationChange]);
 
   const hasData = estimation.totalEstimatedKm > 0;
 

@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [showTotalKm, setShowTotalKm] = useState(false);
   const [showExpenses, setShowExpenses] = useState(false);
   const [showDeductible, setShowDeductible] = useState(false);
+  const [estimatedBusinessKm, setEstimatedBusinessKm] = useState(0);
 
   const thisYear = new Date().getFullYear();
   const [currentYear, setCurrentYear] = useState(thisYear - 1); // Default to prior tax year (2025)
@@ -31,11 +32,14 @@ export default function Dashboard() {
   const expenseStats = getExpenseStats(currentYear);
   const uncategorizedTrips = getUncategorizedTrips();
 
+  // Use estimated KM if higher than logged, otherwise use logged
+  const effectiveBusinessKm = Math.max(tripStats.businessKilometres, estimatedBusinessKm);
+
   // Use odometer-based percentage if available, otherwise fall back to trip-based
   const odometerTotalKm = getTotalKmForYear(currentYear);
   const businessPercentage = odometerTotalKm !== null
-    ? getBusinessPercentage(currentYear, tripStats.businessKilometres)
-    : tripStats.businessPercentage;
+    ? getBusinessPercentage(currentYear, effectiveBusinessKm)
+    : (tripStats.totalKilometres > 0 ? (effectiveBusinessKm / tripStats.totalKilometres) * 100 : 0);
 
   const loading = tripsLoading || expensesLoading || odometerLoading;
 
@@ -85,7 +89,9 @@ export default function Dashboard() {
           <BusinessPercentageRing percentage={businessPercentage} />
           <p className="text-sm text-muted-foreground mt-4 text-center">
             {odometerTotalKm !== null 
-              ? 'Based on odometer readings (CRA compliant)'
+              ? (estimatedBusinessKm > tripStats.businessKilometres
+                ? 'Includes CRA-defensible estimated KM (based on income & historical data)'
+                : 'Based on odometer readings (CRA compliant)')
               : 'Based on logged trips only — add odometer readings for CRA compliance'}
           </p>
         </CardContent>
@@ -95,14 +101,16 @@ export default function Dashboard() {
       <OdometerCard year={currentYear} />
 
       {/* KM Estimation */}
-      <KmEstimationCard year={currentYear} />
+      <KmEstimationCard year={currentYear} onEstimationChange={setEstimatedBusinessKm} />
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 my-4 sm:my-6">
         <StatCard
           title="Business KM"
-          value={tripStats.businessKilometres.toFixed(0)}
-          subtitle={`${tripStats.businessTrips} trips`}
+          value={effectiveBusinessKm.toFixed(0)}
+          subtitle={estimatedBusinessKm > tripStats.businessKilometres 
+            ? `${tripStats.businessTrips} trips + estimated`
+            : `${tripStats.businessTrips} trips`}
           icon={Briefcase}
           variant="primary"
           onClick={() => setShowBusinessKm(true)}
