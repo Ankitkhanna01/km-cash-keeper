@@ -529,6 +529,24 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dismiss All confirmation */}
+      <AlertDialog open={dismissAllConfirm} onOpenChange={setDismissAllConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss All Reviews?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark all {unresolvedCount} reviews as resolved. You can re-scan later to find matches again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { handleResolveAll(); setDismissAllConfirm(false); }}>
+              Dismiss All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
