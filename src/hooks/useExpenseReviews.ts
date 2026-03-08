@@ -240,6 +240,131 @@ export function useExpenseReviews() {
     return 0;
   };
 
+  // Re-analyze ALL expenses: match statement transactions against receipt expenses
+  // Each statement transaction is matched individually against all receipt-backed expenses
+  const reAnalyzeAll = async () => {
+    if (!user) return 0;
+
+    try {
+      // Fetch all expenses
+      const { data: allData, error: fetchError } = await supabase
+        .from('expenses')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (fetchError) throw fetchError;
+      if (!allData || allData.length === 0) return 0;
+
+      const allExpenses = allData.map(e => ({
+        ...e,
+        amount: Number(e.amount),
+        category: e.category as Expense['category']
+      }));
+
+      // Statement expenses = those with "Added from statement" in notes
+      const statementExpenses = allExpenses.filter(e => e.notes?.includes('Added from statement'));
+      // Receipt expenses = those with a receipt_url
+      const receiptExpenses = allExpenses.filter(e => e.receipt_url);
+
+      if (statementExpenses.length === 0 && receiptExpenses.length === 0) return 0;
+
+      // Fetch existing unresolved reviews to avoid creating duplicates
+      const { data: existingReviews } = await supabase
+        .from('expense_reviews')
+        .select('expense_id, related_expense_id, review_type')
+        .eq('is_resolved', false);
+
+      const existingPairs = new Set(
+        (existingReviews || []).map(r => `${r.expense_id}|${r.related_expense_id}|${r.review_type}`)
+      );
+
+      const reviewsToCreate: Omit<ExpenseReview, 'id' | 'created_at' | 'resolved_at' | 'updated_at'>[] = [];
+
+      // Match each statement transaction against each receipt expense
+      for (const stmtExp of statementExpenses) {
+        for (const rcptExp of receiptExpenses) {
+          // Skip if same expense
+          if (stmtExp.id === rcptExp.id) continue;
+
+          // Skip if different cards
+          if (stmtExp.card_last4 && rcptExp.card_last4 && stmtExp.card_last4 !== rcptExp.card_last4) continue;
+
+          // Date within ±3 days
+          const daysDiff = Math.abs(new Date(stmtExp.date).getTime() - new Date(rcptExp.date).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysDiff > 3) continue;
+
+          // Vendor name similarity
+          const nameA = stmtExp.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const nameB = rcptExp.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!nameA.includes(nameB) && !nameB.includes(nameA)) continue;
+
+          // Amount within reasonable range (within 30% or $20, whichever is larger)
+          const diff = Math.abs(stmtExp.amount - rcptExp.amount);
+          const threshold = Math.max(rcptExp.amount * 0.3, 20);
+          if (diff > threshold) continue;
+
+          // Skip if already has an unresolved review for this pair
+          const pairKey = `${stmtExp.id}|${rcptExp.id}|receipt_match`;
+          const reversePairKey = `${rcptExp.id}|${stmtExp.id}|receipt_match`;
+          const dupPairKey = `${stmtExp.id}|${rcptExp.id}|duplicate`;
+          if (existingPairs.has(pairKey) || existingPairs.has(reversePairKey) || existingPairs.has(dupPairKey)) continue;
+
+          reviewsToCreate.push({
+            user_id: user.id,
+            expense_id: stmtExp.id,
+            review_type: 'receipt_match',
+            severity: diff > rcptExp.amount * 0.3 ? 'warning' : 'info',
+            message: `Statement "${stmtExp.vendor_name}" ($${stmtExp.amount.toFixed(2)}) matches receipt "${rcptExp.vendor_name}" ($${rcptExp.amount.toFixed(2)}) 📎${diff > 0.01 ? ` — $${diff.toFixed(2)} ${stmtExp.amount > rcptExp.amount ? 'more (tip?)' : 'less'}` : ' — exact match, merge recommended'}`,
+            details: `Statement: $${stmtExp.amount.toFixed(2)} on ${stmtExp.date} | Receipt: $${rcptExp.amount.toFixed(2)} on ${rcptExp.date} 📎`,
+            related_expense_id: rcptExp.id,
+            is_resolved: false,
+          });
+
+          existingPairs.add(pairKey);
+        }
+      }
+
+      // Also check receipt-to-receipt duplicates (e.g. same receipt scanned twice)
+      for (let i = 0; i < receiptExpenses.length; i++) {
+        for (let j = i + 1; j < receiptExpenses.length; j++) {
+          const a = receiptExpenses[i], b = receiptExpenses[j];
+          if (a.date !== b.date) continue;
+          if (Math.abs(a.amount - b.amount) > 0.50) continue;
+          const nA = a.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const nB = b.vendor_name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!nA.includes(nB) && !nB.includes(nA)) continue;
+
+          const pairKey = `${b.id}|${a.id}|duplicate`;
+          if (existingPairs.has(pairKey) || existingPairs.has(`${a.id}|${b.id}|duplicate`)) continue;
+
+          reviewsToCreate.push({
+            user_id: user.id,
+            expense_id: b.id,
+            review_type: 'duplicate',
+            severity: 'warning',
+            message: `Duplicate receipts: "${a.vendor_name}" ($${a.amount.toFixed(2)}) and "${b.vendor_name}" ($${b.amount.toFixed(2)}) on ${a.date} 📎📎`,
+            details: `Both have receipts attached`,
+            related_expense_id: a.id,
+            is_resolved: false,
+          });
+          existingPairs.add(pairKey);
+        }
+      }
+
+      if (reviewsToCreate.length > 0) {
+        const { error } = await supabase
+          .from('expense_reviews')
+          .insert(reviewsToCreate);
+        if (error) throw error;
+        await fetchReviews();
+        return reviewsToCreate.length;
+      }
+      return 0;
+    } catch (e) {
+      console.error('Error re-analyzing expenses:', e);
+      return 0;
+    }
+  };
+
   return {
     reviews,
     loading,
@@ -248,6 +373,7 @@ export function useExpenseReviews() {
     resolveAll,
     deleteExpenseAndReviews,
     analyzeExpenses,
+    reAnalyzeAll,
     refetch: fetchReviews,
   };
 }

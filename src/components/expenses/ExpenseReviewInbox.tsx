@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Check, CheckCheck, Info, Trash2, Merge, ArrowRight, Receipt, Image as ImageIcon } from 'lucide-react';
+import { AlertTriangle, Check, CheckCheck, Info, Trash2, Merge, ArrowRight, Receipt, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { ExpenseReview, useExpenseReviews } from '@/hooks/useExpenseReviews';
 import { Expense } from '@/hooks/useExpensesDB';
 import { supabase } from '@/integrations/supabase/client';
@@ -41,9 +41,10 @@ interface MergeCandidate {
 }
 
 export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps) {
-  const { reviews, unresolvedCount, resolveReview, resolveAll, deleteExpenseAndReviews } = useExpenseReviews();
+  const { reviews, unresolvedCount, resolveReview, resolveAll, deleteExpenseAndReviews, reAnalyzeAll } = useExpenseReviews();
   const { getSignedUrl } = useSecureStorage();
   const [open, setOpen] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ExpenseReview | null>(null);
   const [mergeView, setMergeView] = useState<MergeCandidate | null>(null);
   const [relatedExpenses, setRelatedExpenses] = useState<Record<string, Expense>>({});
@@ -179,7 +180,32 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
     return <Badge variant="secondary" className={`text-[10px] ${config.className}`}>{config.label}</Badge>;
   };
 
-  if (unresolvedCount === 0) return null;
+  const handleReAnalyze = async () => {
+    setReanalyzing(true);
+    try {
+      const count = await reAnalyzeAll();
+      if (count && count > 0) {
+        toast.success(`Found ${count} new match${count > 1 ? 'es' : ''} to review`);
+        if (!open) setOpen(true);
+      } else {
+        toast.info('No new matches found');
+      }
+    } catch {
+      toast.error('Failed to re-analyze');
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  if (unresolvedCount === 0) {
+    // Still show re-analyze button even with no current reviews
+    return (
+      <Button variant="outline" size="sm" className="gap-2" onClick={handleReAnalyze} disabled={reanalyzing}>
+        <RefreshCw className={`w-4 h-4 ${reanalyzing ? 'animate-spin' : ''}`} />
+        {reanalyzing ? 'Scanning...' : 'Re-scan'}
+      </Button>
+    );
+  }
 
   const hasMergeable = (review: ExpenseReview) =>
     review.related_expense_id && (review.review_type === 'duplicate' || review.review_type === 'receipt_match');
@@ -255,12 +281,18 @@ export function ExpenseReviewInbox({ onExpenseDeleted }: ExpenseReviewInboxProps
           <SheetHeader>
             <SheetTitle className="flex items-center justify-between">
               <span>Expense Review ({unresolvedCount})</span>
-              {unresolvedCount > 1 && (
-                <Button variant="ghost" size="sm" onClick={handleResolveAll} className="gap-1 text-xs">
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  Dismiss All
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={handleReAnalyze} disabled={reanalyzing} className="gap-1 text-xs">
+                  <RefreshCw className={`w-3.5 h-3.5 ${reanalyzing ? 'animate-spin' : ''}`} />
+                  Re-scan
                 </Button>
-              )}
+                {unresolvedCount > 1 && (
+                  <Button variant="ghost" size="sm" onClick={handleResolveAll} className="gap-1 text-xs">
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    Dismiss All
+                  </Button>
+                )}
+              </div>
             </SheetTitle>
           </SheetHeader>
 
