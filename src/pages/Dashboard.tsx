@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTripsDB } from '@/hooks/useTripsDB';
 import { useExpensesDB } from '@/hooks/useExpensesDB';
 import { useOdometerDB } from '@/hooks/useOdometerDB';
-import { Car, Receipt, Briefcase, TrendingUp, Loader2 } from 'lucide-react';
+import { Car, Receipt, Briefcase, TrendingUp, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
