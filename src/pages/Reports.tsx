@@ -79,7 +79,6 @@ export default function Reports() {
     }
 
     const totalKm = odometerTotalKm !== null ? odometerTotalKm : tripStats.totalKilometres;
-    const monthlyData = getMonthlyBusinessSummary(year);
 
     // Create enhanced report content
     const reportContent = `
