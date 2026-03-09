@@ -302,11 +302,11 @@ export async function generateSaladMasterExcel(expenses: any[], year: number): P
   saveAs(blob, `TAX_RETURN_SPREADSHEET_SALAD_MASTER_${year}.xlsx`);
 }
 
-export async function generateDeliveryExpensesExcel(expenses: any[], year: number): Promise<void> {
+export async function generateDeliveryExpensesExcel(expenses: any[], year: number, odometerData?: { startReading: number; endReading: number; totalKm: number; businessKm: number; businessPercent: number }): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   
   // All vehicle/delivery-related categories
-  const deliveryCategories = ['fuel', 'repairs', 'insurance', 'licence', 'interest'];
+  const deliveryCategories = ['fuel', 'repairs', 'insurance', 'licence', 'interest', 'parking', 'leasing'];
   
   // Also include business expenses classified as vehicle-related by vendor
   const yearExpenses = expenses.filter(e => {
@@ -323,15 +323,43 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
             'car_wash', 'transportation', 'licence', 'repairs'].includes(smClass);
   }).sort((a: any, b: any) => a.date.localeCompare(b.date));
 
-  // T2125 Summary sheet
-  const summaryWs = workbook.addWorksheet('T2125 Summary');
-  summaryWs.addRow(['CRA Form T2125 - Vehicle & Delivery Expenses', '', year]);
-  summaryWs.getRow(1).font = { bold: true, size: 14 };
-  summaryWs.addRow([]);
-  summaryWs.addRow(['Category', 'Total Amount', 'Count']);
-  summaryWs.getRow(3).font = { bold: true };
-  summaryWs.getRow(3).eachCell(cell => {
+  // --- VEHICLE SUMMARY SHEET (for accountant) ---
+  const vehicleWs = workbook.addWorksheet('Vehicle Summary');
+  vehicleWs.addRow(['CRA Form T2125 - Vehicle Expense Report']);
+  vehicleWs.getRow(1).font = { bold: true, size: 16 };
+  vehicleWs.addRow([`Tax Year: ${year}`]);
+  vehicleWs.getRow(2).font = { bold: true, size: 12 };
+  vehicleWs.addRow([`Generated: ${format(new Date(), 'MMMM d, yyyy')}`]);
+  vehicleWs.addRow([]);
+
+  // Odometer section
+  vehicleWs.addRow(['ODOMETER READINGS']);
+  vehicleWs.getRow(5).font = { bold: true, size: 12 };
+  if (odometerData) {
+    vehicleWs.addRow(['Start of Year (Jan 1)', `${odometerData.startReading.toLocaleString()} km`]);
+    vehicleWs.addRow(['End of Year (Dec 31)', `${odometerData.endReading.toLocaleString()} km`]);
+    vehicleWs.addRow(['Total Annual Kilometres', `${odometerData.totalKm.toLocaleString()} km`]);
+    vehicleWs.addRow([]);
+    vehicleWs.addRow(['BUSINESS USE']);
+    vehicleWs.getRow(10).font = { bold: true, size: 12 };
+    vehicleWs.addRow(['Business Kilometres', `${odometerData.businessKm.toLocaleString()} km`]);
+    vehicleWs.addRow(['Personal Kilometres', `${(odometerData.totalKm - odometerData.businessKm).toLocaleString()} km`]);
+    vehicleWs.addRow(['Business-Use Percentage', `${odometerData.businessPercent.toFixed(1)}%`]);
+  } else {
+    vehicleWs.addRow(['No odometer data recorded']);
+  }
+  vehicleWs.addRow([]);
+
+  // Expense summary by T2125 category
+  const summaryStartRow = vehicleWs.rowCount + 1;
+  vehicleWs.addRow(['EXPENSE SUMMARY BY T2125 CATEGORY']);
+  vehicleWs.getRow(summaryStartRow).font = { bold: true, size: 12 };
+  
+  const summaryHeaderRow = vehicleWs.addRow(['Category', 'Total Amount', 'Count', 'Deductible Amount']);
+  summaryHeaderRow.font = { bold: true };
+  summaryHeaderRow.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    cell.border = { bottom: { style: 'thin' } };
   });
 
   const t2125Categories: Record<string, string> = {
@@ -340,14 +368,13 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
     car_wash: 'Car Wash',
     drivers_insurance: 'Vehicle Insurance (ICBC)',
     licence: 'Licence & Registration',
-    transportation: 'Transportation (Ferries, Car Share, Taxi)',
-    car: 'Car Purchase / Lease',
+    transportation: 'Transportation (Car Share, Taxi)',
+    car: 'Capital Cost (Car Purchase)',
     car_maintenance: 'Car Maintenance',
     car_gas: 'Gas (Car)',
     interest: 'Interest / Leasing',
   };
 
-  // Group by SM classification
   const groupedTotals: Record<string, { total: number; count: number }> = {};
   yearExpenses.forEach(e => {
     const smClass = classifyExpense(e);
@@ -357,23 +384,31 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
   });
 
   let grandTotal = 0;
+  const businessPct = odometerData?.businessPercent ?? 0;
   Object.entries(groupedTotals)
     .sort(([, a], [, b]) => b.total - a.total)
     .forEach(([cat, data]) => {
       const label = t2125Categories[cat] || cat;
-      summaryWs.addRow([label, data.total, data.count]);
+      const deductible = data.total * (businessPct / 100);
+      vehicleWs.addRow([label, data.total, data.count, deductible]);
       grandTotal += data.total;
     });
 
-  summaryWs.addRow([]);
-  const totalRow = summaryWs.addRow(['TOTAL', grandTotal, yearExpenses.length]);
+  vehicleWs.addRow([]);
+  const totalRow = vehicleWs.addRow(['TOTAL', grandTotal, yearExpenses.length, grandTotal * (businessPct / 100)]);
   totalRow.font = { bold: true };
-  summaryWs.getColumn(1).width = 40;
-  summaryWs.getColumn(2).width = 15;
-  summaryWs.getColumn(2).numFmt = '$#,##0.00';
-  summaryWs.getColumn(3).width = 10;
+  totalRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+  totalRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+  totalRow.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
 
-  // Monthly breakdown sheet
+  vehicleWs.getColumn(1).width = 40;
+  vehicleWs.getColumn(2).width = 18;
+  vehicleWs.getColumn(2).numFmt = '$#,##0.00';
+  vehicleWs.getColumn(3).width = 10;
+  vehicleWs.getColumn(4).width = 20;
+  vehicleWs.getColumn(4).numFmt = '$#,##0.00';
+
+  // --- MONTHLY BREAKDOWN SHEET ---
   const monthlyWs = workbook.addWorksheet('Monthly Breakdown');
   const monthHeaders = ['Category', ...MONTHS.map(m => m.substring(0, 3)), 'TOTAL'];
   const mHeaderRow = monthlyWs.addRow(monthHeaders);
@@ -410,7 +445,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
     monthlyWs.getColumn(i).numFmt = '$#,##0.00';
   }
 
-  // Detail sheet
+  // --- DETAIL SHEET ---
   const detailWs = workbook.addWorksheet('Expense Details');
   const dHeaderRow = detailWs.addRow(['Date', 'Vendor', 'Category', 'Amount', 'Card Last 4', 'Notes']);
   dHeaderRow.font = { bold: true };
