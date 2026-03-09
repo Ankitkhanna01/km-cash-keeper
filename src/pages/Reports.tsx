@@ -461,6 +461,25 @@ ${expenses
             Elaborate Excel
           </Button>
         </div>
+
+        {/* Expenses Receipt Export */}
+        <Button 
+          onClick={async () => {
+            try {
+              await generateExpensesReceiptExcel(expenses, year);
+              toast.success('Expenses Receipt Excel downloaded');
+            } catch (error) {
+              console.error('Export error:', error);
+              toast.error('Failed to generate Expenses Receipt Excel');
+            }
+          }} 
+          variant="secondary" 
+          className="w-full" 
+          size="lg"
+        >
+          <Receipt className="w-5 h-5 mr-2" />
+          Expenses Receipt (All)
+        </Button>
       </div>
     </AppLayout>
   );
