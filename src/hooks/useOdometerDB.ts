@@ -96,7 +96,7 @@ export function useOdometerDB() {
         const newReading = {
           ...data,
           start_reading: Number(data.start_reading),
-          end_reading: data.end_reading ? Number(data.end_reading) : null,
+          end_reading: data.end_reading !== null ? Number(data.end_reading) : null,
         };
 
         setReadings(prev => [newReading, ...prev]);
