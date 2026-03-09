@@ -32,7 +32,7 @@ export function useOdometerDB() {
       setReadings(data?.map(r => ({
         ...r,
         start_reading: Number(r.start_reading),
-        end_reading: r.end_reading ? Number(r.end_reading) : null,
+        end_reading: r.end_reading !== null ? Number(r.end_reading) : null,
       })) || []);
     } catch (error) {
       console.error('Error fetching odometer readings:', error);

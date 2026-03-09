@@ -39,8 +39,8 @@ export function OdometerCard({ year }: OdometerCardProps) {
     setIsEditing(false);
   };
 
-  const totalKm = reading?.end_reading 
-    ? reading.end_reading - reading.start_reading 
+  const totalKm = reading?.end_reading !== null && reading?.end_reading !== undefined
+    ? reading.end_reading - reading.start_reading
     : null;
 
   if (loading) {
