@@ -32,7 +32,7 @@ export function useOdometerDB() {
       setReadings(data?.map(r => ({
         ...r,
         start_reading: Number(r.start_reading),
-        end_reading: r.end_reading ? Number(r.end_reading) : null,
+        end_reading: r.end_reading !== null ? Number(r.end_reading) : null,
       })) || []);
     } catch (error) {
       console.error('Error fetching odometer readings:', error);
@@ -72,7 +72,7 @@ export function useOdometerDB() {
         const updated = {
           ...data,
           start_reading: Number(data.start_reading),
-          end_reading: data.end_reading ? Number(data.end_reading) : null,
+          end_reading: data.end_reading !== null ? Number(data.end_reading) : null,
         };
 
         setReadings(prev => prev.map(r => r.id === existing.id ? updated : r));
@@ -96,7 +96,7 @@ export function useOdometerDB() {
         const newReading = {
           ...data,
           start_reading: Number(data.start_reading),
-          end_reading: data.end_reading ? Number(data.end_reading) : null,
+          end_reading: data.end_reading !== null ? Number(data.end_reading) : null,
         };
 
         setReadings(prev => [newReading, ...prev]);
