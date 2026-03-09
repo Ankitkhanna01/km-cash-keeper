@@ -401,7 +401,7 @@ export function useDocumentsDB() {
       income: data.income,
       km: data.km,
       estimatedKm: data.estimatedKm,
-      totalKm: data.km + data.estimatedKm,
+      totalKm: data.estimatedKm,
       platforms: Array.from(data.platforms),
     }));
   };
