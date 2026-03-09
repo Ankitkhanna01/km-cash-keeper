@@ -388,11 +388,10 @@ export function useDocumentsDB() {
     for (const doc of yearDocs) {
       const entry = monthly.get(doc.period_month)!;
       entry.income += doc.income_amount || 0;
-      // Use verified km when available, otherwise fall back to estimated
+      // Always use estimated_km as it covers all platforms consistently
+      entry.estimatedKm += doc.estimated_km || 0;
       if (doc.has_verified_km && doc.kilometres != null) {
         entry.km += doc.kilometres;
-      } else {
-        entry.estimatedKm += doc.estimated_km || 0;
       }
       if (doc.platform) entry.platforms.add(doc.platform);
     }
@@ -402,7 +401,7 @@ export function useDocumentsDB() {
       income: data.income,
       km: data.km,
       estimatedKm: data.estimatedKm,
-      totalKm: data.km + data.estimatedKm,
+      totalKm: data.estimatedKm,
       platforms: Array.from(data.platforms),
     }));
   };
