@@ -281,7 +281,7 @@ ${expenses
           <BusinessPercentageRing percentage={businessPercentage} size={140} />
           <p className="text-xs text-muted-foreground mt-2 text-center">
             {odometerTotalKm !== null 
-              ? (estimation.totalEstimatedKm > tripStats.businessKilometres
+              ? (documentBusinessKm > tripStats.businessKilometres
                 ? 'Includes CRA-defensible estimated KM'
                 : 'Based on odometer readings (CRA compliant)')
               : 'Based on logged trips only'}

@@ -106,13 +106,17 @@ export function OdometerCard({ year }: OdometerCardProps) {
             <div>
               <p className="text-xs text-muted-foreground">Start</p>
               <p className="font-semibold">
-                {reading?.start_reading ? reading.start_reading.toLocaleString() : '—'}
+                {reading?.start_reading !== null && reading?.start_reading !== undefined
+                  ? reading.start_reading.toLocaleString()
+                  : '—'}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">End</p>
               <p className="font-semibold">
-                {reading?.end_reading ? reading.end_reading.toLocaleString() : '—'}
+                {reading?.end_reading !== null && reading?.end_reading !== undefined
+                  ? reading.end_reading.toLocaleString()
+                  : '—'}
               </p>
             </div>
             <div>
