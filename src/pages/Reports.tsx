@@ -19,6 +19,8 @@ import { useExpensesDB } from '@/hooks/useExpensesDB';
 import { useOdometerDB } from '@/hooks/useOdometerDB';
 import { useDocumentsDB } from '@/hooks/useDocumentsDB';
 import { useOdometerGapsDB } from '@/hooks/useOdometerGapsDB';
+import { useKmEstimation } from '@/hooks/useKmEstimation';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
 import { generateFullExcelReport } from '@/lib/excelExport';
@@ -33,7 +35,7 @@ export default function Reports() {
   const { trips, loading: tripsLoading, getStats: getTripStats, getTripsByYear } = useTripsDB();
   const { expenses, loading: expensesLoading, getTotalByCategory, getExpensesByYear } = useExpensesDB();
   const { readings: odometerReadings, loading: odometerLoading, getReadingForYear, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
-  const { documents, getDocumentsByYear, getMonthlyBusinessSummary, getRatio } = useDocumentsDB();
+  const { documents, getDocumentsByYear, getMonthlyBusinessSummary, getRatio, ratios } = useDocumentsDB();
   const { getGapForYear } = useOdometerGapsDB();
 
   const year = parseInt(selectedYear);
@@ -43,11 +45,36 @@ export default function Reports() {
   const yearDocs = getDocumentsByYear(year);
   const gap = getGapForYear(year);
   const ratio = getRatio(year);
+
+  // KM Estimation (same logic as Dashboard)
+  const priorYear = year - 1;
+  const currentYearTrips = trips.filter(t => parseLocalDate(t.date).getFullYear() === year);
+  const priorYearTrips = trips.filter(t => parseLocalDate(t.date).getFullYear() === priorYear);
+  const monthlyIncome = new Map<number, number>();
+  documents
+    .filter(d => d.period_year === year && d.income_amount && d.income_amount > 0)
+    .forEach(d => {
+      monthlyIncome.set(d.period_month, (monthlyIncome.get(d.period_month) || 0) + d.income_amount!);
+    });
+  const currentYearRatios = ratios.filter(r => r.year === year);
+  const priorYearRatios = ratios.filter(r => r.year === priorYear);
+  const estimation = useKmEstimation({
+    currentYearTrips,
+    priorYearTrips,
+    currentYearRatios,
+    priorYearRatios,
+    allRatios: ratios,
+    monthlyIncome,
+    currentYear: year,
+  });
+
+  // Use estimated KM if higher than logged
+  const effectiveBusinessKm = Math.max(tripStats.businessKilometres, estimation.totalEstimatedKm);
   
   // Use odometer-based percentage if available
   const businessPercentage = odometerTotalKm !== null
-    ? getBusinessPercentage(year, tripStats.businessKilometres)
-    : tripStats.businessPercentage;
+    ? getBusinessPercentage(year, effectiveBusinessKm)
+    : (tripStats.totalKilometres > 0 ? (effectiveBusinessKm / tripStats.totalKilometres) * 100 : 0);
 
   const categoryTotals = getTotalByCategory(year);
   const totalExpenses = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0);
@@ -101,8 +128,8 @@ ODOMETER RECONCILIATION:
 MILEAGE SUMMARY
 ============================================
 Total Kilometres: ${totalKm.toFixed(1)} km
-Business Kilometres: ${tripStats.businessKilometres.toFixed(1)} km
-Personal Kilometres: ${(totalKm - tripStats.businessKilometres).toFixed(1)} km
+Business Kilometres: ${effectiveBusinessKm.toFixed(1)} km
+Personal Kilometres: ${(totalKm - effectiveBusinessKm).toFixed(1)} km
 
 BUSINESS-USE PERCENTAGE: ${businessPercentage.toFixed(1)}%
 ${odometerTotalKm !== null ? '(Calculated from odometer readings - CRA compliant)' : '(Calculated from logged trips only)'}
@@ -275,14 +302,16 @@ ${expenses
           <BusinessPercentageRing percentage={businessPercentage} size={140} />
           <p className="text-xs text-muted-foreground mt-2 text-center">
             {odometerTotalKm !== null 
-              ? 'Based on odometer readings' 
+              ? (estimation.totalEstimatedKm > tripStats.businessKilometres
+                ? 'Includes CRA-defensible estimated KM'
+                : 'Based on odometer readings (CRA compliant)')
               : 'Based on logged trips only'}
           </p>
           <div className="mt-4 grid grid-cols-2 gap-6 w-full text-center">
             <div>
               <p className="text-xs text-muted-foreground">Business</p>
               <p className="text-lg font-bold text-primary">
-                {tripStats.businessKilometres.toFixed(0)} km
+                {effectiveBusinessKm.toFixed(0)} km
               </p>
             </div>
             <div>
