@@ -128,8 +128,8 @@ ODOMETER RECONCILIATION:
 MILEAGE SUMMARY
 ============================================
 Total Kilometres: ${totalKm.toFixed(1)} km
-Business Kilometres: ${tripStats.businessKilometres.toFixed(1)} km
-Personal Kilometres: ${(totalKm - tripStats.businessKilometres).toFixed(1)} km
+Business Kilometres: ${effectiveBusinessKm.toFixed(1)} km
+Personal Kilometres: ${(totalKm - effectiveBusinessKm).toFixed(1)} km
 
 BUSINESS-USE PERCENTAGE: ${businessPercentage.toFixed(1)}%
 ${odometerTotalKm !== null ? '(Calculated from odometer readings - CRA compliant)' : '(Calculated from logged trips only)'}
