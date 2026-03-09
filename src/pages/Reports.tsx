@@ -398,7 +398,14 @@ ${expenses
           <Button 
             onClick={async () => {
               try {
-                await generateDeliveryExpensesExcel(expenses, year);
+                const odometerData = odometerReading && odometerTotalKm !== null ? {
+                  startReading: odometerReading.start_reading,
+                  endReading: odometerReading.end_reading!,
+                  totalKm: odometerTotalKm,
+                  businessKm: effectiveBusinessKm,
+                  businessPercent: businessPercentage,
+                } : undefined;
+                await generateDeliveryExpensesExcel(expenses, year, odometerData);
                 toast.success('Delivery Expenses Excel downloaded');
               } catch (error) {
                 console.error('Export error:', error);
