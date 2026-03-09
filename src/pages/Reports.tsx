@@ -381,7 +381,14 @@ ${expenses
           <Button 
             onClick={async () => {
               try {
-                await generateSaladMasterExcel(expenses, year);
+                const odometerInfo = odometerReading && odometerTotalKm !== null ? {
+                  startReading: odometerReading.start_reading,
+                  endReading: odometerReading.end_reading!,
+                  totalKm: odometerTotalKm,
+                  businessKm: effectiveBusinessKm,
+                  businessPercent: businessPercentage,
+                } : undefined;
+                await generateSaladMasterExcel(expenses, year, odometerInfo);
                 toast.success('Salad Master Excel downloaded');
               } catch (error) {
                 console.error('Export error:', error);
