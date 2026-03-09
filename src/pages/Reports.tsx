@@ -44,30 +44,12 @@ export default function Reports() {
   const gap = getGapForYear(year);
   const ratio = getRatio(year);
 
-  // KM Estimation (same logic as Dashboard)
-  const priorYear = year - 1;
-  const currentYearTrips = trips.filter(t => parseLocalDate(t.date).getFullYear() === year);
-  const priorYearTrips = trips.filter(t => parseLocalDate(t.date).getFullYear() === priorYear);
-  const monthlyIncome = new Map<number, number>();
-  documents
-    .filter(d => d.period_year === year && d.income_amount && d.income_amount > 0)
-    .forEach(d => {
-      monthlyIncome.set(d.period_month, (monthlyIncome.get(d.period_month) || 0) + d.income_amount!);
-    });
-  const currentYearRatios = ratios.filter(r => r.year === year);
-  const priorYearRatios = ratios.filter(r => r.year === priorYear);
-  const estimation = useKmEstimation({
-    currentYearTrips,
-    priorYearTrips,
-    currentYearRatios,
-    priorYearRatios,
-    allRatios: ratios,
-    monthlyIncome,
-    currentYear: year,
-  });
+  // Include document KM (verified + estimated) so reports match Business Activity
+  const monthlyData = getMonthlyBusinessSummary(year);
+  const documentBusinessKm = monthlyData.reduce((sum, month) => sum + month.totalKm, 0);
 
-  // Use estimated KM if higher than logged
-  const effectiveBusinessKm = Math.max(tripStats.businessKilometres, estimation.totalEstimatedKm);
+  // Use the highest defensible business KM source
+  const effectiveBusinessKm = Math.max(tripStats.businessKilometres, documentBusinessKm);
   
   // Use odometer-based percentage if available
   const businessPercentage = odometerTotalKm !== null
