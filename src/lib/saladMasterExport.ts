@@ -78,7 +78,7 @@ export function classifyExpense(expense: any): string {
       vendor.includes('bc ferries') || vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
       vendor.includes('bc transit') || vendor.includes('compass') || 
       (vendor.includes('city') && vendor.includes('taxi')) ||
-      vendor.includes('uber')) {
+      vendor.includes('uber') || vendor.includes('paypal uber')) {
     return 'transportation';
   }
 
@@ -93,13 +93,14 @@ export function classifyExpense(expense: any): string {
   }
 
   // Haircut / grooming
-  if (vendor.includes('sonu hair') || vendor.includes('haircut')) {
+  if (vendor.includes('sonu hair') || vendor.includes('haircut') || vendor.includes('barber')) {
     return 'grooming';
   }
 
-  // Clothing
+  // Clothing / shoes
   if (vendor.includes('winners') || vendor.includes('old navy') || vendor.includes('foot locker') ||
-      vendor.includes('homesense')) {
+      vendor.includes('homesense') || vendor.includes('marshalls') || vendor.includes('h&m') ||
+      vendor.includes('uniqlo') || vendor.includes('walmart') && notes.includes('cloth')) {
     return 'clothing';
   }
 
@@ -116,11 +117,15 @@ export function classifyExpense(expense: any): string {
       vendor.includes('dragon wok') || vendor.includes('freshslice') || vendor.includes('pizza') ||
       vendor.includes('ricardos') || vendor.includes('torquay') || vendor.includes('rock salt') ||
       vendor.includes('rhino coffee') || vendor.includes('doordash') ||
+      vendor.includes('yeungs') || vendor.includes('halibut') || vendor.includes('felicitas') ||
+      vendor.includes('mcdonalds') || vendor.includes("mcdonald's") || vendor.includes('wendy') ||
+      vendor.includes('kfc') || vendor.includes('popeyes') || vendor.includes('white spot') ||
+      vendor.includes('earls') || vendor.includes('cactus club') || vendor.includes('boston pizza') ||
       (vendor === 'aw' || vendor.startsWith('aw '))) {
     return 'entertainment';
   }
 
-  // Pharmacy / medical
+  // Pharmacy / medical / fitness
   if (vendor.includes('pharmasave') || vendor.includes('london drugs') ||
       vendor.includes('fit4less') || vendor.includes('goodlife') ||
       vendor.includes('medicare') || vendor.includes('shoppers drug')) {
@@ -134,7 +139,7 @@ export function classifyExpense(expense: any): string {
 
   // Lovable / software / professional
   if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
-      vendor.includes('scarface trade')) {
+      vendor.includes('scarface trade') || vendor.includes('staples')) {
     return 'professional_fees';
   }
 
@@ -148,7 +153,7 @@ export function classifyExpense(expense: any): string {
     return 'phone_internet';
   }
 
-  // Donations / gifts / advertising
+  // Donations / gifts / advertising / liquor
   if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
       vendor.includes('donation') || vendor.includes('fundrais') ||
       vendor.includes('4 mile liquor') || vendor.includes('liquor co') ||
@@ -156,12 +161,22 @@ export function classifyExpense(expense: any): string {
     return 'advertising';
   }
 
+  // Online shopping (Amazon, Temu, etc.) → grocery/supplies
+  if (vendor.includes('amazon') || vendor.includes('temu')) {
+    return 'grocery';
+  }
+
+  // Walmart → grocery
+  if (vendor.includes('walmart')) {
+    return 'grocery';
+  }
+
   // Dollarama / dollar stores → grocery/supplies
   if (vendor.includes('dollarama') || vendor.includes('dollar')) {
     return 'grocery';
   }
 
-  // Default: grocery/supplies
+  // Default: grocery/supplies (Thrifty Foods, Western Foods, Save-On, etc.)
   return 'grocery';
 }
 
@@ -262,10 +277,10 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
-  // Filter to business expenses for the year
+  // Include ALL expenses for the year (personal + business) to match user's template
   const yearExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
-    return d.getFullYear() === year && e.purpose === 'business' && !e.deleted_at;
+    return d.getFullYear() === year && !e.deleted_at;
   });
 
   // --- HEADER ROWS ---
