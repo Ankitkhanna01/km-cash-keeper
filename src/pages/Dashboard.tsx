@@ -32,11 +32,14 @@ export default function Dashboard() {
   const expenseStats = getExpenseStats(currentYear);
   const uncategorizedTrips = getUncategorizedTrips();
 
-  // Use estimated KM if higher than logged, otherwise use logged
-  const effectiveBusinessKm = Math.max(tripStats.businessKilometres, estimatedBusinessKm);
+  // Use estimated KM if higher than logged, but cap at odometer total if available
+  const odometerTotalKm = getTotalKmForYear(currentYear);
+  const uncappedBusinessKm = Math.max(tripStats.businessKilometres, estimatedBusinessKm);
+  const effectiveBusinessKm = odometerTotalKm !== null
+    ? Math.min(uncappedBusinessKm, odometerTotalKm)
+    : uncappedBusinessKm;
 
   // Use odometer-based percentage if available, otherwise fall back to trip-based
-  const odometerTotalKm = getTotalKmForYear(currentYear);
   const businessPercentage = odometerTotalKm !== null
     ? getBusinessPercentage(currentYear, effectiveBusinessKm)
     : (tripStats.totalKilometres > 0 ? (effectiveBusinessKm / tripStats.totalKilometres) * 100 : 0);

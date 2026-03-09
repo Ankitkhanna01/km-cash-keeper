@@ -48,8 +48,11 @@ export default function Reports() {
   const monthlyData = getMonthlyBusinessSummary(year);
   const documentBusinessKm = monthlyData.reduce((sum, month) => sum + month.totalKm, 0);
 
-  // Use the highest defensible business KM source
-  const effectiveBusinessKm = Math.max(tripStats.businessKilometres, documentBusinessKm);
+  // Use the highest defensible business KM source, but cap at odometer total if available
+  const uncappedBusinessKm = Math.max(tripStats.businessKilometres, documentBusinessKm);
+  const effectiveBusinessKm = odometerTotalKm !== null
+    ? Math.min(uncappedBusinessKm, odometerTotalKm)
+    : uncappedBusinessKm;
   
   // Use odometer-based percentage if available
   const businessPercentage = odometerTotalKm !== null
