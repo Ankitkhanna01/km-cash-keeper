@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTripsDB } from '@/hooks/useTripsDB';
 import { useExpensesDB } from '@/hooks/useExpensesDB';
 import { useOdometerDB } from '@/hooks/useOdometerDB';
+import { useDocumentsDB } from '@/hooks/useDocumentsDB';
 import { Car, Receipt, Briefcase, TrendingUp, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ export default function Dashboard() {
   const { trips, loading: tripsLoading, getStats: getTripStats, getUncategorizedTrips } = useTripsDB();
   const { expenses, loading: expensesLoading, getStats: getExpenseStats } = useExpensesDB();
   const { loading: odometerLoading, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
+  const { loading: documentsLoading, getRatio } = useDocumentsDB();
 
   const [showBusinessKm, setShowBusinessKm] = useState(false);
   const [showTotalKm, setShowTotalKm] = useState(false);
@@ -32,9 +34,11 @@ export default function Dashboard() {
   const expenseStats = getExpenseStats(currentYear);
   const uncategorizedTrips = getUncategorizedTrips();
 
+  const ratioBusinessKm = getRatio(currentYear)?.total_km ?? 0;
+
   // Use estimated KM if higher than logged, but cap at odometer total if available
   const odometerTotalKm = getTotalKmForYear(currentYear);
-  const uncappedBusinessKm = Math.max(tripStats.businessKilometres, estimatedBusinessKm);
+  const uncappedBusinessKm = Math.max(tripStats.businessKilometres, estimatedBusinessKm, ratioBusinessKm);
   const effectiveBusinessKm = odometerTotalKm !== null
     ? Math.min(uncappedBusinessKm, odometerTotalKm)
     : uncappedBusinessKm;
@@ -44,7 +48,7 @@ export default function Dashboard() {
     ? getBusinessPercentage(currentYear, effectiveBusinessKm)
     : (tripStats.totalKilometres > 0 ? (effectiveBusinessKm / tripStats.totalKilometres) * 100 : 0);
 
-  const loading = tripsLoading || expensesLoading || odometerLoading;
+  const loading = tripsLoading || expensesLoading || odometerLoading || documentsLoading;
 
   if (loading) {
     return (
