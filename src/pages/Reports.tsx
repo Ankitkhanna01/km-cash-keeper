@@ -63,7 +63,7 @@ export default function Reports() {
     ? getBusinessPercentage(year, effectiveBusinessKm)
     : (tripStats.totalKilometres > 0 ? (effectiveBusinessKm / tripStats.totalKilometres) * 100 : 0);
 
-  const categoryTotals = getTotalByCategory(year);
+  const categoryTotals = getTotalByCategory(year, true);
   const totalExpenses = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0);
   const deductibleAmount = totalExpenses * (businessPercentage / 100);
 
