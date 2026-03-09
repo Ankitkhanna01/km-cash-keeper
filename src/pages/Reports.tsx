@@ -20,7 +20,6 @@ import { useOdometerDB } from '@/hooks/useOdometerDB';
 import { useDocumentsDB } from '@/hooks/useDocumentsDB';
 import { useOdometerGapsDB } from '@/hooks/useOdometerGapsDB';
 import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
-import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
 import { generateFullExcelReport } from '@/lib/excelExport';
 import { generateShortExcel, generateElaborateExcel } from '@/lib/transactionExcelExport';
