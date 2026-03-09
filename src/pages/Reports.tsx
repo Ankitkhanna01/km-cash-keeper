@@ -309,7 +309,7 @@ ${expenses
             <div>
               <p className="text-xs text-muted-foreground">Business</p>
               <p className="text-lg font-bold text-primary">
-                {tripStats.businessKilometres.toFixed(0)} km
+                {effectiveBusinessKm.toFixed(0)} km
               </p>
             </div>
             <div>
