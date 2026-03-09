@@ -33,7 +33,7 @@ export default function Reports() {
   const { trips, loading: tripsLoading, getStats: getTripStats, getTripsByYear } = useTripsDB();
   const { expenses, loading: expensesLoading, getTotalByCategory, getExpensesByYear } = useExpensesDB();
   const { readings: odometerReadings, loading: odometerLoading, getReadingForYear, getBusinessPercentage, getTotalKmForYear } = useOdometerDB();
-  const { documents, getDocumentsByYear, getMonthlyBusinessSummary, getRatio, ratios } = useDocumentsDB();
+  const { getDocumentsByYear, getMonthlyBusinessSummary, getRatio } = useDocumentsDB();
   const { getGapForYear } = useOdometerGapsDB();
 
   const year = parseInt(selectedYear);
