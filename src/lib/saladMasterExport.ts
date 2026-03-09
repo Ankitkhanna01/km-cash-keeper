@@ -48,7 +48,7 @@ export function classifyExpense(expense: any): string {
   if (category === 'fuel' || vendor.includes('esso') || vendor.includes('petro') || 
       vendor.includes('chevron') || vendor.includes('shell') || vendor.includes('mobil') ||
       vendor.includes('hi quadra') || vendor.includes('hi-quadra') ||
-      vendor.includes('7-eleven') && notes.includes('gas')) {
+      (vendor.includes('7-eleven') && notes.includes('gas'))) {
     return 'gas';
   }
 
@@ -64,8 +64,7 @@ export function classifyExpense(expense: any): string {
 
   // Repairs & Maintenance
   if (category === 'repairs' || vendor.includes('mr. lube') || vendor.includes('mr lube') ||
-      vendor.includes('tennyson auto') || vendor.includes('gs auto') || vendor.includes('canadian tire') ||
-      vendor.includes('dr. phone')) {
+      vendor.includes('tennyson auto') || vendor.includes('gs auto') || vendor.includes('canadian tire')) {
     return 'repairs';
   }
 
@@ -74,10 +73,11 @@ export function classifyExpense(expense: any): string {
     return 'car';
   }
 
-  // Car share / transportation
+  // Car share / transportation (Modo, EVO)
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
       vendor.includes('bc ferries') || vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
-      vendor.includes('bc transit') || vendor.includes('compass') || vendor.includes('city') && vendor.includes('taxi') ||
+      vendor.includes('bc transit') || vendor.includes('compass') || 
+      (vendor.includes('city') && vendor.includes('taxi')) ||
       vendor.includes('uber')) {
     return 'transportation';
   }
@@ -165,8 +165,101 @@ export function classifyExpense(expense: any): string {
   return 'grocery';
 }
 
-export async function generateSaladMasterExcel(expenses: any[], year: number): Promise<void> {
+// Helper to add CRA instructions sheet for accountant
+function addCRAInstructionsSheet(workbook: ExcelJS.Workbook, year: number, businessType: string, odometerData?: OdometerExportData) {
+  const ws = workbook.addWorksheet('CRA Instructions');
+  
+  const titleRow = ws.addRow([`CRA FILING INSTRUCTIONS FOR ACCOUNTANT — ${year}`]);
+  titleRow.font = { bold: true, size: 16 };
+  ws.addRow([`Business Type: ${businessType}`]);
+  ws.getRow(2).font = { bold: true, size: 12 };
+  ws.addRow([`Prepared: ${format(new Date(), 'MMMM d, yyyy')}`]);
+  ws.addRow([]);
+  
+  // Vehicle section
+  ws.addRow(['═══ VEHICLE EXPENSES (Form T2125, Part 7) ═══']);
+  ws.getRow(5).font = { bold: true, size: 13, color: { argb: 'FF1F4E79' } };
+  ws.addRow([]);
+  
+  if (odometerData) {
+    ws.addRow(['ODOMETER READINGS (CRA Required)']);
+    ws.getRow(ws.rowCount).font = { bold: true, size: 11 };
+    ws.addRow(['', 'Start of Year (Jan 1):', `${odometerData.startReading.toLocaleString()} km`]);
+    ws.addRow(['', 'End of Year (Dec 31):', `${odometerData.endReading.toLocaleString()} km`]);
+    ws.addRow(['', 'Total Kilometres Driven:', `${odometerData.totalKm.toLocaleString()} km`]);
+    ws.addRow([]);
+    ws.addRow(['BUSINESS-USE CALCULATION']);
+    ws.getRow(ws.rowCount).font = { bold: true, size: 11 };
+    ws.addRow(['', 'Business Kilometres:', `${odometerData.businessKm.toLocaleString()} km`]);
+    ws.addRow(['', 'Personal Kilometres:', `${(odometerData.totalKm - odometerData.businessKm).toLocaleString()} km`]);
+    const pctRow = ws.addRow(['', 'Business-Use Percentage:', `${odometerData.businessPercent.toFixed(1)}%`]);
+    pctRow.font = { bold: true, size: 12, color: { argb: 'FF006100' } };
+    ws.addRow([]);
+    ws.addRow(['CAR PURCHASE DETAILS (Capital Cost Allowance - CCA)']);
+    ws.getRow(ws.rowCount).font = { bold: true, size: 11 };
+    ws.addRow(['', 'Purchase Date:', 'July 15, 2025']);
+    ws.addRow(['', 'Purchase Price:', '$8,000.00']);
+    ws.addRow(['', 'Business-Use %:', `${odometerData.businessPercent.toFixed(1)}%`]);
+    ws.addRow(['', 'Business Portion:', `$${(8000 * odometerData.businessPercent / 100).toFixed(2)}`]);
+    ws.addRow(['', 'CCA Class:', 'Class 10 (30% declining balance) or Class 10.1 if luxury']);
+    ws.addRow(['', 'First Year Rule:', 'Half-year rule applies — only 50% of CCA in year of acquisition']);
+    ws.addRow(['', 'Note:', 'Car was purchased mid-year. CCA is calculated on business portion only.']);
+    ws.addRow([]);
+  }
+  
+  ws.addRow(['═══ WHAT ACCOUNTANT NEEDS TO FILE WITH CRA ═══']);
+  ws.getRow(ws.rowCount).font = { bold: true, size: 13, color: { argb: 'FF1F4E79' } };
+  ws.addRow([]);
+  
+  const instructions = [
+    ['1. Form T2125', 'Statement of Business or Professional Activities — report all self-employment income and expenses'],
+    ['2. Vehicle Expenses (Part 7)', 'Enter total vehicle expenses and multiply by business-use percentage'],
+    ['   Line 9281', 'Fuel costs (gas, car share fuel component)'],
+    ['   Line 9282', 'Motor vehicle insurance'],
+    ['   Line 9283', 'Licence and registration'],
+    ['   Line 9284', 'Maintenance and repairs'],
+    ['   Line 9936', 'Capital Cost Allowance (car purchase depreciation)'],
+    ['3. Business-Use %', `${odometerData?.businessPercent.toFixed(1) ?? 'N/A'}% — calculated from odometer readings`],
+    ['4. Odometer Log', 'Must show start/end readings for the year — provided in this spreadsheet'],
+    ['5. Mileage Log', 'Daily trip log with dates, destinations, km — available in separate trip report'],
+    ['6. Receipts', 'All receipts for expenses >$75 should be kept for 6 years'],
+    ['', ''],
+    ['═══ IMPORTANT NOTES ═══', ''],
+    ['Meals & Entertainment', 'Only 50% deductible per CRA rules (already flagged in Salad Master sheet)'],
+    ['Car Share (Modo/EVO)', 'Classified as transportation expense — fully deductible at business-use %'],
+    ['Home Office', 'If applicable, use Form T2125 Part 6 — calculate based on sq footage used'],
+    ['GST/HST', 'If registered, file GST/HST return separately. Input Tax Credits (ITCs) may be claimed.'],
+    ['Keep Records', 'CRA requires you to keep all records for 6 years from the date of filing'],
+  ];
+  
+  instructions.forEach(([col1, col2]) => {
+    const row = ws.addRow(['', col1, col2]);
+    if (col1.startsWith('═══') || col1.match(/^\d\./)) {
+      row.font = { bold: true };
+    }
+  });
+  
+  ws.getColumn(1).width = 4;
+  ws.getColumn(2).width = 35;
+  ws.getColumn(3).width = 80;
+  
+  return ws;
+}
+
+interface OdometerExportData {
+  startReading: number;
+  endReading: number;
+  totalKm: number;
+  businessKm: number;
+  businessPercent: number;
+}
+
+export async function generateSaladMasterExcel(expenses: any[], year: number, odometerData?: OdometerExportData): Promise<void> {
   const workbook = new ExcelJS.Workbook();
+  
+  // CRA Instructions sheet FIRST
+  addCRAInstructionsSheet(workbook, year, 'Salad Master / NutriSystem / Direct Sales', odometerData);
+  
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
   // Filter to business expenses for the year
@@ -228,7 +321,6 @@ export async function generateSaladMasterExcel(expenses: any[], year: number): P
       }
     });
 
-    const firstCol = 'B';
     const lastColLetter = String.fromCharCode(65 + SM_COLUMNS.length);
     const totalCell = dataRow.getCell(SM_COLUMNS.length + 2);
     totalCell.value = { formula: `SUM(B${rowNum}:${lastColLetter}${rowNum})` } as any;
@@ -258,6 +350,19 @@ export async function generateSaladMasterExcel(expenses: any[], year: number): P
   grandTotalCell.value = { formula: `SUM(B${totalsRow.number}:${lastColL}${totalsRow.number})` } as any;
   grandTotalCell.numFmt = '#,##0.00';
   grandTotalCell.font = { bold: true };
+
+  // --- EXTRA NOTES ROWS (matching user's template) ---
+  ws.addRow([]);
+  ws.addRow([]);
+  ws.addRow([]);
+  if (odometerData) {
+    ws.addRow(['Car Purchase', '$8,000.00', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', `Business Use: ${odometerData.businessPercent.toFixed(1)}%`]);
+    ws.addRow(['Odometer Start', `${odometerData.startReading.toLocaleString()} km`]);
+    ws.addRow(['Odometer End', `${odometerData.endReading.toLocaleString()} km`]);
+    ws.addRow(['Total KM', `${odometerData.totalKm.toLocaleString()} km`]);
+    ws.addRow(['Business KM', `${odometerData.businessKm.toLocaleString()} km`]);
+    ws.addRow(['Business %', `${odometerData.businessPercent.toFixed(1)}%`]);
+  }
 
   // --- DETAIL SHEET ---
   const detailWs = workbook.addWorksheet('Transaction Details');
@@ -302,28 +407,28 @@ export async function generateSaladMasterExcel(expenses: any[], year: number): P
   saveAs(blob, `TAX_RETURN_SPREADSHEET_SALAD_MASTER_${year}.xlsx`);
 }
 
-export async function generateDeliveryExpensesExcel(expenses: any[], year: number, odometerData?: { startReading: number; endReading: number; totalKm: number; businessKm: number; businessPercent: number }): Promise<void> {
+export async function generateDeliveryExpensesExcel(expenses: any[], year: number, odometerData?: OdometerExportData): Promise<void> {
   const workbook = new ExcelJS.Workbook();
+  
+  // CRA Instructions sheet FIRST
+  addCRAInstructionsSheet(workbook, year, 'Delivery Driver (Uber/DoorDash/Skip)', odometerData);
   
   // All vehicle/delivery-related categories
   const deliveryCategories = ['fuel', 'repairs', 'insurance', 'licence', 'interest', 'parking', 'leasing'];
   
-  // Also include business expenses classified as vehicle-related by vendor
   const yearExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
     if (d.getFullYear() !== year || e.deleted_at) return false;
     if (e.purpose !== 'business') return false;
     
-    // Include by category
     if (deliveryCategories.includes(e.category)) return true;
     
-    // Include by SM classification (vehicle-related columns)
     const smClass = classifyExpense(e);
     return ['gas', 'car', 'car_maintenance', 'car_gas', 'drivers_insurance', 
             'car_wash', 'transportation', 'licence', 'repairs'].includes(smClass);
   }).sort((a: any, b: any) => a.date.localeCompare(b.date));
 
-  // --- VEHICLE SUMMARY SHEET (for accountant) ---
+  // --- VEHICLE SUMMARY SHEET ---
   const vehicleWs = workbook.addWorksheet('Vehicle Summary');
   vehicleWs.addRow(['CRA Form T2125 - Vehicle Expense Report']);
   vehicleWs.getRow(1).font = { bold: true, size: 16 };
@@ -344,18 +449,31 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
     vehicleWs.getRow(10).font = { bold: true, size: 12 };
     vehicleWs.addRow(['Business Kilometres', `${odometerData.businessKm.toLocaleString()} km`]);
     vehicleWs.addRow(['Personal Kilometres', `${(odometerData.totalKm - odometerData.businessKm).toLocaleString()} km`]);
-    vehicleWs.addRow(['Business-Use Percentage', `${odometerData.businessPercent.toFixed(1)}%`]);
+    const pctRow = vehicleWs.addRow(['Business-Use Percentage', `${odometerData.businessPercent.toFixed(1)}%`]);
+    pctRow.font = { bold: true, size: 13, color: { argb: 'FF006100' } };
+    vehicleWs.addRow([]);
+
+    // Car purchase details
+    vehicleWs.addRow(['CAR PURCHASE / CAPITAL COST ALLOWANCE (CCA)']);
+    vehicleWs.getRow(vehicleWs.rowCount).font = { bold: true, size: 12 };
+    vehicleWs.addRow(['Purchase Date', 'July 15, 2025']);
+    vehicleWs.addRow(['Purchase Price', '$8,000.00']);
+    vehicleWs.addRow(['Business-Use Portion', `$${(8000 * odometerData.businessPercent / 100).toFixed(2)}`]);
+    vehicleWs.addRow(['CCA Class', 'Class 10 — 30% declining balance rate']);
+    vehicleWs.addRow(['Half-Year Rule', 'Applies in year of acquisition (50% of CCA claim)']);
+    vehicleWs.addRow(['Year 1 CCA Estimate', `$${(8000 * odometerData.businessPercent / 100 * 0.30 * 0.50).toFixed(2)}`]);
+    vehicleWs.addRow(['Note', 'Accountant to confirm CCA class and calculate final amount']);
+    vehicleWs.addRow([]);
   } else {
     vehicleWs.addRow(['No odometer data recorded']);
   }
-  vehicleWs.addRow([]);
 
-  // Expense summary by T2125 category
+  // Expense summary
   const summaryStartRow = vehicleWs.rowCount + 1;
   vehicleWs.addRow(['EXPENSE SUMMARY BY T2125 CATEGORY']);
   vehicleWs.getRow(summaryStartRow).font = { bold: true, size: 12 };
   
-  const summaryHeaderRow = vehicleWs.addRow(['Category', 'Total Amount', 'Count', 'Deductible Amount']);
+  const summaryHeaderRow = vehicleWs.addRow(['Category', 'Total Amount', 'Count', 'Deductible Amount (at business %)']);
   summaryHeaderRow.font = { bold: true };
   summaryHeaderRow.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
@@ -363,13 +481,13 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
   });
 
   const t2125Categories: Record<string, string> = {
-    gas: 'Fuel / Gas',
-    repairs: 'Repairs & Maintenance',
+    gas: 'Fuel / Gas (Line 9281)',
+    repairs: 'Repairs & Maintenance (Line 9284)',
     car_wash: 'Car Wash',
-    drivers_insurance: 'Vehicle Insurance (ICBC)',
-    licence: 'Licence & Registration',
-    transportation: 'Transportation (Car Share, Taxi)',
-    car: 'Capital Cost (Car Purchase)',
+    drivers_insurance: 'Vehicle Insurance - ICBC (Line 9282)',
+    licence: 'Licence & Registration (Line 9283)',
+    transportation: 'Transportation (Modo/EVO Car Share)',
+    car: 'Capital Cost - Car Purchase (Line 9936/CCA)',
     car_maintenance: 'Car Maintenance',
     car_gas: 'Gas (Car)',
     interest: 'Interest / Leasing',
@@ -396,16 +514,16 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
 
   vehicleWs.addRow([]);
   const totalRow = vehicleWs.addRow(['TOTAL', grandTotal, yearExpenses.length, grandTotal * (businessPct / 100)]);
-  totalRow.font = { bold: true };
+  totalRow.font = { bold: true, size: 12 };
   totalRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
   totalRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
   totalRow.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
 
-  vehicleWs.getColumn(1).width = 40;
+  vehicleWs.getColumn(1).width = 45;
   vehicleWs.getColumn(2).width = 18;
   vehicleWs.getColumn(2).numFmt = '$#,##0.00';
   vehicleWs.getColumn(3).width = 10;
-  vehicleWs.getColumn(4).width = 20;
+  vehicleWs.getColumn(4).width = 25;
   vehicleWs.getColumn(4).numFmt = '$#,##0.00';
 
   // --- MONTHLY BREAKDOWN SHEET ---
@@ -439,7 +557,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
     mTotalRow.getCell(i + 1).numFmt = '$#,##0.00';
   }
 
-  monthlyWs.getColumn(1).width = 40;
+  monthlyWs.getColumn(1).width = 45;
   for (let i = 2; i <= 14; i++) {
     monthlyWs.getColumn(i).width = 12;
     monthlyWs.getColumn(i).numFmt = '$#,##0.00';
@@ -447,7 +565,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
 
   // --- DETAIL SHEET ---
   const detailWs = workbook.addWorksheet('Expense Details');
-  const dHeaderRow = detailWs.addRow(['Date', 'Vendor', 'Category', 'Amount', 'Card Last 4', 'Notes']);
+  const dHeaderRow = detailWs.addRow(['Date', 'Vendor', 'Category (T2125)', 'Amount', 'Card Last 4', 'Notes']);
   dHeaderRow.font = { bold: true };
   dHeaderRow.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
@@ -468,7 +586,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
 
   detailWs.getColumn(1).width = 12;
   detailWs.getColumn(2).width = 35;
-  detailWs.getColumn(3).width = 35;
+  detailWs.getColumn(3).width = 40;
   detailWs.getColumn(4).width = 12;
   detailWs.getColumn(4).numFmt = '$#,##0.00';
   detailWs.getColumn(5).width = 12;
@@ -515,7 +633,9 @@ export async function generateExpensesReceiptExcel(expenses: any[], year: number
       let isFirstLine = true;
       lines.forEach((line: string) => {
         const trimmed = line.trim();
-        // Pattern: "Item Name (xN) - $price" or "Item Name (N.N kg) - $price" or "Item Name - $price"
+        // Skip non-item lines
+        if (trimmed.startsWith('Added from statement') || trimmed.startsWith('Statement verified') || trimmed.startsWith('|')) return;
+        
         const countMatch = trimmed.match(/^(.+?)\s*\(x(\d+(?:\.\d+)?)\)\s*-\s*\$?([\d.]+)/i);
         const weightMatch = trimmed.match(/^(.+?)\s*\((\d+(?:\.\d+)?)\s*(kg|g|lb|oz|L|ml|l)\)\s*-\s*\$?([\d.]+)/i);
         const simpleMatch = trimmed.match(/^(.+?)\s*-\s*\$?([\d.]+)$/);
@@ -540,7 +660,7 @@ export async function generateExpensesReceiptExcel(expenses: any[], year: number
           totalPrice = parseFloat(simpleMatch[2]);
           unitPrice = totalPrice;
         } else {
-          return; // skip unparseable lines
+          return;
         }
 
         ws.addRow([
@@ -550,7 +670,7 @@ export async function generateExpensesReceiptExcel(expenses: any[], year: number
           totalPrice > 0 ? totalPrice : '',
           qty,
           unitPrice > 0 ? unitPrice : '',
-          '', '', '', '', // GST, PST, Total Tax, Tip (not available from data)
+          '', '', '', '',
           isFirstLine ? Number(expense.amount) : '',
           isFirstLine ? (expense.purpose || '') : '',
           isFirstLine ? (expense.card_last4 || '') : '',
@@ -558,7 +678,6 @@ export async function generateExpensesReceiptExcel(expenses: any[], year: number
         isFirstLine = false;
       });
     } else {
-      // No line items - single row
       ws.addRow([
         formattedDate, store, expense.category || 'Item',
         Number(expense.amount), 1, Number(expense.amount),
@@ -585,7 +704,6 @@ export async function generateExpensesReceiptExcel(expenses: any[], year: number
   ws.getColumn(12).width = 10;
   ws.getColumn(13).width = 8;
 
-  // Number formats
   [4, 6, 9, 10, 11].forEach(col => { ws.getColumn(col).numFmt = '#,##0.00'; });
 
   const buffer = await workbook.xlsx.writeBuffer();
