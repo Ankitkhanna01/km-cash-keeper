@@ -47,10 +47,7 @@ export function BusinessActivityView({ year }: BusinessActivityViewProps) {
               <Route className="w-5 h-5 mx-auto text-primary mb-1" />
               <p className="text-lg font-bold">{totalKm.toFixed(0)} km</p>
               <p className="text-xs text-muted-foreground">
-                {verifiedKm > 0 && estimatedKm > 0 
-                  ? `${verifiedKm.toFixed(0)} verified + ${estimatedKm.toFixed(0)} est.`
-                  : 'Total KM'
-                }
+                {combinedRatio ? 'Ratio-based' : 'Total KM'}
               </p>
             </div>
             <div>
