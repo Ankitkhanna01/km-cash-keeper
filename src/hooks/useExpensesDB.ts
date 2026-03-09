@@ -200,8 +200,11 @@ export function useExpensesDB() {
     return expenses.filter(expense => parseLocalDate(expense.date).getFullYear() === year);
   };
 
-  const getTotalByCategory = (year?: number) => {
-    const filtered = year ? getExpensesByYear(year) : expenses;
+  const getTotalByCategory = (year?: number, businessOnly?: boolean) => {
+    let filtered = year ? getExpensesByYear(year) : expenses;
+    if (businessOnly) {
+      filtered = filtered.filter(e => e.purpose === 'business');
+    }
     return {
       fuel: filtered.filter(e => e.category === 'fuel').reduce((sum, e) => sum + e.amount, 0),
       repairs: filtered.filter(e => e.category === 'repairs').reduce((sum, e) => sum + e.amount, 0),
