@@ -86,13 +86,20 @@ export function useKmEstimation({
       combinedRatio = combinedRatios[0] || null;
     }
 
-    const currentMonth = new Date().getMonth() + 1;
+    const now = new Date();
+    const thisCalendarYear = now.getFullYear();
+    const cutoffMonth =
+      currentYear < thisCalendarYear
+        ? 12
+        : currentYear === thisCalendarYear
+          ? now.getMonth() + 1
+          : 0;
 
     const monthlyEstimates: MonthEstimate[] = [];
 
     for (let month = 1; month <= 12; month++) {
-      // Skip future months
-      if (month > currentMonth) {
+      // Skip months beyond the current month ONLY when estimating the current calendar year
+      if (cutoffMonth === 0 || month > cutoffMonth) {
         monthlyEstimates.push({
           month,
           monthName: MONTH_NAMES[month - 1],
@@ -108,7 +115,7 @@ export function useKmEstimation({
           actualTrips: 0,
           actualDaysWorked: 0,
           estimatedGap: null,
-          methodology: 'Future month',
+          methodology: cutoffMonth === 0 ? 'Future year' : 'Future month',
         });
         continue;
       }

@@ -48,8 +48,12 @@ export default function Reports() {
   const monthlyData = getMonthlyBusinessSummary(year);
   const documentBusinessKm = monthlyData.reduce((sum, month) => sum + month.totalKm, 0);
 
+  // Prefer the performance ratio total KM (Income × Ratio) when available (matches Dashboard estimation)
+  const ratioBusinessKm = ratio?.total_km ?? 0;
+  const estimatedBusinessKm = ratioBusinessKm > 0 ? ratioBusinessKm : documentBusinessKm;
+
   // Use the highest defensible business KM source, but cap at odometer total if available
-  const uncappedBusinessKm = Math.max(tripStats.businessKilometres, documentBusinessKm);
+  const uncappedBusinessKm = Math.max(tripStats.businessKilometres, estimatedBusinessKm);
   const effectiveBusinessKm = odometerTotalKm !== null
     ? Math.min(uncappedBusinessKm, odometerTotalKm)
     : uncappedBusinessKm;
@@ -284,7 +288,7 @@ ${expenses
           <BusinessPercentageRing percentage={businessPercentage} size={140} />
           <p className="text-xs text-muted-foreground mt-2 text-center">
             {odometerTotalKm !== null 
-              ? (documentBusinessKm > tripStats.businessKilometres
+              ? (estimatedBusinessKm > tripStats.businessKilometres
                 ? 'Includes CRA-defensible estimated KM'
                 : 'Based on odometer readings (CRA compliant)')
               : 'Based on logged trips only'}
