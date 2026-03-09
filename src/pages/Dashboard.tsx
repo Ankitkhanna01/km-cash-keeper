@@ -115,7 +115,7 @@ export default function Dashboard() {
         <StatCard
           title="Business KM"
           value={effectiveBusinessKm.toFixed(0)}
-          subtitle={estimatedBusinessKm > tripStats.businessKilometres 
+          subtitle={Math.max(estimatedBusinessKm, ratioBusinessKm) > tripStats.businessKilometres 
             ? `${tripStats.businessTrips} trips + estimated`
             : `${tripStats.businessTrips} trips`}
           icon={Briefcase}
