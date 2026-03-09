@@ -72,7 +72,7 @@ export function useOdometerDB() {
         const updated = {
           ...data,
           start_reading: Number(data.start_reading),
-          end_reading: data.end_reading ? Number(data.end_reading) : null,
+          end_reading: data.end_reading !== null ? Number(data.end_reading) : null,
         };
 
         setReadings(prev => prev.map(r => r.id === existing.id ? updated : r));
