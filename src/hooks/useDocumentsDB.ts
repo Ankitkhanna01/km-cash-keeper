@@ -388,8 +388,12 @@ export function useDocumentsDB() {
     for (const doc of yearDocs) {
       const entry = monthly.get(doc.period_month)!;
       entry.income += doc.income_amount || 0;
-      entry.km += doc.kilometres || 0;
-      entry.estimatedKm += doc.estimated_km || 0;
+      // Use verified km when available, otherwise fall back to estimated
+      if (doc.has_verified_km && doc.kilometres != null) {
+        entry.km += doc.kilometres;
+      } else {
+        entry.estimatedKm += doc.estimated_km || 0;
+      }
       if (doc.platform) entry.platforms.add(doc.platform);
     }
 
