@@ -23,7 +23,7 @@ import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
 import { generateFullExcelReport } from '@/lib/excelExport';
 import { generateShortExcel, generateElaborateExcel } from '@/lib/transactionExcelExport';
-import { generateSaladMasterExcel, generateDeliveryExpensesExcel } from '@/lib/saladMasterExport';
+import { generateSaladMasterExcel, generateDeliveryExpensesExcel, generateExpensesReceiptExcel } from '@/lib/saladMasterExport';
 import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, List, Table, ChefHat, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 
