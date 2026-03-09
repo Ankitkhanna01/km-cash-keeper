@@ -15,9 +15,8 @@ export function BusinessActivityView({ year }: BusinessActivityViewProps) {
   const combinedRatio = getRatio(year);
   
   const totalIncome = monthlySummary.reduce((sum, m) => sum + m.income, 0);
-  const totalKm = monthlySummary.reduce((sum, m) => sum + m.totalKm, 0);
-  const verifiedKm = monthlySummary.reduce((sum, m) => sum + m.km, 0);
-  const estimatedKm = monthlySummary.reduce((sum, m) => sum + m.estimatedKm, 0);
+  // Use the performance ratio total_km (avoids double-counting from overlapping multi-app km)
+  const totalKm = combinedRatio?.total_km ?? monthlySummary.reduce((sum, m) => sum + m.totalKm, 0);
 
   // Collect all unique platforms
   const allPlatforms = new Set<string>();
@@ -48,10 +47,7 @@ export function BusinessActivityView({ year }: BusinessActivityViewProps) {
               <Route className="w-5 h-5 mx-auto text-primary mb-1" />
               <p className="text-lg font-bold">{totalKm.toFixed(0)} km</p>
               <p className="text-xs text-muted-foreground">
-                {verifiedKm > 0 && estimatedKm > 0 
-                  ? `${verifiedKm.toFixed(0)} verified + ${estimatedKm.toFixed(0)} est.`
-                  : 'Total KM'
-                }
+                {combinedRatio ? 'Ratio-based' : 'Total KM'}
               </p>
             </div>
             <div>
