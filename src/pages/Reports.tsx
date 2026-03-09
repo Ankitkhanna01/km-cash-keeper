@@ -19,6 +19,8 @@ import { useExpensesDB } from '@/hooks/useExpensesDB';
 import { useOdometerDB } from '@/hooks/useOdometerDB';
 import { useDocumentsDB } from '@/hooks/useDocumentsDB';
 import { useOdometerGapsDB } from '@/hooks/useOdometerGapsDB';
+import { useKmEstimation } from '@/hooks/useKmEstimation';
+import { parseLocalDate } from '@/lib/dateUtils';
 import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
 import { generateFullExcelReport } from '@/lib/excelExport';
