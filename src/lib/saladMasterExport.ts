@@ -262,10 +262,10 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
-  // Filter to business expenses for the year
+  // Include ALL expenses for the year (personal + business) to match user's template
   const yearExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
-    return d.getFullYear() === year && e.purpose === 'business' && !e.deleted_at;
+    return d.getFullYear() === year && !e.deleted_at;
   });
 
   // --- HEADER ROWS ---
