@@ -23,8 +23,8 @@ import { EXPENSE_CATEGORY_LABELS, ExpenseCategory } from '@/types';
 import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
 import { generateFullExcelReport } from '@/lib/excelExport';
 import { generateShortExcel, generateElaborateExcel } from '@/lib/transactionExcelExport';
-import { generateSaladMasterExcel, generateDeliveryExpensesExcel } from '@/lib/saladMasterExport';
-import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, List, Table, ChefHat, Truck } from 'lucide-react';
+import { generateSaladMasterExcel, generateDeliveryExpensesExcel, generateExpensesReceiptExcel } from '@/lib/saladMasterExport';
+import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, List, Table, ChefHat, Truck, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Reports() {
@@ -461,6 +461,25 @@ ${expenses
             Elaborate Excel
           </Button>
         </div>
+
+        {/* Expenses Receipt Export */}
+        <Button 
+          onClick={async () => {
+            try {
+              await generateExpensesReceiptExcel(expenses, year);
+              toast.success('Expenses Receipt Excel downloaded');
+            } catch (error) {
+              console.error('Export error:', error);
+              toast.error('Failed to generate Expenses Receipt Excel');
+            }
+          }} 
+          variant="secondary" 
+          className="w-full" 
+          size="lg"
+        >
+          <Receipt className="w-5 h-5 mr-2" />
+          Expenses Receipt (All)
+        </Button>
       </div>
     </AppLayout>
   );
