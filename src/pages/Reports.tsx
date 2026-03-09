@@ -376,6 +376,44 @@ ${expenses
           Cookware Excel
         </Button>
         
+        {/* Salad Master & Delivery Exports */}
+        <div className="grid grid-cols-2 gap-3">
+          <Button 
+            onClick={async () => {
+              try {
+                await generateSaladMasterExcel(expenses, year);
+                toast.success('Salad Master Excel downloaded');
+              } catch (error) {
+                console.error('Export error:', error);
+                toast.error('Failed to generate Salad Master Excel');
+              }
+            }} 
+            variant="outline" 
+            className="w-full" 
+            size="default"
+          >
+            <ChefHat className="w-4 h-4 mr-2" />
+            Salad Master
+          </Button>
+          <Button 
+            onClick={async () => {
+              try {
+                await generateDeliveryExpensesExcel(expenses, year);
+                toast.success('Delivery Expenses Excel downloaded');
+              } catch (error) {
+                console.error('Export error:', error);
+                toast.error('Failed to generate Delivery Excel');
+              }
+            }} 
+            variant="outline" 
+            className="w-full" 
+            size="default"
+          >
+            <Truck className="w-4 h-4 mr-2" />
+            Delivery T2125
+          </Button>
+        </div>
+
         {/* New Export Options */}
         <div className="grid grid-cols-2 gap-3">
           <Button 
