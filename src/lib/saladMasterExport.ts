@@ -578,8 +578,8 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
   const mTotalRow = monthlyWs.addRow(['TOTAL']);
   mTotalRow.font = { bold: true };
   for (let i = 1; i <= 13; i++) {
-    const colLetter = String.fromCharCode(65 + i);
-    mTotalRow.getCell(i + 1).value = { formula: `SUM(${colLetter}2:${colLetter}${mTotalRow.number - 1})` } as any;
+    const cLetter = colLetter(i); // B=1, C=2, ... N=13
+    mTotalRow.getCell(i + 1).value = { formula: `SUM(${cLetter}2:${cLetter}${mTotalRow.number - 1})` } as any;
     mTotalRow.getCell(i + 1).numFmt = '$#,##0.00';
   }
 
