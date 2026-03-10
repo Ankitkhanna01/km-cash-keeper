@@ -7,6 +7,17 @@ const MONTHS = [
   'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
 ];
 
+// Helper to convert 0-based column index to Excel column letter (0=A, 25=Z, 26=AA, etc.)
+function colLetter(index: number): string {
+  let result = '';
+  let n = index;
+  while (n >= 0) {
+    result = String.fromCharCode(65 + (n % 26)) + result;
+    n = Math.floor(n / 26) - 1;
+  }
+  return result;
+}
+
 // Salad Master spreadsheet columns matching the user's template
 const SM_COLUMNS = [
   { key: 'grocery', label: 'GROCERY', width: 12 },
