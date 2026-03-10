@@ -347,9 +347,10 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
       }
     });
 
-    const lastColLetter = String.fromCharCode(65 + SM_COLUMNS.length);
+    // TOTAL column = sum of all category columns for this row (B through last data col)
+    const lastDataColLetter = colLetter(SM_COLUMNS.length); // 0-based: col index SM_COLUMNS.length = column after last data col - 1
     const totalCell = dataRow.getCell(SM_COLUMNS.length + 2);
-    totalCell.value = { formula: `SUM(B${rowNum}:${lastColLetter}${rowNum})` } as any;
+    totalCell.value = { formula: `SUM(B${rowNum}:${colLetter(SM_COLUMNS.length)}${rowNum})` } as any;
     totalCell.numFmt = '#,##0.00';
     totalCell.font = { bold: true };
   });
@@ -365,15 +366,14 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   const lastDataRow = 14;
 
   SM_COLUMNS.forEach((_, i) => {
-    const colLetter = String.fromCharCode(66 + i);
+    const cLetter = colLetter(i + 1); // Column B = index 1
     const cell = totalsRow.getCell(i + 2);
-    cell.value = { formula: `SUM(${colLetter}${firstDataRow}:${colLetter}${lastDataRow})` } as any;
+    cell.value = { formula: `SUM(${cLetter}${firstDataRow}:${cLetter}${lastDataRow})` } as any;
     cell.numFmt = '#,##0.00';
   });
 
   const grandTotalCell = totalsRow.getCell(SM_COLUMNS.length + 2);
-  const lastColL = String.fromCharCode(65 + SM_COLUMNS.length);
-  grandTotalCell.value = { formula: `SUM(B${totalsRow.number}:${lastColL}${totalsRow.number})` } as any;
+  grandTotalCell.value = { formula: `SUM(B${totalsRow.number}:${colLetter(SM_COLUMNS.length)}${totalsRow.number})` } as any;
   grandTotalCell.numFmt = '#,##0.00';
   grandTotalCell.font = { bold: true };
 
