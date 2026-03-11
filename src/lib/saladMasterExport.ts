@@ -280,6 +280,38 @@ interface OdometerExportData {
   businessPercent: number;
 }
 
+// Uber Pro Card expenses extracted from bank statements (Aug-Dec 2025)
+// These are actual debit transactions made using the Uber card (not payouts/transfers)
+const UBER_CARD_EXPENSES_2025 = [
+  // August 2025
+  { date: '2025-08-26', vendor_name: 'ESSO 7-ELEVEN 37898', amount: 75.00, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  // September 2025
+  { date: '2025-09-03', vendor_name: 'ESSO 7-ELEVEN 37898', amount: 96.45, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  { date: '2025-09-13', vendor_name: 'ESSO 7-ELEVEN 37899', amount: 8.40, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas (snack/supplies)' },
+  { date: '2025-09-16', vendor_name: 'ESSO 7-ELEVEN 37898', amount: 100.02, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  { date: '2025-09-19', vendor_name: 'THRIFTY FOODS #9469', amount: 11.78, category: 'other', purpose: 'personal', card_last4: 'UBER', notes: 'Uber Card - Grocery' },
+  { date: '2025-09-20', vendor_name: 'TENNYSON AUTO REPAIRS', amount: 89.60, category: 'repairs', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Auto Repair' },
+  { date: '2025-09-22', vendor_name: 'ESSO 7-ELEVEN 37898', amount: 100.02, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  { date: '2025-09-30', vendor_name: 'ESSO 7-ELEVEN 37900', amount: 100.00, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  // October 2025
+  { date: '2025-10-17', vendor_name: 'ESSO 7-ELEVEN 37898', amount: 100.00, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  { date: '2025-10-25', vendor_name: 'ESSO 7-ELEVEN 37900', amount: 95.00, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  // November 2025
+  { date: '2025-11-01', vendor_name: 'ESSO 7-ELEVEN 37898', amount: 95.00, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  { date: '2025-11-13', vendor_name: 'ESSO 7-ELEVEN 37898', amount: 95.02, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+  // December 2025
+  { date: '2025-12-18', vendor_name: 'ESSO SMART STOP 37906', amount: 94.85, category: 'fuel', purpose: 'business', card_last4: 'UBER', notes: 'Uber Card - Gas' },
+];
+
+// Uber Card driving income summary by month (from statement summaries)
+const UBER_CARD_DRIVING_INCOME_2025: Record<number, { credits: number; debits: number }> = {
+  7: { credits: 942.55, debits: 725.00 },   // August (0-indexed month 7)
+  8: { credits: 1589.05, debits: 1306.27 },  // September
+  9: { credits: 1234.80, debits: 1595.00 },  // October
+  10: { credits: 657.05, debits: 690.02 },   // November
+  11: { credits: 461.53, debits: 94.85 },    // December
+};
+
 export async function generateSaladMasterExcel(expenses: any[], year: number, odometerData?: OdometerExportData): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   
@@ -289,10 +321,24 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
   // Include ALL expenses for the year (personal + business) to match user's template
-  const yearExpenses = expenses.filter(e => {
+  const dbExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
     return d.getFullYear() === year && !e.deleted_at;
   });
+
+  // Merge Uber card expenses (only for 2025)
+  const uberCardExpenses = year === 2025 ? UBER_CARD_EXPENSES_2025 : [];
+  
+  // Deduplicate: skip Uber card expenses that already exist in DB (same date, vendor, amount)
+  const uniqueUberExpenses = uberCardExpenses.filter(ue => {
+    return !dbExpenses.some(de => 
+      de.date === ue.date && 
+      de.vendor_name?.toLowerCase().includes(ue.vendor_name.toLowerCase().substring(0, 10)) &&
+      Math.abs(Number(de.amount) - ue.amount) < 0.02
+    );
+  });
+
+  const yearExpenses = [...dbExpenses, ...uniqueUberExpenses];
 
   // --- HEADER ROWS ---
   const groupRow = ws.addRow(['', 'SUPPLIES', 'CLOTHING', '', '', 'TRANSPORTATION', '', '', '', '', 'INTEREST', 'ENTERTAINMENT/MEALS', 'ADVERTISING', 'CAR WASH', 'DELIVERY/FREIGHT', 'REPAIRS/MAINTENANCE', 'USE OF HOME', '', '', '', '', 'LICENSE', '', '', '', '', '', 'MEMBERSHIP', '', 'TOTAL']);
