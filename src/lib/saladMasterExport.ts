@@ -474,6 +474,75 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   detailWs.getColumn(7).width = 50;
   detailWs.getColumn(3).numFmt = '#,##0.00';
 
+  // --- UBER CARD TRANSACTIONS SHEET ---
+  if (year === 2025) {
+    const uberWs = workbook.addWorksheet('Uber Card Expenses');
+    const uberTitle = uberWs.addRow(['UBER PRO CARD — EXPENSES PAID WITH UBER CARD (Aug-Dec 2025)']);
+    uberTitle.font = { bold: true, size: 14 };
+    uberWs.addRow(['These are actual purchases made using the Uber Pro Mastercard (not Uber payouts or bank transfers)']);
+    uberWs.getRow(2).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+    uberWs.addRow([]);
+    
+    const uberHeader = uberWs.addRow(['Date', 'Vendor', 'Amount', 'Category', 'Notes']);
+    uberHeader.font = { bold: true };
+    uberHeader.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+      cell.border = { bottom: { style: 'thin' } };
+    });
+
+    let uberTotal = 0;
+    UBER_CARD_EXPENSES_2025.forEach(e => {
+      uberWs.addRow([e.date, e.vendor_name, e.amount, e.category, e.notes]);
+      uberTotal += e.amount;
+    });
+
+    uberWs.addRow([]);
+    const uberTotalRow = uberWs.addRow(['', 'TOTAL', uberTotal, '', '']);
+    uberTotalRow.font = { bold: true, size: 12 };
+    uberTotalRow.getCell(3).numFmt = '$#,##0.00';
+
+    uberWs.getColumn(1).width = 14;
+    uberWs.getColumn(2).width = 30;
+    uberWs.getColumn(3).width = 14;
+    uberWs.getColumn(3).numFmt = '$#,##0.00';
+    uberWs.getColumn(4).width = 15;
+    uberWs.getColumn(5).width = 30;
+
+    // --- DRIVING INCOME SUMMARY SHEET ---
+    const driveWs = workbook.addWorksheet('Driving Income Summary');
+    const driveTitle = driveWs.addRow(['UBER PRO CARD — MONTHLY DRIVING SUMMARY 2025']);
+    driveTitle.font = { bold: true, size: 14 };
+    driveWs.addRow(['From Uber Pro Card statements (Aug-Dec 2025)']);
+    driveWs.getRow(2).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+    driveWs.addRow([]);
+
+    const driveHeader = driveWs.addRow(['Month', 'Total Credits (Income)', 'Total Debits (Expenses)', 'Net']);
+    driveHeader.font = { bold: true };
+    driveHeader.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    });
+
+    let totalCredits = 0, totalDebits = 0;
+    Object.entries(UBER_CARD_DRIVING_INCOME_2025).forEach(([monthIdx, data]) => {
+      const monthName = MONTHS[Number(monthIdx)];
+      driveWs.addRow([monthName, data.credits, data.debits, data.credits - data.debits]);
+      totalCredits += data.credits;
+      totalDebits += data.debits;
+    });
+
+    driveWs.addRow([]);
+    const driveTotalRow = driveWs.addRow(['TOTAL', totalCredits, totalDebits, totalCredits - totalDebits]);
+    driveTotalRow.font = { bold: true, size: 12 };
+
+    driveWs.getColumn(1).width = 14;
+    driveWs.getColumn(2).width = 22;
+    driveWs.getColumn(2).numFmt = '$#,##0.00';
+    driveWs.getColumn(3).width = 22;
+    driveWs.getColumn(3).numFmt = '$#,##0.00';
+    driveWs.getColumn(4).width = 16;
+    driveWs.getColumn(4).numFmt = '$#,##0.00';
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   saveAs(blob, `TAX_RETURN_SPREADSHEET_SALAD_MASTER_${year}.xlsx`);
