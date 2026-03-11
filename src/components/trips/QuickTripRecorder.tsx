@@ -147,7 +147,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
 
   // Timer effect
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (isRecording && startLocation) {
       interval = setInterval(() => {
         setElapsedTime(prev => prev + 1);

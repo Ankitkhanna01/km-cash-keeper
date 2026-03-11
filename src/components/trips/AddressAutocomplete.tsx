@@ -54,7 +54,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
 
   const containerRef = useRef<HTMLDivElement>(null);
   const geoRequestedRef = useRef(false);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const instanceKeyRef = useRef<string>(
     `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
   );

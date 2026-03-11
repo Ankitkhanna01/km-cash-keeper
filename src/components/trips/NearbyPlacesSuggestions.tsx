@@ -34,7 +34,7 @@ export function NearbyPlacesSuggestions({ lat, lon, onSelect, className = '', ba
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<NearbyPlace[]>([]);
   const [searching, setSearching] = useState(false);
-  const searchDebounce = useRef<NodeJS.Timeout>();
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
 
   // Initial fetch of nearby places - only fetch once using initial coordinates
   useEffect(() => {
