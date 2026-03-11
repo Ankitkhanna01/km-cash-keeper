@@ -38,7 +38,7 @@ export function EndLocationPicker({ open, endLocation, purpose, onSelect, onSkip
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<NearbyPlace[]>([]);
   const [searching, setSearching] = useState(false);
-  const searchDebounce = useRef<NodeJS.Timeout>();
+  const searchDebounce = useRef<ReturnType<typeof setTimeout>>();
   const initialCoords = useRef({ lat: endLocation.lat, lon: endLocation.lon });
 
   // Determine if this is a chain trip purpose (pickup or dropoff)
