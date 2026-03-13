@@ -227,14 +227,17 @@ export function classifyExpense(expense: any): string {
     return 'phone_internet';
   }
 
-  // Donations / gifts / advertising / liquor / flowers / chocolates
-  if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
-      vendor.includes('donation') || vendor.includes('fundrais') ||
-      vendor.includes('4 mile liquor') || vendor.includes('4mile') ||
+  // Alcohol
+  if (vendor.includes('4 mile liquor') || vendor.includes('4mile') ||
       vendor.includes('liquor co') || vendor.includes('liquor plus') ||
       vendor.includes('cascadia liquor') || vendor.includes('bc liquor') ||
-      vendor.includes('wandering bear') ||
-      vendor.includes('purdys') || vendor.includes('chocolatier') ||
+      vendor.includes('wandering bear')) {
+    return 'alcohol';
+  }
+
+  // Donations / gifts / advertising / flowers
+  if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
+      vendor.includes('donation') || vendor.includes('fundrais') ||
       vendor.includes('larosaflowe') || vendor.includes('imagineart') ||
       vendor.includes('beastphilan')) {
     return 'advertising';
