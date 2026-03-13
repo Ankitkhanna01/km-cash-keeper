@@ -154,11 +154,21 @@ export function classifyExpense(expense: any): string {
     return 'grooming';
   }
 
+  // Airport Shopping
+  if (vendor.includes('world duty free')) {
+    return 'airport_shopping';
+  }
+
+  // Airport checking / background checks
+  if (vendor.includes('sterlingbackcheck')) {
+    return 'airport_shopping';
+  }
+
   // Clothing / shoes
   if (vendor.includes('winners') || vendor.includes('homesense') || vendor.includes('winnershomesense') ||
       vendor.includes('old navy') || vendor.includes('foot locker') ||
       vendor.includes('marshalls') || vendor.includes('h&m') ||
-      vendor.includes('uniqlo') || vendor.includes('world duty free') ||
+      vendor.includes('uniqlo') ||
       (vendor.includes('walmart') && notes.includes('cloth'))) {
     return 'clothing';
   }
