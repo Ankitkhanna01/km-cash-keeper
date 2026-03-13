@@ -204,10 +204,14 @@ export function classifyExpense(expense: any): string {
     return 'membership';
   }
 
-  // Professional fees / software / freelance / background checks
+  // Vitamins / supplements
+  if (vendor.includes('blueprint')) {
+    return 'vitamins';
+  }
+
+  // Professional fees / software / freelance
   if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
       vendor.includes('scarface trade') || vendor.includes('staples') ||
-      vendor.includes('sterlingbackcheck') || vendor.includes('blueprint') ||
       vendor.includes('thinking canada')) {
     return 'professional_fees';
   }
