@@ -186,11 +186,13 @@ export function classifyExpense(expense: any): string {
       vendor.includes('dragon wok') || vendor.includes('freshslice') || vendor.includes('pizza') ||
       vendor.includes('ricardos') || vendor.includes('torquay') || vendor.includes('rock salt') ||
       vendor.includes('rhino coffee') || vendor.includes('doordash') || vendor.includes('food panda') ||
+      vendor.includes('foodpanda') ||
       vendor.includes('yeungs') || vendor.includes('halibut') || vendor.includes('felicitas') ||
       vendor.includes('mcdonalds') || vendor.includes("mcdonald's") || vendor.includes('wendy') ||
       vendor.includes('kfc') || vendor.includes('popeyes') || vendor.includes('white spot') ||
       vendor.includes('earls') || vendor.includes('cactus club') || vendor.includes('boston pizza') ||
       vendor.includes('freshii') || vendor.includes('erito sushi') || vendor.includes('ocean garden') ||
+      vendor.includes('purdys') || vendor.includes('chocolatier') ||
       vendor.includes('sugar shak') || vendor.includes('showshaa') ||
       vendor.includes('langford lanes') || vendor.includes('biryanipala') || vendor.includes('junoon') ||
       (vendor === 'aw' || vendor.startsWith('aw '))) {
