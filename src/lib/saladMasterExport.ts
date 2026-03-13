@@ -55,11 +55,14 @@ export function classifyExpense(expense: any): string {
   const notes = (expense.notes || '').toLowerCase();
   const category = expense.category || 'other';
 
-  // Fuel/Gas (vehicle)
+  // Fuel/Gas (vehicle) — gas stations only
   if (category === 'fuel' || vendor.includes('esso') || vendor.includes('petro') || 
       vendor.includes('chevron') || vendor.includes('shell') || vendor.includes('mobil') ||
       vendor.includes('hi quadra') || vendor.includes('hi-quadra') ||
-      (vendor.includes('7-eleven') && notes.includes('gas'))) {
+      vendor.includes('smart stop') ||
+      (vendor.includes('7-eleven') && (notes.includes('gas') || category === 'fuel'))) {
+    // MODO is car share, not fuel — even if category says fuel
+    if (vendor.includes('modo')) return 'transportation';
     return 'gas';
   }
 
@@ -73,23 +76,29 @@ export function classifyExpense(expense: any): string {
     return 'licence';
   }
 
-  // Repairs & Maintenance
+  // Repairs & Maintenance (vehicle-specific)
   if (category === 'repairs' || vendor.includes('mr. lube') || vendor.includes('mr lube') ||
-      vendor.includes('tennyson auto') || vendor.includes('gs auto') || vendor.includes('canadian tire')) {
+      vendor.includes('tennyson auto') || vendor.includes('gs auto')) {
     return 'repairs';
   }
 
   // Car purchase
-  if (notes.includes('car purchase')) {
+  if (notes.includes('car purchase') || (vendor.includes('coast capital') && notes.includes('car'))) {
     return 'car';
   }
 
-  // Car share / transportation (Modo, EVO)
+  // Car share / transportation / transit / taxi / ferries / parking / hotel
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
-      vendor.includes('bc ferries') || vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
+      vendor.includes('bc ferries') || vendor.includes('bcf -') ||
+      vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
       vendor.includes('bc transit') || vendor.includes('compass') || 
-      (vendor.includes('city') && vendor.includes('taxi')) ||
-      vendor.includes('uber') || vendor.includes('paypal uber')) {
+      vendor.includes('city') && vendor.includes('taxi') ||
+      vendor.includes('uber') || vendor.includes('paypal uber') || vendor.includes('paypal *uber') ||
+      vendor.includes('parking') || vendor.includes('parkvictoria') || vendor.includes('pacrim park') ||
+      vendor.includes('robbins') || vendor.includes('honk') || vendor.includes('place face up') ||
+      vendor.includes('r parking') ||
+      vendor.includes('priceline') || vendor.includes('accent inn') ||
+      vendor.includes('tofino') || vendor.includes('allresto')) {
     return 'transportation';
   }
 
@@ -103,19 +112,35 @@ export function classifyExpense(expense: any): string {
     return 'hydro';
   }
 
-  // Haircut / grooming
-  if (vendor.includes('sonu hair') || vendor.includes('haircut') || vendor.includes('barber')) {
+  // Dental → medicals
+  if (vendor.includes('dental') || vendor.includes('times dental')) {
+    return 'medicals';
+  }
+
+  // Pharmacy / medical / fitness / gym / health
+  if (vendor.includes('pharmasave') || vendor.includes('london drugs') ||
+      vendor.includes('fit4less') || vendor.includes('goodlife') ||
+      vendor.includes('medicare') || vendor.includes('shoppers drug') ||
+      vendor.includes('viha') || vendor.includes('env hlth')) {
+    return 'medicals';
+  }
+
+  // Haircut / grooming / personal care
+  if (vendor.includes('sonu hair') || vendor.includes('haircut') || vendor.includes('barber') ||
+      vendor.includes('crate 61')) {
     return 'grooming';
   }
 
   // Clothing / shoes
-  if (vendor.includes('winners') || vendor.includes('old navy') || vendor.includes('foot locker') ||
-      vendor.includes('homesense') || vendor.includes('marshalls') || vendor.includes('h&m') ||
-      vendor.includes('uniqlo') || vendor.includes('walmart') && notes.includes('cloth')) {
+  if (vendor.includes('winners') || vendor.includes('homesense') || vendor.includes('winnershomesense') ||
+      vendor.includes('old navy') || vendor.includes('foot locker') ||
+      vendor.includes('marshalls') || vendor.includes('h&m') ||
+      vendor.includes('uniqlo') || vendor.includes('world duty free') ||
+      (vendor.includes('walmart') && notes.includes('cloth'))) {
     return 'clothing';
   }
 
-  // Restaurants / meals / entertainment
+  // Restaurants / meals / entertainment / food delivery / cafes / lounges / bowling
   if (vendor.includes('subway') || vendor.includes('noodlebox') || vendor.includes('dosa paragon') ||
       vendor.includes('baan thai') || vendor.includes('pho u') || vendor.includes('sizzling tandoor') ||
       vendor.includes('himalayan') || vendor.includes('bin 4') || vendor.includes('browns social') ||
@@ -123,24 +148,20 @@ export function classifyExpense(expense: any): string {
       vendor.includes('royal spice') || vendor.includes('kukus') || vendor.includes('kuku') ||
       vendor.includes('end dive') || vendor.includes('mexican village') || vendor.includes('city centre park') ||
       vendor.includes('ramen') || vendor.includes('old country') || vendor.includes('a&w') || 
-      vendor.includes('shelbourne') || vendor.includes('4mile') || vendor.includes('kutatas') ||
+      vendor.includes('shelbourne') || vendor.includes('kutatas') ||
       vendor.includes('beacon hill') || vendor.includes('for good measure') ||
       vendor.includes('dragon wok') || vendor.includes('freshslice') || vendor.includes('pizza') ||
       vendor.includes('ricardos') || vendor.includes('torquay') || vendor.includes('rock salt') ||
-      vendor.includes('rhino coffee') || vendor.includes('doordash') ||
+      vendor.includes('rhino coffee') || vendor.includes('doordash') || vendor.includes('food panda') ||
       vendor.includes('yeungs') || vendor.includes('halibut') || vendor.includes('felicitas') ||
       vendor.includes('mcdonalds') || vendor.includes("mcdonald's") || vendor.includes('wendy') ||
       vendor.includes('kfc') || vendor.includes('popeyes') || vendor.includes('white spot') ||
       vendor.includes('earls') || vendor.includes('cactus club') || vendor.includes('boston pizza') ||
+      vendor.includes('freshii') || vendor.includes('erito sushi') || vendor.includes('ocean garden') ||
+      vendor.includes('sugar shak') || vendor.includes('showshaa') ||
+      vendor.includes('langford lanes') || vendor.includes('biryanipala') || vendor.includes('junoon') ||
       (vendor === 'aw' || vendor.startsWith('aw '))) {
     return 'entertainment';
-  }
-
-  // Pharmacy / medical / fitness
-  if (vendor.includes('pharmasave') || vendor.includes('london drugs') ||
-      vendor.includes('fit4less') || vendor.includes('goodlife') ||
-      vendor.includes('medicare') || vendor.includes('shoppers drug')) {
-    return 'medicals';
   }
 
   // Costco / wholesale / MM Food
@@ -148,9 +169,11 @@ export function classifyExpense(expense: any): string {
     return 'membership';
   }
 
-  // Lovable / software / professional
+  // Professional fees / software / freelance / background checks
   if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
-      vendor.includes('scarface trade') || vendor.includes('staples')) {
+      vendor.includes('scarface trade') || vendor.includes('staples') ||
+      vendor.includes('sterlingbackcheck') || vendor.includes('blueprint') ||
+      vendor.includes('thinking canada')) {
     return 'professional_fees';
   }
 
@@ -160,25 +183,42 @@ export function classifyExpense(expense: any): string {
   }
 
   // Phone / Internet
-  if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless')) {
+  if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
+      vendor.includes('paypal google') || vendor.includes('paypal *google')) {
     return 'phone_internet';
   }
 
-  // Donations / gifts / advertising / liquor
+  // Donations / gifts / advertising / liquor / flowers / chocolates
   if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
       vendor.includes('donation') || vendor.includes('fundrais') ||
-      vendor.includes('4 mile liquor') || vendor.includes('liquor co') ||
-      vendor.includes('cascadia liquor') || vendor.includes('bc liquor')) {
+      vendor.includes('4 mile liquor') || vendor.includes('4mile') ||
+      vendor.includes('liquor co') || vendor.includes('liquor plus') ||
+      vendor.includes('cascadia liquor') || vendor.includes('bc liquor') ||
+      vendor.includes('wandering bear') ||
+      vendor.includes('purdys') || vendor.includes('chocolatier') ||
+      vendor.includes('larosaflowe') || vendor.includes('imagineart') ||
+      vendor.includes('beastphilan')) {
     return 'advertising';
   }
 
+  // Canadian Tire (personal household, not auto repairs unless category is repairs)
+  if (vendor.includes('canadian tire')) {
+    if (category === 'repairs') return 'repairs';
+    return 'grocery'; // household supplies
+  }
+
+  // BC Gov fees
+  if (vendor.includes('rsbc') || vendor.includes('bcgov')) {
+    return 'licence';
+  }
+
   // Online shopping (Amazon, Temu, etc.) → grocery/supplies
-  if (vendor.includes('amazon') || vendor.includes('temu')) {
+  if (vendor.includes('amazon') || vendor.includes('temu') || vendor.includes('kitscomtech')) {
     return 'grocery';
   }
 
   // Walmart → grocery
-  if (vendor.includes('walmart')) {
+  if (vendor.includes('walmart') || vendor.includes('wal-mart')) {
     return 'grocery';
   }
 
@@ -187,7 +227,19 @@ export function classifyExpense(expense: any): string {
     return 'grocery';
   }
 
-  // Default: grocery/supplies (Thrifty Foods, Western Foods, Save-On, etc.)
+  // Grocery stores
+  if (vendor.includes('thrifty') || vendor.includes('western foods') || vendor.includes('save-on') ||
+      vendor.includes('superstore') || vendor.includes('fairway') || vendor.includes('h-mart') ||
+      vendor.includes('real canadian')) {
+    return 'grocery';
+  }
+
+  // Minutekey / misc small purchases
+  if (vendor.includes('minutekey')) {
+    return 'grocery';
+  }
+
+  // Default: grocery/supplies
   return 'grocery';
 }
 
