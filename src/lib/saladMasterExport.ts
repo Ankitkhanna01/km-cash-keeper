@@ -131,12 +131,21 @@ export function classifyExpense(expense: any): string {
     return 'medicals';
   }
 
-  // Pharmacy / medical / fitness / gym / health
-  if (vendor.includes('pharmasave') || vendor.includes('london drugs') ||
-      vendor.includes('fit4less') || vendor.includes('goodlife') ||
+  // Gym / Fitness
+  if (vendor.includes('fit4less') || vendor.includes('goodlife')) {
+    return 'gym';
+  }
+
+  // Pharmacy / medical / health (London Drugs → grocery, not medical)
+  if (vendor.includes('pharmasave') ||
       vendor.includes('medicare') || vendor.includes('shoppers drug') ||
       vendor.includes('viha') || vendor.includes('env hlth')) {
     return 'medicals';
+  }
+
+  // London Drugs → grocery
+  if (vendor.includes('london drugs')) {
+    return 'grocery';
   }
 
   // Haircut / grooming / personal care
