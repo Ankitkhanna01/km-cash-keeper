@@ -93,18 +93,26 @@ export function classifyExpense(expense: any): string {
     return 'car';
   }
 
-  // Car share / transportation / transit / taxi / ferries / parking / hotel
+  // Parking → dedicated parking column
+  if (vendor.includes('parking') || vendor.includes('parkvictoria') || vendor.includes('pacrim park') ||
+      vendor.includes('robbins') || vendor.includes('honk') || vendor.includes('place face up') ||
+      vendor.includes('r parking')) {
+    return 'parking';
+  }
+
+  // Hotel booking
+  if (vendor.includes('priceline') || vendor.includes('accent inn') || vendor.includes('tofino')) {
+    return 'transportation';
+  }
+
+  // Car share / transportation / transit / taxi / ferries
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
       vendor.includes('bc ferries') || vendor.includes('bcf -') ||
       vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
       vendor.includes('bc transit') || vendor.includes('compass') || 
       vendor.includes('city') && vendor.includes('taxi') ||
       vendor.includes('uber') || vendor.includes('paypal uber') || vendor.includes('paypal *uber') ||
-      vendor.includes('parking') || vendor.includes('parkvictoria') || vendor.includes('pacrim park') ||
-      vendor.includes('robbins') || vendor.includes('honk') || vendor.includes('place face up') ||
-      vendor.includes('r parking') ||
-      vendor.includes('priceline') || vendor.includes('accent inn') ||
-      vendor.includes('tofino') || vendor.includes('allresto')) {
+      vendor.includes('allresto')) {
     return 'transportation';
   }
 
