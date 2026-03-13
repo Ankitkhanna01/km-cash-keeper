@@ -47,6 +47,12 @@ const SM_COLUMNS = [
   { key: 'car_maintenance', label: 'CAR MAINTENANCE', width: 16 },
   { key: 'home_power', label: 'HOME POWER', width: 12 },
   { key: 'membership', label: 'COSTCO/WHOLESALE/SS', width: 20 },
+  { key: 'gym', label: 'GYM/FITNESS', width: 14 },
+  { key: 'alcohol', label: 'ALCOHOL', width: 12 },
+  { key: 'airport_shopping', label: 'AIRPORT SHOPPING', width: 18 },
+  { key: 'vitamins', label: 'VITAMINS/SUPPLEMENTS', width: 20 },
+  { key: 'government_fees', label: 'GOVERNMENT FEES', width: 16 },
+  { key: 'parking', label: 'PARKING', width: 12 },
 ];
 
 // Classify an expense into the correct SM column
@@ -87,18 +93,26 @@ export function classifyExpense(expense: any): string {
     return 'car';
   }
 
-  // Car share / transportation / transit / taxi / ferries / parking / hotel
+  // Parking → dedicated parking column
+  if (vendor.includes('parking') || vendor.includes('parkvictoria') || vendor.includes('pacrim park') ||
+      vendor.includes('robbins') || vendor.includes('honk') || vendor.includes('place face up') ||
+      vendor.includes('r parking')) {
+    return 'parking';
+  }
+
+  // Hotel booking
+  if (vendor.includes('priceline') || vendor.includes('accent inn') || vendor.includes('tofino')) {
+    return 'transportation';
+  }
+
+  // Car share / transportation / transit / taxi / ferries
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
       vendor.includes('bc ferries') || vendor.includes('bcf -') ||
       vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
       vendor.includes('bc transit') || vendor.includes('compass') || 
       vendor.includes('city') && vendor.includes('taxi') ||
       vendor.includes('uber') || vendor.includes('paypal uber') || vendor.includes('paypal *uber') ||
-      vendor.includes('parking') || vendor.includes('parkvictoria') || vendor.includes('pacrim park') ||
-      vendor.includes('robbins') || vendor.includes('honk') || vendor.includes('place face up') ||
-      vendor.includes('r parking') ||
-      vendor.includes('priceline') || vendor.includes('accent inn') ||
-      vendor.includes('tofino') || vendor.includes('allresto')) {
+      vendor.includes('allresto')) {
     return 'transportation';
   }
 
@@ -117,12 +131,21 @@ export function classifyExpense(expense: any): string {
     return 'medicals';
   }
 
-  // Pharmacy / medical / fitness / gym / health
-  if (vendor.includes('pharmasave') || vendor.includes('london drugs') ||
-      vendor.includes('fit4less') || vendor.includes('goodlife') ||
+  // Gym / Fitness
+  if (vendor.includes('fit4less') || vendor.includes('goodlife')) {
+    return 'gym';
+  }
+
+  // Pharmacy / medical / health (London Drugs → grocery, not medical)
+  if (vendor.includes('pharmasave') ||
       vendor.includes('medicare') || vendor.includes('shoppers drug') ||
       vendor.includes('viha') || vendor.includes('env hlth')) {
     return 'medicals';
+  }
+
+  // London Drugs → grocery
+  if (vendor.includes('london drugs')) {
+    return 'grocery';
   }
 
   // Haircut / grooming / personal care
@@ -131,11 +154,21 @@ export function classifyExpense(expense: any): string {
     return 'grooming';
   }
 
+  // Airport Shopping
+  if (vendor.includes('world duty free')) {
+    return 'airport_shopping';
+  }
+
+  // Airport checking / background checks
+  if (vendor.includes('sterlingbackcheck')) {
+    return 'airport_shopping';
+  }
+
   // Clothing / shoes
   if (vendor.includes('winners') || vendor.includes('homesense') || vendor.includes('winnershomesense') ||
       vendor.includes('old navy') || vendor.includes('foot locker') ||
       vendor.includes('marshalls') || vendor.includes('h&m') ||
-      vendor.includes('uniqlo') || vendor.includes('world duty free') ||
+      vendor.includes('uniqlo') ||
       (vendor.includes('walmart') && notes.includes('cloth'))) {
     return 'clothing';
   }
@@ -153,11 +186,13 @@ export function classifyExpense(expense: any): string {
       vendor.includes('dragon wok') || vendor.includes('freshslice') || vendor.includes('pizza') ||
       vendor.includes('ricardos') || vendor.includes('torquay') || vendor.includes('rock salt') ||
       vendor.includes('rhino coffee') || vendor.includes('doordash') || vendor.includes('food panda') ||
+      vendor.includes('foodpanda') ||
       vendor.includes('yeungs') || vendor.includes('halibut') || vendor.includes('felicitas') ||
       vendor.includes('mcdonalds') || vendor.includes("mcdonald's") || vendor.includes('wendy') ||
       vendor.includes('kfc') || vendor.includes('popeyes') || vendor.includes('white spot') ||
       vendor.includes('earls') || vendor.includes('cactus club') || vendor.includes('boston pizza') ||
       vendor.includes('freshii') || vendor.includes('erito sushi') || vendor.includes('ocean garden') ||
+      vendor.includes('purdys') || vendor.includes('chocolatier') ||
       vendor.includes('sugar shak') || vendor.includes('showshaa') ||
       vendor.includes('langford lanes') || vendor.includes('biryanipala') || vendor.includes('junoon') ||
       (vendor === 'aw' || vendor.startsWith('aw '))) {
@@ -169,10 +204,14 @@ export function classifyExpense(expense: any): string {
     return 'membership';
   }
 
-  // Professional fees / software / freelance / background checks
+  // Vitamins / supplements
+  if (vendor.includes('blueprint')) {
+    return 'vitamins';
+  }
+
+  // Professional fees / software / freelance
   if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
       vendor.includes('scarface trade') || vendor.includes('staples') ||
-      vendor.includes('sterlingbackcheck') || vendor.includes('blueprint') ||
       vendor.includes('thinking canada')) {
     return 'professional_fees';
   }
@@ -188,14 +227,17 @@ export function classifyExpense(expense: any): string {
     return 'phone_internet';
   }
 
-  // Donations / gifts / advertising / liquor / flowers / chocolates
-  if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
-      vendor.includes('donation') || vendor.includes('fundrais') ||
-      vendor.includes('4 mile liquor') || vendor.includes('4mile') ||
+  // Alcohol
+  if (vendor.includes('4 mile liquor') || vendor.includes('4mile') ||
       vendor.includes('liquor co') || vendor.includes('liquor plus') ||
       vendor.includes('cascadia liquor') || vendor.includes('bc liquor') ||
-      vendor.includes('wandering bear') ||
-      vendor.includes('purdys') || vendor.includes('chocolatier') ||
+      vendor.includes('wandering bear')) {
+    return 'alcohol';
+  }
+
+  // Donations / gifts / advertising / flowers
+  if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
+      vendor.includes('donation') || vendor.includes('fundrais') ||
       vendor.includes('larosaflowe') || vendor.includes('imagineart') ||
       vendor.includes('beastphilan')) {
     return 'advertising';
@@ -207,9 +249,9 @@ export function classifyExpense(expense: any): string {
     return 'grocery'; // household supplies
   }
 
-  // BC Gov fees
+  // BC Gov fees → government fees
   if (vendor.includes('rsbc') || vendor.includes('bcgov')) {
-    return 'licence';
+    return 'government_fees';
   }
 
   // Online shopping (Amazon, Temu, etc.) → grocery/supplies
