@@ -249,9 +249,9 @@ export function classifyExpense(expense: any): string {
     return 'grocery'; // household supplies
   }
 
-  // BC Gov fees
+  // BC Gov fees → government fees
   if (vendor.includes('rsbc') || vendor.includes('bcgov')) {
-    return 'licence';
+    return 'government_fees';
   }
 
   // Online shopping (Amazon, Temu, etc.) → grocery/supplies
