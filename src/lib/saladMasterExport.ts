@@ -47,6 +47,12 @@ const SM_COLUMNS = [
   { key: 'car_maintenance', label: 'CAR MAINTENANCE', width: 16 },
   { key: 'home_power', label: 'HOME POWER', width: 12 },
   { key: 'membership', label: 'COSTCO/WHOLESALE/SS', width: 20 },
+  { key: 'gym', label: 'GYM/FITNESS', width: 14 },
+  { key: 'alcohol', label: 'ALCOHOL', width: 12 },
+  { key: 'airport_shopping', label: 'AIRPORT SHOPPING', width: 18 },
+  { key: 'vitamins', label: 'VITAMINS/SUPPLEMENTS', width: 20 },
+  { key: 'government_fees', label: 'GOVERNMENT FEES', width: 16 },
+  { key: 'parking', label: 'PARKING', width: 12 },
 ];
 
 // Classify an expense into the correct SM column
