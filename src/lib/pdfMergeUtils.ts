@@ -521,30 +521,67 @@ export async function generateStatementsPdf(year: number): Promise<void> {
       return;
     }
 
+    // Merge and check size - if over 23MB, split into volumes
     toast.loading('Merging all PDFs into one document...', { id: 'statements-pdf' });
-    const merged = await mergePdfs(pdfBuffers);
+    let merged = await mergePdfs(pdfBuffers);
+    let blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
 
-    const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
-    const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
-    
-    if (blob.size > 23 * 1024 * 1024) {
-      toast.warning(`Statements PDF is ${sizeMB}MB (over 23MB limit). Some files may need removal.`, { id: 'statements-pdf', duration: 8000 });
-      return;
+    if (blob.size > MAX_PDF_BYTES) {
+      // Strategy: split into multiple volumes, each under 23MB
+      toast.loading('PDF too large, splitting into volumes...', { id: 'statements-pdf' });
+      
+      let volumeBuffers: ArrayBuffer[][] = [[]];
+      let currentVolSize = 0;
+      const avgPerFile = blob.size / pdfBuffers.length;
+      
+      for (const buf of pdfBuffers) {
+        // Estimate if adding this file exceeds limit (with 2MB margin)
+        if (currentVolSize + buf.byteLength > MAX_PDF_BYTES * 0.85 && volumeBuffers[volumeBuffers.length - 1].length > 0) {
+          volumeBuffers.push([]);
+          currentVolSize = 0;
+        }
+        volumeBuffers[volumeBuffers.length - 1].push(buf);
+        currentVolSize += buf.byteLength;
+      }
+
+      for (let v = 0; v < volumeBuffers.length; v++) {
+        const volMerged = await mergePdfs(volumeBuffers[v]);
+        const volBlob = new Blob([volMerged.buffer as ArrayBuffer], { type: 'application/pdf' });
+        const volSizeMB = (volBlob.size / (1024 * 1024)).toFixed(1);
+        
+        const url = URL.createObjectURL(volBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `All_Statements_${year}_Vol${v + 1}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        // Small delay between downloads
+        if (v < volumeBuffers.length - 1) await new Promise(r => setTimeout(r, 500));
+      }
+
+      toast.success(
+        `Statements split into ${volumeBuffers.length} volumes to stay under 23MB${failed > 0 ? ` (${failed} failed)` : ''}`,
+        { id: 'statements-pdf', duration: 6000 }
+      );
+    } else {
+      const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `All_Statements_${year}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success(
+        `Statements PDF created! ${pdfBuffers.length} PDFs (${sizeMB}MB)${failed > 0 ? ` (${failed} failed)` : ''}`,
+        { id: 'statements-pdf', duration: 6000 }
+      );
     }
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `All_Statements_${year}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    toast.success(
-      `Statements PDF created! ${pdfBuffers.length} PDFs (${sizeMB}MB)${failed > 0 ? ` (${failed} failed)` : ''}`,
-      { id: 'statements-pdf', duration: 6000 }
-    );
   } catch (error) {
     console.error('Statements PDF error:', error);
     toast.error('Failed to create statements PDF', { id: 'statements-pdf' });
