@@ -259,9 +259,9 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
     // Sort by date
     receiptFiles.sort((a, b) => a.date.localeCompare(b.date));
 
-    toast.loading(`Converting ${receiptFiles.length} receipts to PDF...`, { id: 'receipts-pdf' });
-
-    const pdfBuffers: ArrayBuffer[] = [];
+    // Download all raw images first
+    toast.loading(`Downloading ${receiptFiles.length} receipts...`, { id: 'receipts-pdf' });
+    const rawImages: { data: ArrayBuffer; path: string }[] = [];
     let processed = 0;
 
     for (let i = 0; i < receiptFiles.length; i += 5) {
@@ -269,36 +269,67 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
       const results = await Promise.all(
         batch.map(async (rf) => {
           const data = await downloadFile(rf.path);
-          if (!data) return null;
-          return await imageToPdfPage(data, rf.path);
+          return data ? { data, path: rf.path } : null;
         })
       );
-      
-      for (const buf of results) {
-        if (buf) pdfBuffers.push(buf);
+      for (const r of results) {
+        if (r) rawImages.push(r);
       }
-      
       processed += batch.length;
-      toast.loading(`Converted ${processed}/${receiptFiles.length} receipts...`, { id: 'receipts-pdf' });
+      toast.loading(`Downloaded ${processed}/${receiptFiles.length}...`, { id: 'receipts-pdf' });
     }
 
-    if (pdfBuffers.length === 0) {
-      toast.error('No receipts could be converted', { id: 'receipts-pdf' });
+    if (rawImages.length === 0) {
+      toast.error('No receipts could be downloaded', { id: 'receipts-pdf' });
       return;
     }
 
-    toast.loading('Merging into single PDF...', { id: 'receipts-pdf' });
-    const merged = await mergePdfs(pdfBuffers);
+    // Adaptive compression: try each tier until under 23MB
+    let finalBlob: Blob | null = null;
+    for (const tier of COMPRESSION_TIERS) {
+      toast.loading(`Compressing ${rawImages.length} receipts (${tier.maxDim}px, ${Math.round(tier.quality * 100)}% quality)...`, { id: 'receipts-pdf' });
+      
+      const pdfBuffers: ArrayBuffer[] = [];
+      for (let i = 0; i < rawImages.length; i += 5) {
+        const batch = rawImages.slice(i, i + 5);
+        const results = await Promise.all(
+          batch.map(ri => imageToPdfPage(ri.data, ri.path, tier.maxDim, tier.quality))
+        );
+        for (const buf of results) {
+          if (buf) pdfBuffers.push(buf);
+        }
+      }
 
-    const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
-    const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
-    
-    if (blob.size > 23 * 1024 * 1024) {
-      toast.warning(`Receipts PDF is ${sizeMB}MB (over 23MB limit). Try reducing receipt count.`, { id: 'receipts-pdf', duration: 8000 });
-      return;
+      toast.loading('Merging into single PDF...', { id: 'receipts-pdf' });
+      const merged = await mergePdfs(pdfBuffers);
+      const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
+      const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
+
+      if (blob.size <= MAX_PDF_BYTES) {
+        finalBlob = blob;
+        toast.loading(`PDF is ${sizeMB}MB ✓`, { id: 'receipts-pdf' });
+        break;
+      }
+      toast.loading(`PDF is ${sizeMB}MB, compressing further...`, { id: 'receipts-pdf' });
     }
 
-    const url = URL.createObjectURL(blob);
+    if (!finalBlob) {
+      // Use last tier result anyway
+      const pdfBuffers: ArrayBuffer[] = [];
+      const lastTier = COMPRESSION_TIERS[COMPRESSION_TIERS.length - 1];
+      for (let i = 0; i < rawImages.length; i += 5) {
+        const batch = rawImages.slice(i, i + 5);
+        const results = await Promise.all(
+          batch.map(ri => imageToPdfPage(ri.data, ri.path, lastTier.maxDim, lastTier.quality))
+        );
+        for (const buf of results) { if (buf) pdfBuffers.push(buf); }
+      }
+      const merged = await mergePdfs(pdfBuffers);
+      finalBlob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
+    }
+
+    const sizeMB = (finalBlob.size / (1024 * 1024)).toFixed(1);
+    const url = URL.createObjectURL(finalBlob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `All_Receipts_${year}.pdf`;
@@ -307,7 +338,7 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    toast.success(`Receipts PDF created! ${pdfBuffers.length} receipts (${sizeMB}MB)`, { id: 'receipts-pdf', duration: 6000 });
+    toast.success(`Receipts PDF created! ${rawImages.length} receipts (${sizeMB}MB)`, { id: 'receipts-pdf', duration: 6000 });
   } catch (error) {
     console.error('Receipts PDF error:', error);
     toast.error('Failed to create receipts PDF', { id: 'receipts-pdf' });
