@@ -117,14 +117,13 @@ async function compressImage(imageData: ArrayBuffer, maxDim: number, quality: nu
  * Convert an image (JPG/PNG/WEBP) to a single-page PDF as ArrayBuffer
  * Compresses via canvas to keep file size small
  */
-async function imageToPdfPage(imageData: ArrayBuffer, fileName: string): Promise<ArrayBuffer | null> {
+async function imageToPdfPage(imageData: ArrayBuffer, fileName: string, maxDim = 1200, quality = 0.55): Promise<ArrayBuffer | null> {
   try {
-    // Compress image to JPEG first
     let jpegData: ArrayBuffer;
     try {
-      jpegData = await compressImage(imageData);
+      jpegData = await compressImage(imageData, maxDim, quality);
     } catch {
-      jpegData = imageData; // fallback to original
+      jpegData = imageData;
     }
 
     const pdfDoc = await PDFDocument.create();
