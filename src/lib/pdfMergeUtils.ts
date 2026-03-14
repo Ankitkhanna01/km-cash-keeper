@@ -64,18 +64,26 @@ async function listAllUserFiles(userId: string): Promise<string[]> {
   return paths;
 }
 
+const MAX_PDF_BYTES = 23 * 1024 * 1024;
+
+// Compression tiers - progressively more aggressive
+const COMPRESSION_TIERS = [
+  { maxDim: 1200, quality: 0.55 },
+  { maxDim: 900,  quality: 0.4 },
+  { maxDim: 650,  quality: 0.28 },
+  { maxDim: 480,  quality: 0.18 },
+];
+
 /**
- * Compress an image via canvas, returning JPEG ArrayBuffer
- * Target max dimension 1200px, JPEG quality 0.5
+ * Compress an image via canvas at given resolution/quality
  */
-async function compressImage(imageData: ArrayBuffer): Promise<ArrayBuffer> {
+async function compressImage(imageData: ArrayBuffer, maxDim: number, quality: number): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const blob = new Blob([imageData]);
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const maxDim = 1200;
       let w = img.width;
       let h = img.height;
       if (w > maxDim || h > maxDim) {
@@ -94,7 +102,7 @@ async function compressImage(imageData: ArrayBuffer): Promise<ArrayBuffer> {
           b.arrayBuffer().then(resolve).catch(reject);
         },
         'image/jpeg',
-        0.5
+        quality
       );
     };
     img.onerror = () => {
