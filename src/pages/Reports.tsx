@@ -618,6 +618,128 @@ ${expenses
           <ScanSearch className="w-5 h-5 mr-2" />
           AI Audit Receipts (Claude 2nd Opinion)
         </Button>
+
+        {/* Download All Receipts & Statements ZIP */}
+        <Button 
+          onClick={async () => {
+            toast.loading('Collecting all receipts & statements...', { id: 'zip-download' });
+            try {
+              const { supabase } = await import('@/integrations/supabase/client');
+              const JSZip = (await import('jszip')).default;
+              const zip = new JSZip();
+
+              // Get all expenses with receipt_url for selected year
+              const { data: yearExpenses } = await supabase
+                .from('expenses')
+                .select('id, date, vendor_name, amount, receipt_url')
+                .gte('date', `${year}-01-01`)
+                .lte('date', `${year}-12-31`)
+                .is('deleted_at', null)
+                .not('receipt_url', 'is', null);
+
+              // Get all documents with document_url for selected year
+              const { data: yearDocs } = await supabase
+                .from('documents')
+                .select('id, period_year, period_month, platform, document_url, document_type')
+                .eq('period_year', year)
+                .not('document_url', 'is', null);
+
+              const allFiles: { path: string; folder: string; name: string }[] = [];
+
+              // Collect expense receipts
+              (yearExpenses || []).forEach((e: any) => {
+                if (!e.receipt_url) return;
+                const filePath = e.receipt_url.startsWith('http') ? null : e.receipt_url;
+                if (filePath) {
+                  const ext = filePath.split('.').pop() || 'jpg';
+                  const safeName = e.vendor_name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+                  allFiles.push({
+                    path: filePath,
+                    folder: 'receipts',
+                    name: `${e.date}_${safeName}_$${e.amount}.${ext}`,
+                  });
+                }
+              });
+
+              // Collect document files (paystubs/statements)
+              (yearDocs || []).forEach((d: any) => {
+                if (!d.document_url) return;
+                const filePath = d.document_url.startsWith('http') ? null : d.document_url;
+                if (filePath) {
+                  const ext = filePath.split('.').pop() || 'pdf';
+                  const month = String(d.period_month).padStart(2, '0');
+                  const platform = (d.platform || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
+                  allFiles.push({
+                    path: filePath,
+                    folder: 'statements',
+                    name: `${year}-${month}_${platform}_${d.document_type}.${ext}`,
+                  });
+                }
+              });
+
+              if (allFiles.length === 0) {
+                toast.error('No uploaded files found for this year', { id: 'zip-download' });
+                return;
+              }
+
+              toast.loading(`Downloading ${allFiles.length} files...`, { id: 'zip-download' });
+
+              let downloaded = 0;
+              let errors = 0;
+
+              // Download in batches of 5
+              for (let i = 0; i < allFiles.length; i += 5) {
+                const batch = allFiles.slice(i, i + 5);
+                const results = await Promise.allSettled(
+                  batch.map(async (file) => {
+                    const { data, error } = await supabase.storage
+                      .from('receipts')
+                      .download(file.path);
+                    if (error || !data) throw error;
+                    return { ...file, blob: data };
+                  })
+                );
+
+                for (const result of results) {
+                  if (result.status === 'fulfilled') {
+                    const { folder, name, blob } = result.value;
+                    zip.folder(folder)!.file(name, blob);
+                    downloaded++;
+                  } else {
+                    errors++;
+                  }
+                }
+
+                toast.loading(`Downloaded ${downloaded}/${allFiles.length} files...`, { id: 'zip-download' });
+              }
+
+              toast.loading('Creating ZIP file...', { id: 'zip-download' });
+              const zipBlob = await zip.generateAsync({ type: 'blob' });
+              const url = URL.createObjectURL(zipBlob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `Receipts_Statements_${year}.zip`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+
+              toast.success(
+                `ZIP downloaded! ${downloaded} files${errors > 0 ? ` (${errors} failed)` : ''}`,
+                { id: 'zip-download', duration: 6000 }
+              );
+            } catch (error) {
+              console.error('ZIP download error:', error);
+              toast.error('Failed to create ZIP file', { id: 'zip-download' });
+            }
+          }}
+          variant="outline"
+          className="w-full border-accent/30"
+          size="lg"
+        >
+          <Archive className="w-5 h-5 mr-2" />
+          Download All Receipts & Statements (ZIP)
+        </Button>
       </div>
     </AppLayout>
   );
