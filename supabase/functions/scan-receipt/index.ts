@@ -247,7 +247,7 @@ If you cannot extract a field, use null. But items MUST be extracted if any are 
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
+            model: "claude-3-5-sonnet-20241022",
             max_tokens: 4096,
             system: systemPrompt,
             messages: [{ role: "user", content: [

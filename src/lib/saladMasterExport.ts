@@ -105,14 +105,14 @@ export function classifyExpense(expense: any): string {
     return 'transportation';
   }
 
-  // Car share / transportation / transit / taxi / ferries
+  // Car share / transportation / transit / taxi / ferries / hotel
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
       vendor.includes('bc ferries') || vendor.includes('bcf -') ||
       vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
       vendor.includes('bc transit') || vendor.includes('compass') || 
-      vendor.includes('city') && vendor.includes('taxi') ||
+      (vendor.includes('city') && vendor.includes('taxi')) ||
       vendor.includes('uber') || vendor.includes('paypal uber') || vendor.includes('paypal *uber') ||
-      vendor.includes('allresto')) {
+      vendor.includes('allresto') || vendor.includes('tofino')) {
     return 'transportation';
   }
 
@@ -209,10 +209,12 @@ export function classifyExpense(expense: any): string {
     return 'vitamins';
   }
 
-  // Professional fees / software / freelance
+  // Professional fees / software / freelance / services
   if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
       vendor.includes('scarface trade') || vendor.includes('staples') ||
-      vendor.includes('thinking canada')) {
+      vendor.includes('thinking canada') || vendor.includes('emergent') ||
+      vendor.includes('a.k.p service') || vendor.includes('akp service') ||
+      vendor.includes('shb holdings') || vendor.includes('paypal kitscomtech')) {
     return 'professional_fees';
   }
 
@@ -221,9 +223,10 @@ export function classifyExpense(expense: any): string {
     return 'delivery_freight';
   }
 
-  // Phone / Internet
+  // Phone / Internet / Google subscriptions
   if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
-      vendor.includes('paypal google') || vendor.includes('paypal *google')) {
+      vendor.includes('paypal google') || vendor.includes('paypal *google') ||
+      vendor.includes('paypal twitter')) {
     return 'phone_internet';
   }
 
@@ -235,11 +238,12 @@ export function classifyExpense(expense: any): string {
     return 'alcohol';
   }
 
-  // Donations / gifts / advertising / flowers
+  // Donations / gifts / advertising / flowers / philanthropy
   if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
       vendor.includes('donation') || vendor.includes('fundrais') ||
       vendor.includes('larosaflowe') || vendor.includes('imagineart') ||
-      vendor.includes('beastphilan')) {
+      vendor.includes('beastphilan') || vendor.includes('paypal *beastphilan') ||
+      vendor.includes('paypal beastphilan')) {
     return 'advertising';
   }
 
@@ -255,7 +259,8 @@ export function classifyExpense(expense: any): string {
   }
 
   // Online shopping (Amazon, Temu, etc.) → grocery/supplies
-  if (vendor.includes('amazon') || vendor.includes('temu') || vendor.includes('kitscomtech')) {
+  if (vendor.includes('amazon') || vendor.includes('temu') ||
+      vendor.includes('paypal temu')) {
     return 'grocery';
   }
 
