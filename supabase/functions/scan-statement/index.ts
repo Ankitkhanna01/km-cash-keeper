@@ -143,7 +143,43 @@ Return ONLY valid JSON with keys "card_last4" (string or null) and "transactions
       } catch (e) { console.error("Lovable AI error:", e); }
     }
 
-    // 2. Fallback to OpenRouter
+    // 2. Fallback to Anthropic Claude
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!resultData && ANTHROPIC_API_KEY) {
+      try {
+        console.log("Statement scan: trying Anthropic Claude");
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 8192,
+            system: systemPrompt,
+            messages: [{ role: "user", content: [
+              { type: "image", source: { type: "base64", media_type: mimeType, data: base64Data } },
+              { type: "text", text: userPrompt }
+            ]}],
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const text = data.content?.[0]?.text;
+          if (text) {
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) { resultData = JSON.parse(jsonMatch[0]); console.log("Anthropic Claude succeeded"); }
+          }
+        } else {
+          console.error(`Anthropic Claude failed: ${resp.status}`);
+          await resp.text();
+        }
+      } catch (e) { console.error("Anthropic Claude error:", e); }
+    }
+
+    // 3. Fallback to OpenRouter
     if (!resultData && OPENROUTER_API_KEY) {
       try {
         console.log("Statement scan: trying OpenRouter");
