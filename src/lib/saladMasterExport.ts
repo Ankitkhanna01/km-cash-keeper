@@ -259,7 +259,8 @@ export function classifyExpense(expense: any): string {
   }
 
   // Online shopping (Amazon, Temu, etc.) → grocery/supplies
-  if (vendor.includes('amazon') || vendor.includes('temu') || vendor.includes('kitscomtech')) {
+  if (vendor.includes('amazon') || vendor.includes('temu') ||
+      vendor.includes('paypal temu')) {
     return 'grocery';
   }
 
