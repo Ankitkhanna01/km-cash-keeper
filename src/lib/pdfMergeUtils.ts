@@ -242,7 +242,7 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
     toast.loading('Merging into single PDF...', { id: 'receipts-pdf' });
     const merged = await mergePdfs(pdfBuffers);
 
-    const blob = new Blob([merged], { type: 'application/pdf' });
+    const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
