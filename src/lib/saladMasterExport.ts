@@ -235,11 +235,12 @@ export function classifyExpense(expense: any): string {
     return 'alcohol';
   }
 
-  // Donations / gifts / advertising / flowers
+  // Donations / gifts / advertising / flowers / philanthropy
   if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
       vendor.includes('donation') || vendor.includes('fundrais') ||
       vendor.includes('larosaflowe') || vendor.includes('imagineart') ||
-      vendor.includes('beastphilan')) {
+      vendor.includes('beastphilan') || vendor.includes('paypal *beastphilan') ||
+      vendor.includes('paypal beastphilan')) {
     return 'advertising';
   }
 
