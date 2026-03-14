@@ -221,9 +221,10 @@ export function classifyExpense(expense: any): string {
     return 'delivery_freight';
   }
 
-  // Phone / Internet
+  // Phone / Internet / Google subscriptions
   if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
-      vendor.includes('paypal google') || vendor.includes('paypal *google')) {
+      vendor.includes('paypal google') || vendor.includes('paypal *google') ||
+      vendor.includes('paypal twitter')) {
     return 'phone_internet';
   }
 
