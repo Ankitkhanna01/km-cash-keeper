@@ -65,33 +65,74 @@ async function listAllUserFiles(userId: string): Promise<string[]> {
 }
 
 /**
+ * Compress an image via canvas, returning JPEG ArrayBuffer
+ * Target max dimension 1200px, JPEG quality 0.5
+ */
+async function compressImage(imageData: ArrayBuffer): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([imageData]);
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxDim = 1200;
+      let w = img.width;
+      let h = img.height;
+      if (w > maxDim || h > maxDim) {
+        const s = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * s);
+        h = Math.round(h * s);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (b) => {
+          if (!b) return reject(new Error('Canvas toBlob failed'));
+          b.arrayBuffer().then(resolve).catch(reject);
+        },
+        'image/jpeg',
+        0.5
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Image load failed'));
+    };
+    img.src = url;
+  });
+}
+
+/**
  * Convert an image (JPG/PNG/WEBP) to a single-page PDF as ArrayBuffer
+ * Compresses via canvas to keep file size small
  */
 async function imageToPdfPage(imageData: ArrayBuffer, fileName: string): Promise<ArrayBuffer | null> {
   try {
+    // Compress image to JPEG first
+    let jpegData: ArrayBuffer;
+    try {
+      jpegData = await compressImage(imageData);
+    } catch {
+      jpegData = imageData; // fallback to original
+    }
+
     const pdfDoc = await PDFDocument.create();
-    const lower = fileName.toLowerCase();
-    
     let image;
-    if (lower.endsWith('.png')) {
-      image = await pdfDoc.embedPng(imageData);
-    } else {
-      // JPG, JPEG, WEBP - try as JPEG first
+    try {
+      image = await pdfDoc.embedJpg(jpegData);
+    } catch {
       try {
-        image = await pdfDoc.embedJpg(imageData);
+        image = await pdfDoc.embedPng(imageData);
       } catch {
-        // Try as PNG fallback
-        try {
-          image = await pdfDoc.embedPng(imageData);
-        } catch {
-          return null;
-        }
+        return null;
       }
     }
 
     const { width, height } = image;
-    // Scale to fit A4 (595 x 842) while maintaining aspect ratio
-    const maxW = 555; // A4 with margins
+    const maxW = 555;
     const maxH = 802;
     const scale = Math.min(maxW / width, maxH / height, 1);
     const scaledW = width * scale;
@@ -100,7 +141,7 @@ async function imageToPdfPage(imageData: ArrayBuffer, fileName: string): Promise
     const page = pdfDoc.addPage([595, 842]);
     page.drawImage(image, {
       x: (595 - scaledW) / 2,
-      y: 842 - 20 - scaledH, // top margin
+      y: 842 - 20 - scaledH,
       width: scaledW,
       height: scaledH,
     });
@@ -243,6 +284,13 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
     const merged = await mergePdfs(pdfBuffers);
 
     const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
+    
+    if (blob.size > 23 * 1024 * 1024) {
+      toast.warning(`Receipts PDF is ${sizeMB}MB (over 23MB limit). Try reducing receipt count.`, { id: 'receipts-pdf', duration: 8000 });
+      return;
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -252,7 +300,7 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    toast.success(`Receipts PDF created! ${pdfBuffers.length} receipts combined`, { id: 'receipts-pdf', duration: 6000 });
+    toast.success(`Receipts PDF created! ${pdfBuffers.length} receipts (${sizeMB}MB)`, { id: 'receipts-pdf', duration: 6000 });
   } catch (error) {
     console.error('Receipts PDF error:', error);
     toast.error('Failed to create receipts PDF', { id: 'receipts-pdf' });
@@ -439,6 +487,13 @@ export async function generateStatementsPdf(year: number): Promise<void> {
     const merged = await mergePdfs(pdfBuffers);
 
     const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
+    
+    if (blob.size > 23 * 1024 * 1024) {
+      toast.warning(`Statements PDF is ${sizeMB}MB (over 23MB limit). Some files may need removal.`, { id: 'statements-pdf', duration: 8000 });
+      return;
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -449,7 +504,7 @@ export async function generateStatementsPdf(year: number): Promise<void> {
     URL.revokeObjectURL(url);
 
     toast.success(
-      `Statements PDF created! ${pdfBuffers.length} PDFs merged${failed > 0 ? ` (${failed} failed)` : ''}`,
+      `Statements PDF created! ${pdfBuffers.length} PDFs (${sizeMB}MB)${failed > 0 ? ` (${failed} failed)` : ''}`,
       { id: 'statements-pdf', duration: 6000 }
     );
   } catch (error) {
