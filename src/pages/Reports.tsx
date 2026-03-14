@@ -24,7 +24,7 @@ import { PLATFORM_LABELS, GAP_CATEGORY_LABELS } from '@/types/documents';
 import { generateFullExcelReport } from '@/lib/excelExport';
 import { generateShortExcel, generateElaborateExcel } from '@/lib/transactionExcelExport';
 import { generateSaladMasterExcel, generateDeliveryExpensesExcel, generateExpensesReceiptExcel } from '@/lib/saladMasterExport';
-import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, List, Table, ChefHat, Truck, Receipt, Brain } from 'lucide-react';
+import { FileText, Download, AlertCircle, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, List, Table, ChefHat, Truck, Receipt, Brain, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Reports() {
@@ -531,6 +531,92 @@ ${expenses
         >
           <Brain className="w-5 h-5 mr-2" />
           AI Reclassify Categories
+        </Button>
+
+        {/* AI Receipt Audit */}
+        <Button 
+          onClick={async () => {
+            const { supabase } = await import('@/integrations/supabase/client');
+            let offset = 0;
+            const batchSize = 5;
+            let totalScanned = 0;
+            let totalDiscrepancies = 0;
+            let totalMatches = 0;
+            let totalErrors = 0;
+            let allDiscrepancies: any[] = [];
+            
+            toast.loading('Starting receipt audit with Claude AI...', { id: 'audit' });
+
+            try {
+              let hasMore = true;
+              while (hasMore) {
+                toast.loading(`Scanning receipts ${offset + 1}-${offset + batchSize}...`, { id: 'audit' });
+                
+                const { data, error } = await supabase.functions.invoke('audit-receipts', {
+                  body: { year, batch_offset: offset, batch_size: batchSize },
+                });
+                
+                if (error) throw error;
+                if (!data?.success) {
+                  toast.error(data?.error || 'Audit failed', { id: 'audit' });
+                  return;
+                }
+
+                totalScanned += data.summary.scanned;
+                totalMatches += data.summary.matches;
+                totalDiscrepancies += data.summary.discrepancies;
+                totalErrors += data.summary.errors;
+
+                // Collect discrepancies
+                for (const r of data.results) {
+                  if (r.status === 'discrepancy') {
+                    allDiscrepancies.push(r);
+                  }
+                }
+
+                toast.loading(`Scanned ${totalScanned}/${data.total} receipts (${totalDiscrepancies} issues found)...`, { id: 'audit' });
+
+                hasMore = data.has_more;
+                offset += batchSize;
+
+                // Small delay between batches
+                if (hasMore) await new Promise(r => setTimeout(r, 1000));
+              }
+
+              // Show final summary
+              if (totalDiscrepancies > 0) {
+                toast.warning(
+                  `Audit complete: ${totalDiscrepancies} discrepancies found in ${totalScanned} receipts`,
+                  { id: 'audit', duration: 10000 }
+                );
+                // Show each discrepancy
+                allDiscrepancies.forEach((d: any) => {
+                  toast.warning(`${d.vendor_name}`, {
+                    description: d.discrepancies.join(' | '),
+                    duration: 8000,
+                  });
+                });
+              } else {
+                toast.success(
+                  `Audit complete! All ${totalScanned} receipts match perfectly ✓`,
+                  { id: 'audit', duration: 8000 }
+                );
+              }
+
+              if (totalErrors > 0) {
+                toast.info(`${totalErrors} receipts could not be processed`, { duration: 5000 });
+              }
+            } catch (error) {
+              console.error('Audit error:', error);
+              toast.error('Receipt audit failed', { id: 'audit' });
+            }
+          }}
+          variant="outline"
+          className="w-full border-warning/30"
+          size="lg"
+        >
+          <ScanSearch className="w-5 h-5 mr-2" />
+          AI Audit Receipts (Claude 2nd Opinion)
         </Button>
       </div>
     </AppLayout>
