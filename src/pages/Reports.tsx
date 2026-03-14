@@ -635,10 +635,49 @@ ${expenses
                   try {
                     const match = url.match(/\/storage\/v1\/object\/sign\/receipts\/(.+?)(\?|$)/);
                     return match ? decodeURIComponent(match[1]) : null;
-                  } catch { return null; }
+                  } catch {
+                    return null;
+                  }
                 }
                 if (url.startsWith('http')) return null;
                 return url;
+              };
+
+              const listAllUserStorageFiles = async (userId: string): Promise<string[]> => {
+                const queue: string[] = [userId];
+                const visited = new Set<string>();
+                const paths: string[] = [];
+
+                while (queue.length > 0) {
+                  const currentPath = queue.shift();
+                  if (!currentPath || visited.has(currentPath)) continue;
+                  visited.add(currentPath);
+
+                  const { data, error } = await supabase.storage
+                    .from('receipts')
+                    .list(currentPath, { limit: 1000, sortBy: { column: 'name', order: 'asc' } });
+
+                  if (error) {
+                    console.warn(`Could not list storage path ${currentPath}:`, error.message);
+                    continue;
+                  }
+
+                  for (const entry of data || []) {
+                    if (!entry?.name || entry.name === '.emptyFolderPlaceholder') continue;
+
+                    const fullPath = `${currentPath}/${entry.name}`;
+                    const isFolder = !entry.id;
+
+                    if (isFolder) {
+                      queue.push(fullPath);
+                      continue;
+                    }
+
+                    paths.push(fullPath);
+                  }
+                }
+
+                return paths;
               };
 
               // Get all expenses with receipt_url for selected year
@@ -664,74 +703,59 @@ ${expenses
               (yearExpenses || []).forEach((e: any) => {
                 if (!e.receipt_url) return;
                 const filePath = extractPath(e.receipt_url);
-                if (filePath) {
-                  addedPaths.add(filePath);
-                  const ext = filePath.split('.').pop() || 'jpg';
-                  const safeName = e.vendor_name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
-                  allFiles.push({
-                    path: filePath,
-                    folder: 'receipts',
-                    name: `${e.date}_${safeName}_$${e.amount}.${ext}`,
-                  });
-                }
+                if (!filePath) return;
+
+                addedPaths.add(filePath);
+                const ext = filePath.split('.').pop() || 'jpg';
+                const safeName = e.vendor_name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+                allFiles.push({
+                  path: filePath,
+                  folder: 'receipts',
+                  name: `${e.date}_${safeName}_$${e.amount}.${ext}`,
+                });
               });
 
               // Collect document files (paystubs/statements)
               (yearDocs || []).forEach((d: any) => {
                 if (!d.document_url) return;
                 const filePath = extractPath(d.document_url);
-                if (filePath) {
-                  addedPaths.add(filePath);
-                  const ext = filePath.split('.').pop() || 'pdf';
-                  const month = String(d.period_month).padStart(2, '0');
-                  const platform = (d.platform || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
-                  allFiles.push({
-                    path: filePath,
-                    folder: 'statements',
-                    name: `${year}-${month}_${platform}_${d.document_type}.${ext}`,
-                  });
-                }
+                if (!filePath) return;
+
+                addedPaths.add(filePath);
+                const ext = filePath.split('.').pop() || 'pdf';
+                const month = String(d.period_month).padStart(2, '0');
+                const platform = (d.platform || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
+                allFiles.push({
+                  path: filePath,
+                  folder: 'statements',
+                  name: `${year}-${month}_${platform}_${d.document_type}.${ext}`,
+                });
               });
 
-              // Also scan storage directly for any unlinked PDFs and files
+              // Scan storage recursively to include unlinked uploads (especially PDFs)
               try {
-                const { data: storageFiles } = await supabase.storage
-                  .from('receipts')
-                  .list(undefined, { limit: 500 });
-                  
-                // List user folder contents
-                const userId = (await supabase.auth.getUser()).data.user?.id;
+                const { data: authData } = await supabase.auth.getUser();
+                const userId = authData.user?.id;
+
                 if (userId) {
-                  const { data: userFiles } = await supabase.storage
-                    .from('receipts')
-                    .list(userId, { limit: 500 });
-                  
-                  // Also check subfolders like paystubs
-                  const { data: paystubFiles } = await supabase.storage
-                    .from('receipts')
-                    .list(`${userId}/paystubs`, { limit: 500 });
+                  const storagePaths = await listAllUserStorageFiles(userId);
 
-                  const allStorageFiles = [
-                    ...(userFiles || []).map(f => ({ ...f, prefix: userId })),
-                    ...(paystubFiles || []).map(f => ({ ...f, prefix: `${userId}/paystubs` })),
-                  ];
-
-                  for (const file of allStorageFiles) {
-                    if (!file.name || file.name === '.emptyFolderPlaceholder') continue;
-                    const fullPath = `${file.prefix}/${file.name}`;
+                  for (const fullPath of storagePaths) {
                     if (addedPaths.has(fullPath)) continue;
-                    
-                    const ext = file.name.split('.').pop()?.toLowerCase() || '';
-                    const isPdf = ext === 'pdf';
+
+                    const lowerPath = fullPath.toLowerCase();
+                    const isPdf = lowerPath.endsWith('.pdf');
+                    const relativePath = fullPath.replace(`${userId}/`, '');
+
                     allFiles.push({
                       path: fullPath,
                       folder: isPdf ? 'statements_unlinked' : 'receipts_unlinked',
-                      name: file.name,
+                      name: relativePath,
                     });
                   }
                 }
               } catch (e) {
-                console.warn('Could not scan storage directly:', e);
+                console.warn('Could not scan storage recursively:', e);
               }
 
               if (allFiles.length === 0) {
@@ -739,35 +763,58 @@ ${expenses
                 return;
               }
 
-              toast.loading(`Downloading ${allFiles.length} files...`, { id: 'zip-download' });
+              const pdfCount = allFiles.filter((f) => f.path.toLowerCase().endsWith('.pdf')).length;
+              toast.loading(`Downloading ${allFiles.length} files (${pdfCount} PDFs)...`, { id: 'zip-download' });
 
               let downloaded = 0;
-              let errors = 0;
+              const failedFiles: string[] = [];
 
               // Download in batches of 5
               for (let i = 0; i < allFiles.length; i += 5) {
                 const batch = allFiles.slice(i, i + 5);
-                const results = await Promise.allSettled(
+                const results = await Promise.all(
                   batch.map(async (file) => {
-                    const { data, error } = await supabase.storage
-                      .from('receipts')
-                      .download(file.path);
-                    if (error || !data) throw error;
-                    return { ...file, blob: data };
+                    try {
+                      const { data, error } = await supabase.storage
+                        .from('receipts')
+                        .download(file.path);
+
+                      if (error || !data) {
+                        return {
+                          ok: false as const,
+                          file,
+                          error: error?.message || 'File could not be downloaded',
+                        };
+                      }
+
+                      return { ok: true as const, file, blob: data };
+                    } catch (error) {
+                      return {
+                        ok: false as const,
+                        file,
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                      };
+                    }
                   })
                 );
 
                 for (const result of results) {
-                  if (result.status === 'fulfilled') {
-                    const { folder, name, blob } = result.value;
-                    zip.folder(folder)!.file(name, blob);
+                  if (result.ok) {
+                    zip.folder(result.file.folder)!.file(result.file.name, result.blob);
                     downloaded++;
                   } else {
-                    errors++;
+                    failedFiles.push(`${result.file.path} — ${result.error}`);
                   }
                 }
 
                 toast.loading(`Downloaded ${downloaded}/${allFiles.length} files...`, { id: 'zip-download' });
+              }
+
+              if (failedFiles.length > 0) {
+                zip.file(
+                  '_FAILED_DOWNLOADS.txt',
+                  ['These files failed to download:', ...failedFiles].join('\n')
+                );
               }
 
               toast.loading('Creating ZIP file...', { id: 'zip-download' });
@@ -782,8 +829,8 @@ ${expenses
               URL.revokeObjectURL(url);
 
               toast.success(
-                `ZIP downloaded! ${downloaded} files${errors > 0 ? ` (${errors} failed)` : ''}`,
-                { id: 'zip-download', duration: 6000 }
+                `ZIP downloaded! ${downloaded} files, ${pdfCount} PDFs${failedFiles.length > 0 ? ` (${failedFiles.length} failed — see _FAILED_DOWNLOADS.txt)` : ''}`,
+                { id: 'zip-download', duration: 8000 }
               );
             } catch (error) {
               console.error('ZIP download error:', error);
