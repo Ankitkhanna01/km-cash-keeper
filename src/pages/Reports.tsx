@@ -628,6 +628,19 @@ ${expenses
               const JSZip = (await import('jszip')).default;
               const zip = new JSZip();
 
+              // Helper to extract file path from signed URL or return path as-is
+              const extractPath = (url: string): string | null => {
+                if (!url) return null;
+                if (url.includes('/storage/v1/object/sign/receipts/')) {
+                  try {
+                    const match = url.match(/\/storage\/v1\/object\/sign\/receipts\/(.+?)(\?|$)/);
+                    return match ? decodeURIComponent(match[1]) : null;
+                  } catch { return null; }
+                }
+                if (url.startsWith('http')) return null;
+                return url;
+              };
+
               // Get all expenses with receipt_url for selected year
               const { data: yearExpenses } = await supabase
                 .from('expenses')
@@ -645,12 +658,14 @@ ${expenses
                 .not('document_url', 'is', null);
 
               const allFiles: { path: string; folder: string; name: string }[] = [];
+              const addedPaths = new Set<string>();
 
               // Collect expense receipts
               (yearExpenses || []).forEach((e: any) => {
                 if (!e.receipt_url) return;
-                const filePath = e.receipt_url.startsWith('http') ? null : e.receipt_url;
+                const filePath = extractPath(e.receipt_url);
                 if (filePath) {
+                  addedPaths.add(filePath);
                   const ext = filePath.split('.').pop() || 'jpg';
                   const safeName = e.vendor_name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
                   allFiles.push({
@@ -664,8 +679,9 @@ ${expenses
               // Collect document files (paystubs/statements)
               (yearDocs || []).forEach((d: any) => {
                 if (!d.document_url) return;
-                const filePath = d.document_url.startsWith('http') ? null : d.document_url;
+                const filePath = extractPath(d.document_url);
                 if (filePath) {
+                  addedPaths.add(filePath);
                   const ext = filePath.split('.').pop() || 'pdf';
                   const month = String(d.period_month).padStart(2, '0');
                   const platform = (d.platform || 'unknown').replace(/[^a-zA-Z0-9]/g, '_');
@@ -676,6 +692,47 @@ ${expenses
                   });
                 }
               });
+
+              // Also scan storage directly for any unlinked PDFs and files
+              try {
+                const { data: storageFiles } = await supabase.storage
+                  .from('receipts')
+                  .list(undefined, { limit: 500 });
+                  
+                // List user folder contents
+                const userId = (await supabase.auth.getUser()).data.user?.id;
+                if (userId) {
+                  const { data: userFiles } = await supabase.storage
+                    .from('receipts')
+                    .list(userId, { limit: 500 });
+                  
+                  // Also check subfolders like paystubs
+                  const { data: paystubFiles } = await supabase.storage
+                    .from('receipts')
+                    .list(`${userId}/paystubs`, { limit: 500 });
+
+                  const allStorageFiles = [
+                    ...(userFiles || []).map(f => ({ ...f, prefix: userId })),
+                    ...(paystubFiles || []).map(f => ({ ...f, prefix: `${userId}/paystubs` })),
+                  ];
+
+                  for (const file of allStorageFiles) {
+                    if (!file.name || file.name === '.emptyFolderPlaceholder') continue;
+                    const fullPath = `${file.prefix}/${file.name}`;
+                    if (addedPaths.has(fullPath)) continue;
+                    
+                    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                    const isPdf = ext === 'pdf';
+                    allFiles.push({
+                      path: fullPath,
+                      folder: isPdf ? 'statements_unlinked' : 'receipts_unlinked',
+                      name: file.name,
+                    });
+                  }
+                }
+              } catch (e) {
+                console.warn('Could not scan storage directly:', e);
+              }
 
               if (allFiles.length === 0) {
                 toast.error('No uploaded files found for this year', { id: 'zip-download' });
