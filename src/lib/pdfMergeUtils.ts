@@ -487,6 +487,13 @@ export async function generateStatementsPdf(year: number): Promise<void> {
     const merged = await mergePdfs(pdfBuffers);
 
     const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
+    
+    if (blob.size > 23 * 1024 * 1024) {
+      toast.warning(`Statements PDF is ${sizeMB}MB (over 23MB limit). Some files may need removal.`, { id: 'statements-pdf', duration: 8000 });
+      return;
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -497,7 +504,7 @@ export async function generateStatementsPdf(year: number): Promise<void> {
     URL.revokeObjectURL(url);
 
     toast.success(
-      `Statements PDF created! ${pdfBuffers.length} PDFs merged${failed > 0 ? ` (${failed} failed)` : ''}`,
+      `Statements PDF created! ${pdfBuffers.length} PDFs (${sizeMB}MB)${failed > 0 ? ` (${failed} failed)` : ''}`,
       { id: 'statements-pdf', duration: 6000 }
     );
   } catch (error) {
