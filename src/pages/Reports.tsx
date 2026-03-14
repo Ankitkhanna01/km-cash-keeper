@@ -620,6 +620,28 @@ ${expenses
           AI Audit Receipts (Claude 2nd Opinion)
         </Button>
 
+        {/* Combined PDF Downloads */}
+        <div className="grid grid-cols-2 gap-3">
+          <Button
+            onClick={() => generateReceiptsPdf(year)}
+            variant="outline"
+            className="w-full border-success/30"
+            size="default"
+          >
+            <FileImage className="w-4 h-4 mr-2" />
+            All Receipts PDF
+          </Button>
+          <Button
+            onClick={() => generateStatementsPdf(year)}
+            variant="outline"
+            className="w-full border-success/30"
+            size="default"
+          >
+            <Files className="w-4 h-4 mr-2" />
+            All Statements PDF
+          </Button>
+        </div>
+
         {/* Download All Receipts & Statements ZIP */}
         <Button 
           onClick={async () => {
