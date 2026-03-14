@@ -494,6 +494,44 @@ ${expenses
           <Receipt className="w-5 h-5 mr-2" />
           Expenses Receipt (All)
         </Button>
+
+        {/* AI Reclassify Button */}
+        <Button 
+          onClick={async () => {
+            toast.loading('AI is reviewing all expenses...', { id: 'reclassify' });
+            try {
+              const { supabase } = await import('@/integrations/supabase/client');
+              const { data, error } = await supabase.functions.invoke('reclassify-expenses', {
+                body: { year },
+              });
+              if (error) throw error;
+              if (data?.success) {
+                if (data.changes > 0) {
+                  toast.success(`AI reclassified ${data.changes} expenses out of ${data.total_reviewed} reviewed`, { id: 'reclassify', duration: 8000 });
+                  // Show details
+                  data.details?.forEach((d: any) => {
+                    toast.info(`${d.vendor}: ${d.from} → ${d.to}`, { description: d.reason, duration: 6000 });
+                  });
+                  // Refresh data
+                  window.location.reload();
+                } else {
+                  toast.success('All expenses are correctly categorized!', { id: 'reclassify' });
+                }
+              } else {
+                toast.error(data?.error || 'Reclassification failed', { id: 'reclassify' });
+              }
+            } catch (error) {
+              console.error('Reclassify error:', error);
+              toast.error('Failed to reclassify expenses', { id: 'reclassify' });
+            }
+          }}
+          variant="outline"
+          className="w-full border-primary/30"
+          size="lg"
+        >
+          <Brain className="w-5 h-5 mr-2" />
+          AI Reclassify Categories
+        </Button>
       </div>
     </AppLayout>
   );
