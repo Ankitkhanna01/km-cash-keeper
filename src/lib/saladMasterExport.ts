@@ -105,14 +105,14 @@ export function classifyExpense(expense: any): string {
     return 'transportation';
   }
 
-  // Car share / transportation / transit / taxi / ferries
+  // Car share / transportation / transit / taxi / ferries / hotel
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
       vendor.includes('bc ferries') || vendor.includes('bcf -') ||
       vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
       vendor.includes('bc transit') || vendor.includes('compass') || 
-      vendor.includes('city') && vendor.includes('taxi') ||
+      (vendor.includes('city') && vendor.includes('taxi')) ||
       vendor.includes('uber') || vendor.includes('paypal uber') || vendor.includes('paypal *uber') ||
-      vendor.includes('allresto')) {
+      vendor.includes('allresto') || vendor.includes('tofino')) {
     return 'transportation';
   }
 
