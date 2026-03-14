@@ -138,9 +138,53 @@ export function StatementReconciliation({ expenses, onAddExpense, onBulkAdded }:
 
       if (data?.success && data.transactions && data.transactions.length > 0) {
         setTransactions(data.transactions);
-        setStatementCardLast4(data.card_last4 || null);
+        const cardLast4 = data.card_last4 || null;
+        setStatementCardLast4(cardLast4);
         setMode('reconcile');
         toast.success(`Found ${data.transactions.length} transactions — matching against receipts...`);
+
+        // Save the original statement PDF/image to storage and create a document record
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          const userId = authData.user?.id;
+          if (userId) {
+            // Determine date range from transactions for naming
+            const dates = data.transactions.map((t: StatementTransaction) => t.date).sort();
+            const firstDate = dates[0] || '';
+            const lastDate = dates[dates.length - 1] || '';
+            const monthNum = firstDate ? parseInt(firstDate.split('-')[1]) : new Date().getMonth() + 1;
+            const yearNum = firstDate ? parseInt(firstDate.split('-')[0]) : new Date().getFullYear();
+
+            // Build a descriptive filename
+            const cardSuffix = cardLast4 ? `_card${cardLast4}` : '';
+            const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf';
+            const storagePath = `${userId}/statements/${yearNum}-${String(monthNum).padStart(2, '0')}${cardSuffix}_${Date.now()}.${ext}`;
+
+            // Upload file to storage
+            const { error: uploadError } = await supabase.storage
+              .from('receipts')
+              .upload(storagePath, file, { contentType: file.type, upsert: false });
+
+            if (!uploadError) {
+              // Create a document record linked to this file
+              await supabase.from('documents').insert({
+                user_id: userId,
+                document_type: 'statement',
+                source_type: 'upload',
+                platform: cardLast4 ? `card_${cardLast4}` : 'unknown',
+                period_year: yearNum,
+                period_month: monthNum,
+                document_url: storagePath,
+                notes: `Statement ${cardLast4 ? `****${cardLast4}` : ''} ${firstDate} to ${lastDate}, ${data.transactions.length} transactions`,
+              });
+              console.log('Statement PDF saved to storage:', storagePath);
+            } else {
+              console.warn('Failed to save statement to storage:', uploadError);
+            }
+          }
+        } catch (storageErr) {
+          console.warn('Non-critical: failed to persist statement PDF:', storageErr);
+        }
       } else {
         toast.error('No transactions found in this document');
       }
