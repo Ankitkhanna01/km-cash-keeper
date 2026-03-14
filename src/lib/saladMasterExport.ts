@@ -209,10 +209,12 @@ export function classifyExpense(expense: any): string {
     return 'vitamins';
   }
 
-  // Professional fees / software / freelance
+  // Professional fees / software / freelance / services
   if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
       vendor.includes('scarface trade') || vendor.includes('staples') ||
-      vendor.includes('thinking canada')) {
+      vendor.includes('thinking canada') || vendor.includes('emergent') ||
+      vendor.includes('a.k.p service') || vendor.includes('akp service') ||
+      vendor.includes('shb holdings') || vendor.includes('paypal kitscomtech')) {
     return 'professional_fees';
   }
 
