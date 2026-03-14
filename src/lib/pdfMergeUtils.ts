@@ -105,7 +105,7 @@ async function imageToPdfPage(imageData: ArrayBuffer, fileName: string): Promise
       height: scaledH,
     });
 
-    return await pdfDoc.save();
+    return (await pdfDoc.save()).buffer as ArrayBuffer;
   } catch (e) {
     console.warn('Failed to convert image to PDF:', fileName, e);
     return null;
