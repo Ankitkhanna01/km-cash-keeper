@@ -284,6 +284,13 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
     const merged = await mergePdfs(pdfBuffers);
 
     const blob = new Blob([merged.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
+    
+    if (blob.size > 23 * 1024 * 1024) {
+      toast.warning(`Receipts PDF is ${sizeMB}MB (over 23MB limit). Try reducing receipt count.`, { id: 'receipts-pdf', duration: 8000 });
+      return;
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -293,7 +300,7 @@ export async function generateReceiptsPdf(year: number): Promise<void> {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    toast.success(`Receipts PDF created! ${pdfBuffers.length} receipts combined`, { id: 'receipts-pdf', duration: 6000 });
+    toast.success(`Receipts PDF created! ${pdfBuffers.length} receipts (${sizeMB}MB)`, { id: 'receipts-pdf', duration: 6000 });
   } catch (error) {
     console.error('Receipts PDF error:', error);
     toast.error('Failed to create receipts PDF', { id: 'receipts-pdf' });
