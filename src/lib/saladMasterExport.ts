@@ -273,7 +273,7 @@ export function classifyExpense(expense: any): string {
 
   // Online shopping (Amazon, Temu, etc.) → grocery/supplies
   if (vendor.includes('amazon') || vendor.includes('temu') ||
-      vendor.includes('paypal temu')) {
+      vendor.includes('paypal temu') || vendor.includes('temu.com')) {
     return 'grocery';
   }
 
@@ -284,6 +284,11 @@ export function classifyExpense(expense: any): string {
 
   // Dollarama / dollar stores → grocery/supplies
   if (vendor.includes('dollarama') || vendor.includes('dollar')) {
+    return 'grocery';
+  }
+
+  // 7-Eleven (non-fuel) → grocery
+  if (vendor.includes('7-eleven') || vendor.includes('7eleven')) {
     return 'grocery';
   }
 
