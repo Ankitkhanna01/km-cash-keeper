@@ -238,7 +238,7 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
   // Phone/Internet
   if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
       vendor.includes('paypal google') || vendor.includes('paypal *google') ||
-      vendor.includes('paypal twitter')) {
+      vendor.includes('paypal twitter') || vendor.includes('pos purchase paypal google twitter')) {
     return { column: 'phone_internet', unknown: false };
   }
 
