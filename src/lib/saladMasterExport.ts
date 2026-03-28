@@ -632,7 +632,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
     
     if (deliveryCategories.includes(e.category)) return true;
     
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     return ['gas', 'car', 'car_maintenance', 'car_gas', 'drivers_insurance', 
             'car_wash', 'transportation', 'licence', 'repairs'].includes(smClass);
   }).sort((a: any, b: any) => a.date.localeCompare(b.date));
@@ -704,7 +704,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
 
   const groupedTotals: Record<string, { total: number; count: number }> = {};
   yearExpenses.forEach(e => {
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     if (!groupedTotals[smClass]) groupedTotals[smClass] = { total: 0, count: 0 };
     groupedTotals[smClass].total += Number(e.amount);
     groupedTotals[smClass].count++;
@@ -747,7 +747,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
   const monthlyByCategory: Record<string, number[]> = {};
   yearExpenses.forEach(e => {
     const month = parseISO(e.date).getMonth();
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     if (!monthlyByCategory[smClass]) monthlyByCategory[smClass] = new Array(12).fill(0);
     monthlyByCategory[smClass][month] += Number(e.amount);
   });
@@ -781,7 +781,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
   });
 
   yearExpenses.forEach((e: any) => {
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     const label = t2125Categories[smClass] || smClass;
     detailWs.addRow([
       e.date,
