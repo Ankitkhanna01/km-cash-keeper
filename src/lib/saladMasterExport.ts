@@ -121,10 +121,11 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
   // Transportation
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
       vendor.includes('bc ferries') || vendor.includes('bcf -') ||
-      vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
+      vendor.includes('yellow cab') || vendor.includes('bluebird cabs') || vendor.includes('ellow cab') ||
       vendor.includes('bc transit') || vendor.includes('compass') || 
       (vendor.includes('city') && vendor.includes('taxi')) ||
       vendor.includes('uber') || vendor.includes('paypal uber') || vendor.includes('paypal *uber') ||
+      vendor.includes('pos purchase paypal uber') ||
       vendor.includes('allresto') || vendor.includes('tofino')) {
     return { column: 'transportation', unknown: false };
   }
@@ -237,7 +238,7 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
   // Phone/Internet
   if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
       vendor.includes('paypal google') || vendor.includes('paypal *google') ||
-      vendor.includes('paypal twitter')) {
+      vendor.includes('paypal twitter') || vendor.includes('pos purchase paypal google twitter')) {
     return { column: 'phone_internet', unknown: false };
   }
 
