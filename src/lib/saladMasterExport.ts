@@ -56,7 +56,8 @@ const SM_COLUMNS = [
 ];
 
 // Classify an expense into the correct SM column
-export function classifyExpense(expense: any): string {
+// Returns { column, unknown } — unknown=true means we couldn't confidently classify
+export function classifyExpense(expense: any): { column: string; unknown: boolean } {
   const vendor = (expense.vendor_name || '').toLowerCase();
   const notes = (expense.notes || '').toLowerCase();
   const category = expense.category || 'other';
@@ -67,58 +68,57 @@ export function classifyExpense(expense: any): string {
       vendor.includes('hi quadra') || vendor.includes('hi-quadra') ||
       vendor.includes('smart stop') ||
       (vendor.includes('7-eleven') && (notes.includes('gas') || category === 'fuel'))) {
-    // MODO is car share, not fuel — even if category says fuel
-    if (vendor.includes('modo')) return 'transportation';
-    return 'gas';
+    if (vendor.includes('modo')) return { column: 'transportation', unknown: false };
+    return { column: 'gas', unknown: false };
   }
 
-  // Insurance (vehicle) - ICBC, AMC
+  // Insurance (vehicle)
   if (category === 'insurance' || vendor.includes('icbc') || vendor.includes('amc insurance')) {
-    return 'drivers_insurance';
+    return { column: 'drivers_insurance', unknown: false };
   }
 
   // Home insurance
   if (vendor.includes('home insurance') || vendor.includes('tenant insurance') || 
       vendor.includes('renter insurance') || vendor.includes('house insurance')) {
-    return 'home_insurance';
+    return { column: 'home_insurance', unknown: false };
   }
 
-  // Rent payments
+  // Rent
   if (vendor.includes('rent') && !vendor.includes('enterprise rent') ||
       vendor.includes('landlord') || vendor.includes('property management') ||
       vendor.includes('strata') || vendor.includes('housing')) {
-    return 'rent';
+    return { column: 'rent', unknown: false };
   }
 
-  // Licence / Registration
+  // Licence
   if (category === 'licence' || vendor.includes('driver services')) {
-    return 'licence';
+    return { column: 'licence', unknown: false };
   }
 
-  // Repairs & Maintenance (vehicle-specific)
+  // Repairs
   if (category === 'repairs' || vendor.includes('mr. lube') || vendor.includes('mr lube') ||
       vendor.includes('tennyson auto') || vendor.includes('gs auto')) {
-    return 'repairs';
+    return { column: 'repairs', unknown: false };
   }
 
   // Car purchase
   if (notes.includes('car purchase') || (vendor.includes('coast capital') && notes.includes('car'))) {
-    return 'car';
+    return { column: 'car', unknown: false };
   }
 
-  // Parking → dedicated parking column
+  // Parking
   if (vendor.includes('parking') || vendor.includes('parkvictoria') || vendor.includes('pacrim park') ||
       vendor.includes('robbins') || vendor.includes('honk') || vendor.includes('place face up') ||
       vendor.includes('r parking')) {
-    return 'parking';
+    return { column: 'parking', unknown: false };
   }
 
-  // Hotel booking
+  // Hotel
   if (vendor.includes('priceline') || vendor.includes('accent inn') || vendor.includes('tofino')) {
-    return 'transportation';
+    return { column: 'transportation', unknown: false };
   }
 
-  // Car share / transportation / transit / taxi / ferries / hotel
+  // Transportation
   if (vendor.includes('evo car') || vendor.includes('modo') || vendor.includes('bcferries') || 
       vendor.includes('bc ferries') || vendor.includes('bcf -') ||
       vendor.includes('yellow cab') || vendor.includes('bluebird cabs') ||
@@ -126,67 +126,65 @@ export function classifyExpense(expense: any): string {
       (vendor.includes('city') && vendor.includes('taxi')) ||
       vendor.includes('uber') || vendor.includes('paypal uber') || vendor.includes('paypal *uber') ||
       vendor.includes('allresto') || vendor.includes('tofino')) {
-    return 'transportation';
+    return { column: 'transportation', unknown: false };
   }
 
   // Car wash
   if (notes.includes('car wash') || notes.includes('full wash')) {
-    return 'car_wash';
+    return { column: 'car_wash', unknown: false };
   }
 
-  // Hydro / Power
+  // Hydro
   if (vendor.includes('hydro') || vendor.includes('b.c. hydro')) {
-    return 'hydro';
+    return { column: 'hydro', unknown: false };
   }
 
-  // Dental → medicals
+  // Dental
   if (vendor.includes('dental') || vendor.includes('times dental')) {
-    return 'medicals';
+    return { column: 'medicals', unknown: false };
   }
 
-  // Gym / Fitness
+  // Gym
   if (vendor.includes('fit4less') || vendor.includes('goodlife')) {
-    return 'gym';
+    return { column: 'gym', unknown: false };
   }
 
-  // Pharmacy / medical / health (London Drugs → grocery, not medical)
+  // Pharmacy/medical
   if (vendor.includes('pharmasave') ||
       vendor.includes('medicare') || vendor.includes('shoppers drug') ||
       vendor.includes('viha') || vendor.includes('env hlth')) {
-    return 'medicals';
+    return { column: 'medicals', unknown: false };
   }
 
-  // London Drugs → grocery
+  // London Drugs
   if (vendor.includes('london drugs')) {
-    return 'grocery';
+    return { column: 'grocery', unknown: false };
   }
 
-  // Haircut / grooming / personal care
+  // Grooming
   if (vendor.includes('sonu hair') || vendor.includes('haircut') || vendor.includes('barber') ||
       vendor.includes('crate 61')) {
-    return 'grooming';
+    return { column: 'grooming', unknown: false };
   }
 
   // Airport Shopping
   if (vendor.includes('world duty free')) {
-    return 'airport_shopping';
+    return { column: 'airport_shopping', unknown: false };
   }
-
-  // Airport checking / background checks
   if (vendor.includes('sterlingbackcheck')) {
-    return 'airport_shopping';
+    return { column: 'airport_shopping', unknown: false };
   }
 
-  // Clothing / shoes
+  // Clothing
   if (vendor.includes('winners') || vendor.includes('homesense') || vendor.includes('winnershomesense') ||
       vendor.includes('old navy') || vendor.includes('foot locker') ||
       vendor.includes('marshalls') || vendor.includes('h&m') ||
       vendor.includes('uniqlo') ||
       (vendor.includes('walmart') && notes.includes('cloth'))) {
-    return 'clothing';
+    return { column: 'clothing', unknown: false };
   }
 
-  // Restaurants / meals / entertainment / food delivery / cafes / lounges / bowling
+  // Restaurants / entertainment
   if (vendor.includes('subway') || vendor.includes('noodlebox') || vendor.includes('dosa paragon') ||
       vendor.includes('baan thai') || vendor.includes('pho u') || vendor.includes('sizzling tandoor') ||
       vendor.includes('himalayan') || vendor.includes('bin 4') || vendor.includes('browns social') ||
@@ -209,38 +207,38 @@ export function classifyExpense(expense: any): string {
       vendor.includes('sugar shak') || vendor.includes('showshaa') ||
       vendor.includes('langford lanes') || vendor.includes('biryanipala') || vendor.includes('junoon') ||
       (vendor === 'aw' || vendor.startsWith('aw '))) {
-    return 'entertainment';
+    return { column: 'entertainment', unknown: false };
   }
 
-  // Costco / wholesale / MM Food
+  // Costco / wholesale
   if (vendor.includes('costco') || vendor.includes('mm food') || vendor.includes('wholesale')) {
-    return 'membership';
+    return { column: 'membership', unknown: false };
   }
 
-  // Vitamins / supplements
+  // Vitamins
   if (vendor.includes('blueprint')) {
-    return 'vitamins';
+    return { column: 'vitamins', unknown: false };
   }
 
-  // Professional fees / software / freelance / services
+  // Professional fees
   if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
       vendor.includes('scarface trade') || vendor.includes('staples') ||
       vendor.includes('thinking canada') || vendor.includes('emergent') ||
       vendor.includes('a.k.p service') || vendor.includes('akp service') ||
       vendor.includes('shb holdings') || vendor.includes('paypal kitscomtech')) {
-    return 'professional_fees';
+    return { column: 'professional_fees', unknown: false };
   }
 
-  // FedEx / shipping
+  // Delivery/freight
   if (vendor.includes('fedex') || vendor.includes('shipping')) {
-    return 'delivery_freight';
+    return { column: 'delivery_freight', unknown: false };
   }
 
-  // Phone / Internet / Google subscriptions
+  // Phone/Internet
   if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
       vendor.includes('paypal google') || vendor.includes('paypal *google') ||
       vendor.includes('paypal twitter')) {
-    return 'phone_internet';
+    return { column: 'phone_internet', unknown: false };
   }
 
   // Alcohol
@@ -248,64 +246,64 @@ export function classifyExpense(expense: any): string {
       vendor.includes('liquor co') || vendor.includes('liquor plus') ||
       vendor.includes('cascadia liquor') || vendor.includes('bc liquor') ||
       vendor.includes('wandering bear')) {
-    return 'alcohol';
+    return { column: 'alcohol', unknown: false };
   }
 
-  // Donations / gifts / advertising / flowers / philanthropy
+  // Donations/advertising
   if (vendor.includes('operation smile') || vendor.includes('impact guru') ||
       vendor.includes('donation') || vendor.includes('fundrais') ||
       vendor.includes('larosaflowe') || vendor.includes('imagineart') ||
       vendor.includes('beastphilan') || vendor.includes('paypal *beastphilan') ||
       vendor.includes('paypal beastphilan')) {
-    return 'advertising';
+    return { column: 'advertising', unknown: false };
   }
 
-  // Canadian Tire (personal household, not auto repairs unless category is repairs)
+  // Canadian Tire
   if (vendor.includes('canadian tire')) {
-    if (category === 'repairs') return 'repairs';
-    return 'grocery'; // household supplies
+    if (category === 'repairs') return { column: 'repairs', unknown: false };
+    return { column: 'grocery', unknown: false };
   }
 
-  // BC Gov fees → government fees
+  // BC Gov fees
   if (vendor.includes('rsbc') || vendor.includes('bcgov')) {
-    return 'government_fees';
+    return { column: 'government_fees', unknown: false };
   }
 
-  // Online shopping (Amazon, Temu, etc.) → grocery/supplies
+  // Amazon/Temu
   if (vendor.includes('amazon') || vendor.includes('temu') ||
       vendor.includes('paypal temu') || vendor.includes('temu.com')) {
-    return 'grocery';
+    return { column: 'grocery', unknown: false };
   }
 
-  // Walmart → grocery
+  // Walmart
   if (vendor.includes('walmart') || vendor.includes('wal-mart')) {
-    return 'grocery';
+    return { column: 'grocery', unknown: false };
   }
 
-  // Dollarama / dollar stores → grocery/supplies
+  // Dollarama
   if (vendor.includes('dollarama') || vendor.includes('dollar')) {
-    return 'grocery';
+    return { column: 'grocery', unknown: false };
   }
 
-  // 7-Eleven (non-fuel) → grocery
+  // 7-Eleven (non-fuel)
   if (vendor.includes('7-eleven') || vendor.includes('7eleven')) {
-    return 'grocery';
+    return { column: 'grocery', unknown: false };
   }
 
   // Grocery stores
   if (vendor.includes('thrifty') || vendor.includes('western foods') || vendor.includes('save-on') ||
       vendor.includes('superstore') || vendor.includes('fairway') || vendor.includes('h-mart') ||
       vendor.includes('real canadian')) {
-    return 'grocery';
+    return { column: 'grocery', unknown: false };
   }
 
-  // Minutekey / misc small purchases
+  // Minutekey
   if (vendor.includes('minutekey')) {
-    return 'grocery';
+    return { column: 'grocery', unknown: false };
   }
 
-  // Default: grocery/supplies
-  return 'grocery';
+  // DEFAULT: unknown transaction — flag it for review
+  return { column: 'grocery', unknown: true };
 }
 
 // Helper to add CRA instructions sheet for accountant
@@ -437,7 +435,7 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
-  // Include ALL expenses for the year (personal + business) to match user's template
+  // Include ALL expenses for the year (personal + business)
   const dbExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
     return d.getFullYear() === year && !e.deleted_at;
@@ -445,8 +443,6 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
 
   // Merge Uber card expenses (only for 2025)
   const uberCardExpenses = year === 2025 ? UBER_CARD_EXPENSES_2025 : [];
-  
-  // Deduplicate: skip Uber card expenses that already exist in DB (same date, vendor, amount)
   const uniqueUberExpenses = uberCardExpenses.filter(ue => {
     return !dbExpenses.some(de => 
       de.date === ue.date && 
@@ -456,6 +452,9 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   });
 
   const yearExpenses = [...dbExpenses, ...uniqueUberExpenses];
+
+  // Track unknown transactions for flagging
+  const unknownTransactions: any[] = [];
 
   // --- HEADER ROWS ---
   const groupRow = ws.addRow(['', 'SUPPLIES', 'CLOTHING', '', '', 'TRANSPORTATION', '', '', '', '', 'INTEREST', 'ENTERTAINMENT/MEALS', 'ADVERTISING', 'CAR WASH', 'DELIVERY/FREIGHT', 'REPAIRS/MAINTENANCE', 'USE OF HOME', '', '', '', '', 'LICENSE', '', '', '', '', '', 'MEMBERSHIP', '', 'TOTAL']);
@@ -479,23 +478,19 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
 
   yearExpenses.forEach(expense => {
     const month = parseISO(expense.date).getMonth();
-    const colKey = classifyExpense(expense);
-    if (monthlyData[month][colKey]) {
-      monthlyData[month][colKey].push(Number(expense.amount));
+    const result = classifyExpense(expense);
+    if (result.unknown) {
+      unknownTransactions.push(expense);
+    }
+    if (monthlyData[month][result.column]) {
+      monthlyData[month][result.column].push(Number(expense.amount));
     }
   });
 
   // --- DATA ROWS (one per month) ---
   MONTHS.forEach((monthName, m) => {
     const rowValues: any[] = [monthName];
-    SM_COLUMNS.forEach(col => {
-      const amounts = monthlyData[m][col.key];
-      if (amounts.length > 0) {
-        rowValues.push(null);
-      } else {
-        rowValues.push('');
-      }
-    });
+    SM_COLUMNS.forEach(() => rowValues.push(null));
     rowValues.push(null);
 
     const dataRow = ws.addRow(rowValues);
@@ -510,8 +505,6 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
       }
     });
 
-    // TOTAL column = sum of all category columns for this row (B through last data col)
-    const lastDataColLetter = colLetter(SM_COLUMNS.length); // 0-based: col index SM_COLUMNS.length = column after last data col - 1
     const totalCell = dataRow.getCell(SM_COLUMNS.length + 2);
     totalCell.value = { formula: `SUM(B${rowNum}:${colLetter(SM_COLUMNS.length)}${rowNum})` } as any;
     totalCell.numFmt = '#,##0.00';
@@ -529,7 +522,7 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   const lastDataRow = 14;
 
   SM_COLUMNS.forEach((_, i) => {
-    const cLetter = colLetter(i + 1); // Column B = index 1
+    const cLetter = colLetter(i + 1);
     const cell = totalsRow.getCell(i + 2);
     cell.value = { formula: `SUM(${cLetter}${firstDataRow}:${cLetter}${lastDataRow})` } as any;
     cell.numFmt = '#,##0.00';
@@ -540,9 +533,7 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   grandTotalCell.numFmt = '#,##0.00';
   grandTotalCell.font = { bold: true };
 
-  // --- EXTRA NOTES ROWS (matching user's template) ---
-  ws.addRow([]);
-  ws.addRow([]);
+  // --- ODOMETER / CAR PURCHASE INFO ---
   ws.addRow([]);
   if (odometerData) {
     ws.addRow(['Car Purchase', '$8,000.00', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', `Business Use: ${odometerData.businessPercent.toFixed(1)}%`]);
@@ -553,20 +544,48 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
     ws.addRow(['Business %', `${odometerData.businessPercent.toFixed(1)}%`]);
   }
 
-  // --- DETAIL SHEET ---
-  const detailWs = workbook.addWorksheet('Transaction Details');
-  const detailHeader = detailWs.addRow(['Date', 'Vendor', 'Amount', 'Category (SM)', 'App Category', 'Card Last 4', 'Notes']);
+  // --- UBER CARD DRIVING INCOME (inline, for 2025) ---
+  if (year === 2025) {
+    ws.addRow([]);
+    const uberTitle = ws.addRow(['UBER PRO CARD — DRIVING INCOME SUMMARY (Aug-Dec 2025)']);
+    uberTitle.font = { bold: true, size: 12 };
+    ws.addRow(['Month', 'Total Credits (Income)', 'Total Debits (Expenses)', 'Net']);
+    ws.getRow(ws.rowCount).font = { bold: true };
+    ws.getRow(ws.rowCount).eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    });
+
+    let totalCredits = 0, totalDebits = 0;
+    Object.entries(UBER_CARD_DRIVING_INCOME_2025).forEach(([monthIdx, data]) => {
+      ws.addRow([MONTHS[Number(monthIdx)], data.credits, data.debits, data.credits - data.debits]);
+      totalCredits += data.credits;
+      totalDebits += data.debits;
+    });
+    const driveTotalRow = ws.addRow(['TOTAL', totalCredits, totalDebits, totalCredits - totalDebits]);
+    driveTotalRow.font = { bold: true };
+  }
+
+  // --- ALL TRANSACTION DETAILS (inline on same sheet) ---
+  ws.addRow([]);
+  ws.addRow([]);
+  const detailTitle = ws.addRow(['ALL TRANSACTION DETAILS']);
+  detailTitle.font = { bold: true, size: 14 };
+  
+  const detailHeader = ws.addRow(['Date', 'Vendor', 'Amount', 'Category (SM)', 'App Category', 'Card Last 4', 'Notes', '⚠️ NEEDS REVIEW']);
   detailHeader.font = { bold: true };
   detailHeader.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    cell.border = { bottom: { style: 'thin' } };
   });
+  // Highlight "NEEDS REVIEW" header in yellow
+  detailHeader.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
 
   yearExpenses
     .sort((a: any, b: any) => a.date.localeCompare(b.date))
     .forEach((expense: any) => {
-      const smCol = classifyExpense(expense);
-      const smLabel = SM_COLUMNS.find(c => c.key === smCol)?.label || smCol;
-      detailWs.addRow([
+      const result = classifyExpense(expense);
+      const smLabel = SM_COLUMNS.find(c => c.key === result.column)?.label || result.column;
+      const row = ws.addRow([
         expense.date,
         expense.vendor_name,
         Number(expense.amount),
@@ -574,91 +593,23 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
         expense.category,
         expense.card_last4 || '',
         expense.notes || '',
+        result.unknown ? `⚠️ ACCOUNTANT: What is "${expense.vendor_name}" ($${Number(expense.amount).toFixed(2)}) for? Please assign correct category.` : '',
       ]);
+      
+      if (result.unknown) {
+        // Highlight the entire row in yellow for unknown transactions
+        row.eachCell(cell => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFCC' } };
+        });
+        row.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+        row.getCell(8).font = { bold: true, color: { argb: 'FFCC0000' } };
+      }
     });
 
   // Column widths
   ws.getColumn(1).width = 12;
   SM_COLUMNS.forEach((col, i) => { ws.getColumn(i + 2).width = Math.max(col.width, 10); });
   ws.getColumn(SM_COLUMNS.length + 2).width = 12;
-
-  detailWs.getColumn(1).width = 12;
-  detailWs.getColumn(2).width = 30;
-  detailWs.getColumn(3).width = 12;
-  detailWs.getColumn(4).width = 30;
-  detailWs.getColumn(5).width = 15;
-  detailWs.getColumn(6).width = 12;
-  detailWs.getColumn(7).width = 50;
-  detailWs.getColumn(3).numFmt = '#,##0.00';
-
-  // --- UBER CARD TRANSACTIONS SHEET ---
-  if (year === 2025) {
-    const uberWs = workbook.addWorksheet('Uber Card Expenses');
-    const uberTitle = uberWs.addRow(['UBER PRO CARD — EXPENSES PAID WITH UBER CARD (Aug-Dec 2025)']);
-    uberTitle.font = { bold: true, size: 14 };
-    uberWs.addRow(['These are actual purchases made using the Uber Pro Mastercard (not Uber payouts or bank transfers)']);
-    uberWs.getRow(2).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
-    uberWs.addRow([]);
-    
-    const uberHeader = uberWs.addRow(['Date', 'Vendor', 'Amount', 'Category', 'Notes']);
-    uberHeader.font = { bold: true };
-    uberHeader.eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-      cell.border = { bottom: { style: 'thin' } };
-    });
-
-    let uberTotal = 0;
-    UBER_CARD_EXPENSES_2025.forEach(e => {
-      uberWs.addRow([e.date, e.vendor_name, e.amount, e.category, e.notes]);
-      uberTotal += e.amount;
-    });
-
-    uberWs.addRow([]);
-    const uberTotalRow = uberWs.addRow(['', 'TOTAL', uberTotal, '', '']);
-    uberTotalRow.font = { bold: true, size: 12 };
-    uberTotalRow.getCell(3).numFmt = '$#,##0.00';
-
-    uberWs.getColumn(1).width = 14;
-    uberWs.getColumn(2).width = 30;
-    uberWs.getColumn(3).width = 14;
-    uberWs.getColumn(3).numFmt = '$#,##0.00';
-    uberWs.getColumn(4).width = 15;
-    uberWs.getColumn(5).width = 30;
-
-    // --- DRIVING INCOME SUMMARY SHEET ---
-    const driveWs = workbook.addWorksheet('Driving Income Summary');
-    const driveTitle = driveWs.addRow(['UBER PRO CARD — MONTHLY DRIVING SUMMARY 2025']);
-    driveTitle.font = { bold: true, size: 14 };
-    driveWs.addRow(['From Uber Pro Card statements (Aug-Dec 2025)']);
-    driveWs.getRow(2).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
-    driveWs.addRow([]);
-
-    const driveHeader = driveWs.addRow(['Month', 'Total Credits (Income)', 'Total Debits (Expenses)', 'Net']);
-    driveHeader.font = { bold: true };
-    driveHeader.eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-    });
-
-    let totalCredits = 0, totalDebits = 0;
-    Object.entries(UBER_CARD_DRIVING_INCOME_2025).forEach(([monthIdx, data]) => {
-      const monthName = MONTHS[Number(monthIdx)];
-      driveWs.addRow([monthName, data.credits, data.debits, data.credits - data.debits]);
-      totalCredits += data.credits;
-      totalDebits += data.debits;
-    });
-
-    driveWs.addRow([]);
-    const driveTotalRow = driveWs.addRow(['TOTAL', totalCredits, totalDebits, totalCredits - totalDebits]);
-    driveTotalRow.font = { bold: true, size: 12 };
-
-    driveWs.getColumn(1).width = 14;
-    driveWs.getColumn(2).width = 22;
-    driveWs.getColumn(2).numFmt = '$#,##0.00';
-    driveWs.getColumn(3).width = 22;
-    driveWs.getColumn(3).numFmt = '$#,##0.00';
-    driveWs.getColumn(4).width = 16;
-    driveWs.getColumn(4).numFmt = '$#,##0.00';
-  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -681,7 +632,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
     
     if (deliveryCategories.includes(e.category)) return true;
     
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     return ['gas', 'car', 'car_maintenance', 'car_gas', 'drivers_insurance', 
             'car_wash', 'transportation', 'licence', 'repairs'].includes(smClass);
   }).sort((a: any, b: any) => a.date.localeCompare(b.date));
@@ -753,7 +704,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
 
   const groupedTotals: Record<string, { total: number; count: number }> = {};
   yearExpenses.forEach(e => {
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     if (!groupedTotals[smClass]) groupedTotals[smClass] = { total: 0, count: 0 };
     groupedTotals[smClass].total += Number(e.amount);
     groupedTotals[smClass].count++;
@@ -796,7 +747,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
   const monthlyByCategory: Record<string, number[]> = {};
   yearExpenses.forEach(e => {
     const month = parseISO(e.date).getMonth();
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     if (!monthlyByCategory[smClass]) monthlyByCategory[smClass] = new Array(12).fill(0);
     monthlyByCategory[smClass][month] += Number(e.amount);
   });
@@ -830,7 +781,7 @@ export async function generateDeliveryExpensesExcel(expenses: any[], year: numbe
   });
 
   yearExpenses.forEach((e: any) => {
-    const smClass = classifyExpense(e);
+    const smClass = classifyExpense(e).column;
     const label = t2125Categories[smClass] || smClass;
     detailWs.addRow([
       e.date,
