@@ -234,39 +234,51 @@ export async function generateFullExcelReport(
   const expensesSheet = workbook.addWorksheet('Monthly Expenses');
   expensesSheet.addRow(['DATE', ...EXCEL_CATEGORIES.map(c => c.label), 'DATE']);
 
-  MONTHS.forEach((month, index) => {
-    const monthExpenses = yearExpenses.filter(e => {
-      const expDate = parseISO(e.date);
-      return expDate.getMonth() === index;
-    });
+  // Collect amounts per month per category for formula breakups
+  const monthlyAmounts: Record<number, Record<string, number[]>> = {};
+  for (let m = 0; m < 12; m++) {
+    monthlyAmounts[m] = {};
+    EXCEL_CATEGORIES.forEach(cat => { monthlyAmounts[m][cat.label] = []; });
+  }
 
-    const row: (string | number)[] = [month];
-    
-    EXCEL_CATEGORIES.forEach(cat => {
-      const categoryExpenses = monthExpenses.filter(e => {
-        const mappedLabel = CATEGORY_COLUMN_MAP[e.category as ExpenseCategory] || 'GROCERY';
-        return mappedLabel === cat.label;
-      });
-      const sum = categoryExpenses.reduce((acc, e) => acc + Number(e.amount || 0), 0);
-      row.push(sum > 0 ? Number(sum.toFixed(2)) : '');
-    });
-
-    row.push(month);
-    expensesSheet.addRow(row);
-  });
-
-  // Totals row
-  const totalsRow: (string | number)[] = ['Total'];
-  EXCEL_CATEGORIES.forEach((_, i) => {
-    let sum = 0;
-    for (let m = 2; m <= 13; m++) {
-      const val = expensesSheet.getRow(m).getCell(i + 2).value;
-      if (typeof val === 'number') sum += val;
+  yearExpenses.forEach(e => {
+    const month = parseISO(e.date).getMonth();
+    const mappedLabel = CATEGORY_COLUMN_MAP[e.category as ExpenseCategory] || 'GROCERY';
+    if (monthlyAmounts[month][mappedLabel]) {
+      monthlyAmounts[month][mappedLabel].push(Number(e.amount || 0));
     }
-    totalsRow.push(sum > 0 ? Number(sum.toFixed(2)) : '');
   });
-  totalsRow.push('');
-  expensesSheet.addRow(totalsRow);
+
+  MONTHS.forEach((month, index) => {
+    const rowValues: any[] = [month];
+    EXCEL_CATEGORIES.forEach(() => rowValues.push(null));
+    rowValues.push(month);
+    const dataRow = expensesSheet.addRow(rowValues);
+
+    EXCEL_CATEGORIES.forEach((cat, i) => {
+      const amounts = monthlyAmounts[index][cat.label];
+      const cell = dataRow.getCell(i + 2);
+      if (amounts && amounts.length > 0) {
+        cell.value = { formula: amounts.map(a => a.toFixed(2)).join('+') } as any;
+        cell.numFmt = '#,##0.00';
+      }
+    });
+  });
+
+  // Totals row with SUM formulas
+  const totalsRowValues: any[] = ['Total'];
+  EXCEL_CATEGORIES.forEach(() => totalsRowValues.push(null));
+  totalsRowValues.push('');
+  const totalsRow = expensesSheet.addRow(totalsRowValues);
+  totalsRow.font = { bold: true };
+  
+  EXCEL_CATEGORIES.forEach((_, i) => {
+    const colIdx = i + 2;
+    const colChar = String.fromCharCode(64 + colIdx);
+    const cell = totalsRow.getCell(colIdx);
+    cell.value = { formula: `SUM(${colChar}2:${colChar}13)` } as any;
+    cell.numFmt = '#,##0.00';
+  });
 
   expensesSheet.getColumn(1).width = 12;
   EXCEL_CATEGORIES.forEach((_, i) => {

@@ -72,9 +72,22 @@ export function classifyExpense(expense: any): string {
     return 'gas';
   }
 
-  // Insurance (vehicle)
+  // Insurance (vehicle) - ICBC, AMC
   if (category === 'insurance' || vendor.includes('icbc') || vendor.includes('amc insurance')) {
     return 'drivers_insurance';
+  }
+
+  // Home insurance
+  if (vendor.includes('home insurance') || vendor.includes('tenant insurance') || 
+      vendor.includes('renter insurance') || vendor.includes('house insurance')) {
+    return 'home_insurance';
+  }
+
+  // Rent payments
+  if (vendor.includes('rent') && !vendor.includes('enterprise rent') ||
+      vendor.includes('landlord') || vendor.includes('property management') ||
+      vendor.includes('strata') || vendor.includes('housing')) {
+    return 'rent';
   }
 
   // Licence / Registration
