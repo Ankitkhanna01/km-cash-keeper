@@ -435,7 +435,7 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
-  // Include ALL expenses for the year (personal + business) to match user's template
+  // Include ALL expenses for the year (personal + business)
   const dbExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
     return d.getFullYear() === year && !e.deleted_at;
@@ -443,8 +443,6 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
 
   // Merge Uber card expenses (only for 2025)
   const uberCardExpenses = year === 2025 ? UBER_CARD_EXPENSES_2025 : [];
-  
-  // Deduplicate: skip Uber card expenses that already exist in DB (same date, vendor, amount)
   const uniqueUberExpenses = uberCardExpenses.filter(ue => {
     return !dbExpenses.some(de => 
       de.date === ue.date && 
@@ -454,6 +452,9 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   });
 
   const yearExpenses = [...dbExpenses, ...uniqueUberExpenses];
+
+  // Track unknown transactions for flagging
+  const unknownTransactions: any[] = [];
 
   // --- HEADER ROWS ---
   const groupRow = ws.addRow(['', 'SUPPLIES', 'CLOTHING', '', '', 'TRANSPORTATION', '', '', '', '', 'INTEREST', 'ENTERTAINMENT/MEALS', 'ADVERTISING', 'CAR WASH', 'DELIVERY/FREIGHT', 'REPAIRS/MAINTENANCE', 'USE OF HOME', '', '', '', '', 'LICENSE', '', '', '', '', '', 'MEMBERSHIP', '', 'TOTAL']);
@@ -477,23 +478,19 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
 
   yearExpenses.forEach(expense => {
     const month = parseISO(expense.date).getMonth();
-    const colKey = classifyExpense(expense);
-    if (monthlyData[month][colKey]) {
-      monthlyData[month][colKey].push(Number(expense.amount));
+    const result = classifyExpense(expense);
+    if (result.unknown) {
+      unknownTransactions.push(expense);
+    }
+    if (monthlyData[month][result.column]) {
+      monthlyData[month][result.column].push(Number(expense.amount));
     }
   });
 
   // --- DATA ROWS (one per month) ---
   MONTHS.forEach((monthName, m) => {
     const rowValues: any[] = [monthName];
-    SM_COLUMNS.forEach(col => {
-      const amounts = monthlyData[m][col.key];
-      if (amounts.length > 0) {
-        rowValues.push(null);
-      } else {
-        rowValues.push('');
-      }
-    });
+    SM_COLUMNS.forEach(() => rowValues.push(null));
     rowValues.push(null);
 
     const dataRow = ws.addRow(rowValues);
@@ -508,8 +505,6 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
       }
     });
 
-    // TOTAL column = sum of all category columns for this row (B through last data col)
-    const lastDataColLetter = colLetter(SM_COLUMNS.length); // 0-based: col index SM_COLUMNS.length = column after last data col - 1
     const totalCell = dataRow.getCell(SM_COLUMNS.length + 2);
     totalCell.value = { formula: `SUM(B${rowNum}:${colLetter(SM_COLUMNS.length)}${rowNum})` } as any;
     totalCell.numFmt = '#,##0.00';
@@ -527,7 +522,7 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   const lastDataRow = 14;
 
   SM_COLUMNS.forEach((_, i) => {
-    const cLetter = colLetter(i + 1); // Column B = index 1
+    const cLetter = colLetter(i + 1);
     const cell = totalsRow.getCell(i + 2);
     cell.value = { formula: `SUM(${cLetter}${firstDataRow}:${cLetter}${lastDataRow})` } as any;
     cell.numFmt = '#,##0.00';
@@ -538,9 +533,7 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   grandTotalCell.numFmt = '#,##0.00';
   grandTotalCell.font = { bold: true };
 
-  // --- EXTRA NOTES ROWS (matching user's template) ---
-  ws.addRow([]);
-  ws.addRow([]);
+  // --- ODOMETER / CAR PURCHASE INFO ---
   ws.addRow([]);
   if (odometerData) {
     ws.addRow(['Car Purchase', '$8,000.00', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', `Business Use: ${odometerData.businessPercent.toFixed(1)}%`]);
@@ -551,20 +544,48 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
     ws.addRow(['Business %', `${odometerData.businessPercent.toFixed(1)}%`]);
   }
 
-  // --- DETAIL SHEET ---
-  const detailWs = workbook.addWorksheet('Transaction Details');
-  const detailHeader = detailWs.addRow(['Date', 'Vendor', 'Amount', 'Category (SM)', 'App Category', 'Card Last 4', 'Notes']);
+  // --- UBER CARD DRIVING INCOME (inline, for 2025) ---
+  if (year === 2025) {
+    ws.addRow([]);
+    const uberTitle = ws.addRow(['UBER PRO CARD — DRIVING INCOME SUMMARY (Aug-Dec 2025)']);
+    uberTitle.font = { bold: true, size: 12 };
+    ws.addRow(['Month', 'Total Credits (Income)', 'Total Debits (Expenses)', 'Net']);
+    ws.getRow(ws.rowCount).font = { bold: true };
+    ws.getRow(ws.rowCount).eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    });
+
+    let totalCredits = 0, totalDebits = 0;
+    Object.entries(UBER_CARD_DRIVING_INCOME_2025).forEach(([monthIdx, data]) => {
+      ws.addRow([MONTHS[Number(monthIdx)], data.credits, data.debits, data.credits - data.debits]);
+      totalCredits += data.credits;
+      totalDebits += data.debits;
+    });
+    const driveTotalRow = ws.addRow(['TOTAL', totalCredits, totalDebits, totalCredits - totalDebits]);
+    driveTotalRow.font = { bold: true };
+  }
+
+  // --- ALL TRANSACTION DETAILS (inline on same sheet) ---
+  ws.addRow([]);
+  ws.addRow([]);
+  const detailTitle = ws.addRow(['ALL TRANSACTION DETAILS']);
+  detailTitle.font = { bold: true, size: 14 };
+  
+  const detailHeader = ws.addRow(['Date', 'Vendor', 'Amount', 'Category (SM)', 'App Category', 'Card Last 4', 'Notes', '⚠️ NEEDS REVIEW']);
   detailHeader.font = { bold: true };
   detailHeader.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    cell.border = { bottom: { style: 'thin' } };
   });
+  // Highlight "NEEDS REVIEW" header in yellow
+  detailHeader.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
 
   yearExpenses
     .sort((a: any, b: any) => a.date.localeCompare(b.date))
     .forEach((expense: any) => {
-      const smCol = classifyExpense(expense);
-      const smLabel = SM_COLUMNS.find(c => c.key === smCol)?.label || smCol;
-      detailWs.addRow([
+      const result = classifyExpense(expense);
+      const smLabel = SM_COLUMNS.find(c => c.key === result.column)?.label || result.column;
+      const row = ws.addRow([
         expense.date,
         expense.vendor_name,
         Number(expense.amount),
@@ -572,91 +593,23 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
         expense.category,
         expense.card_last4 || '',
         expense.notes || '',
+        result.unknown ? `⚠️ ACCOUNTANT: What is "${expense.vendor_name}" ($${Number(expense.amount).toFixed(2)}) for? Please assign correct category.` : '',
       ]);
+      
+      if (result.unknown) {
+        // Highlight the entire row in yellow for unknown transactions
+        row.eachCell(cell => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFCC' } };
+        });
+        row.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+        row.getCell(8).font = { bold: true, color: { argb: 'FFCC0000' } };
+      }
     });
 
   // Column widths
   ws.getColumn(1).width = 12;
   SM_COLUMNS.forEach((col, i) => { ws.getColumn(i + 2).width = Math.max(col.width, 10); });
   ws.getColumn(SM_COLUMNS.length + 2).width = 12;
-
-  detailWs.getColumn(1).width = 12;
-  detailWs.getColumn(2).width = 30;
-  detailWs.getColumn(3).width = 12;
-  detailWs.getColumn(4).width = 30;
-  detailWs.getColumn(5).width = 15;
-  detailWs.getColumn(6).width = 12;
-  detailWs.getColumn(7).width = 50;
-  detailWs.getColumn(3).numFmt = '#,##0.00';
-
-  // --- UBER CARD TRANSACTIONS SHEET ---
-  if (year === 2025) {
-    const uberWs = workbook.addWorksheet('Uber Card Expenses');
-    const uberTitle = uberWs.addRow(['UBER PRO CARD — EXPENSES PAID WITH UBER CARD (Aug-Dec 2025)']);
-    uberTitle.font = { bold: true, size: 14 };
-    uberWs.addRow(['These are actual purchases made using the Uber Pro Mastercard (not Uber payouts or bank transfers)']);
-    uberWs.getRow(2).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
-    uberWs.addRow([]);
-    
-    const uberHeader = uberWs.addRow(['Date', 'Vendor', 'Amount', 'Category', 'Notes']);
-    uberHeader.font = { bold: true };
-    uberHeader.eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-      cell.border = { bottom: { style: 'thin' } };
-    });
-
-    let uberTotal = 0;
-    UBER_CARD_EXPENSES_2025.forEach(e => {
-      uberWs.addRow([e.date, e.vendor_name, e.amount, e.category, e.notes]);
-      uberTotal += e.amount;
-    });
-
-    uberWs.addRow([]);
-    const uberTotalRow = uberWs.addRow(['', 'TOTAL', uberTotal, '', '']);
-    uberTotalRow.font = { bold: true, size: 12 };
-    uberTotalRow.getCell(3).numFmt = '$#,##0.00';
-
-    uberWs.getColumn(1).width = 14;
-    uberWs.getColumn(2).width = 30;
-    uberWs.getColumn(3).width = 14;
-    uberWs.getColumn(3).numFmt = '$#,##0.00';
-    uberWs.getColumn(4).width = 15;
-    uberWs.getColumn(5).width = 30;
-
-    // --- DRIVING INCOME SUMMARY SHEET ---
-    const driveWs = workbook.addWorksheet('Driving Income Summary');
-    const driveTitle = driveWs.addRow(['UBER PRO CARD — MONTHLY DRIVING SUMMARY 2025']);
-    driveTitle.font = { bold: true, size: 14 };
-    driveWs.addRow(['From Uber Pro Card statements (Aug-Dec 2025)']);
-    driveWs.getRow(2).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
-    driveWs.addRow([]);
-
-    const driveHeader = driveWs.addRow(['Month', 'Total Credits (Income)', 'Total Debits (Expenses)', 'Net']);
-    driveHeader.font = { bold: true };
-    driveHeader.eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-    });
-
-    let totalCredits = 0, totalDebits = 0;
-    Object.entries(UBER_CARD_DRIVING_INCOME_2025).forEach(([monthIdx, data]) => {
-      const monthName = MONTHS[Number(monthIdx)];
-      driveWs.addRow([monthName, data.credits, data.debits, data.credits - data.debits]);
-      totalCredits += data.credits;
-      totalDebits += data.debits;
-    });
-
-    driveWs.addRow([]);
-    const driveTotalRow = driveWs.addRow(['TOTAL', totalCredits, totalDebits, totalCredits - totalDebits]);
-    driveTotalRow.font = { bold: true, size: 12 };
-
-    driveWs.getColumn(1).width = 14;
-    driveWs.getColumn(2).width = 22;
-    driveWs.getColumn(2).numFmt = '$#,##0.00';
-    driveWs.getColumn(3).width = 22;
-    driveWs.getColumn(3).numFmt = '$#,##0.00';
-    driveWs.getColumn(4).width = 16;
-    driveWs.getColumn(4).numFmt = '$#,##0.00';
-  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
