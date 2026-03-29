@@ -542,12 +542,59 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   // Deduplicate: remove transactions with same date, vendor, and amount
   const deduped = [...dbExpenses, ...uniqueUberExpenses];
   const seen = new Set<string>();
-  const yearExpenses = deduped.filter(e => {
+  const basicDeduped = deduped.filter(e => {
     const key = `${e.date}|${(e.vendor_name || '').toLowerCase().trim()}|${Number(e.amount).toFixed(2)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+
+  // Smart dedup: same vendor + same date with tip (keep higher amount)
+  // and delayed posting (same vendor, ±1 day, same amount — keep first)
+  function normalizeVendor(v: string): string {
+    return (v || '').toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 12);
+  }
+  
+  const smartDeduped: any[] = [];
+  const usedIndices = new Set<number>();
+  
+  for (let i = 0; i < basicDeduped.length; i++) {
+    if (usedIndices.has(i)) continue;
+    const e = basicDeduped[i];
+    const eNorm = normalizeVendor(e.vendor_name);
+    const eDate = e.date;
+    let bestIdx = i;
+    let bestAmount = Number(e.amount);
+    
+    for (let j = i + 1; j < basicDeduped.length; j++) {
+      if (usedIndices.has(j)) continue;
+      const f = basicDeduped[j];
+      const fNorm = normalizeVendor(f.vendor_name);
+      if (eNorm !== fNorm || eNorm.length < 4) continue;
+      
+      const dayDiff = Math.abs(new Date(eDate).getTime() - new Date(f.date).getTime()) / 86400000;
+      if (dayDiff > 1) continue;
+      
+      const fAmount = Number(f.amount);
+      // Same amount ±1 day = delayed posting duplicate
+      if (Math.abs(bestAmount - fAmount) < 0.02) {
+        usedIndices.add(j);
+      }
+      // Same date, same vendor, different amounts = tip scenario (keep higher)
+      else if (dayDiff === 0 && Math.abs(bestAmount - fAmount) < bestAmount * 0.3) {
+        if (fAmount > bestAmount) {
+          usedIndices.add(bestIdx);
+          bestIdx = j;
+          bestAmount = fAmount;
+        } else {
+          usedIndices.add(j);
+        }
+      }
+    }
+    smartDeduped.push(basicDeduped[bestIdx]);
+  }
+  
+  const yearExpenses = smartDeduped;
 
   // Track unknown transactions for flagging
   const unknownTransactions: any[] = [];
