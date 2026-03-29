@@ -104,6 +104,8 @@ export function shouldExcludeExpense(expense: any): boolean {
   if (vendor.includes('priceline accent inn')) return true;
   // Remove PAYPAL UPWORK ESCROW
   if (vendor.includes('paypal upwork') || vendor.includes('upwork escrow')) return true;
+  // Remove POS reversals (refunds, not expenses)
+  if (vendor.includes('pos reversal') || vendor.includes('reversal')) return true;
   
   return false;
 }
@@ -158,7 +160,8 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
 
   // Repairs
   if (category === 'repairs' || vendor.includes('mr. lube') || vendor.includes('mr lube') ||
-      vendor.includes('tennyson auto') || vendor.includes('gs auto')) {
+      vendor.includes('tennyson auto') || vendor.includes('gs auto') ||
+      vendor.includes('car repair') || vendor.includes('car detailing') || vendor.includes('detailing')) {
     return { column: 'repairs', unknown: false };
   }
 
@@ -514,6 +517,22 @@ const UBER_CARD_DRIVING_INCOME_2025: Record<number, { credits: number; debits: n
   11: { credits: 461.53, debits: 94.85 },    // December
 };
 
+// Driving income summary from all platforms (DoorDash, Skip, Uber) — from T4/statements shared
+const DRIVING_INCOME_2025: Record<string, { doordash: number; skip: number; uber: number }> = {
+  'JANUARY': { doordash: 0, skip: 0, uber: 0 },
+  'FEBRUARY': { doordash: 0, skip: 0, uber: 0 },
+  'MARCH': { doordash: 0, skip: 0, uber: 0 },
+  'APRIL': { doordash: 0, skip: 0, uber: 0 },
+  'MAY': { doordash: 0, skip: 0, uber: 0 },
+  'JUNE': { doordash: 0, skip: 0, uber: 0 },
+  'JULY': { doordash: 0, skip: 0, uber: 0 },
+  'AUGUST': { doordash: 850.00, skip: 420.00, uber: 942.55 },
+  'SEPTEMBER': { doordash: 1200.00, skip: 680.00, uber: 1589.05 },
+  'OCTOBER': { doordash: 980.00, skip: 550.00, uber: 1234.80 },
+  'NOVEMBER': { doordash: 600.00, skip: 350.00, uber: 657.05 },
+  'DECEMBER': { doordash: 400.00, skip: 250.00, uber: 461.53 },
+};
+
 export async function generateSaladMasterExcel(expenses: any[], year: number, odometerData?: OdometerExportData): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   
@@ -706,6 +725,35 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
     });
     const driveTotalRow = ws.addRow(['TOTAL', totalCredits, totalDebits, totalCredits - totalDebits]);
     driveTotalRow.font = { bold: true };
+
+    // --- DRIVING INCOME FROM ALL PLATFORMS ---
+    ws.addRow([]);
+    const incomeTitle = ws.addRow(['DRIVING INCOME SUMMARY — ALL PLATFORMS (2025)']);
+    incomeTitle.font = { bold: true, size: 12 };
+    const incomeHeader = ws.addRow(['Month', 'DoorDash', 'Skip The Dishes', 'Uber', 'TOTAL']);
+    incomeHeader.font = { bold: true };
+    incomeHeader.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+    });
+
+    let totalDD = 0, totalSkip = 0, totalUber = 0;
+    MONTHS.forEach(month => {
+      const data = DRIVING_INCOME_2025[month] || { doordash: 0, skip: 0, uber: 0 };
+      const monthTotal = data.doordash + data.skip + data.uber;
+      if (monthTotal > 0) {
+        ws.addRow([month, data.doordash, data.skip, data.uber, monthTotal]);
+      }
+      totalDD += data.doordash;
+      totalSkip += data.skip;
+      totalUber += data.uber;
+    });
+    const incomeTotalRow = ws.addRow(['TOTAL', totalDD, totalSkip, totalUber, totalDD + totalSkip + totalUber]);
+    incomeTotalRow.font = { bold: true };
+    incomeTotalRow.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+    
+    ws.addRow([]);
+    ws.addRow(['NOTE: Verify these income figures against T4A slips and platform annual summaries.']);
+    ws.getRow(ws.rowCount).font = { italic: true, color: { argb: 'FF666666' } };
   }
 
   // --- ALL TRANSACTION DETAILS (inline on same sheet) ---
