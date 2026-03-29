@@ -385,8 +385,34 @@ export function useDocumentsDB() {
       monthly.set(month, { income: 0, km: 0, estimatedKm: 0, platforms: new Set() });
     }
 
+    // Track which platforms have paystub data to avoid double-counting with annual tax_forms
+    const platformPaystubMonths = new Map<string, Set<number>>();
+    
+    // First pass: identify platforms with monthly paystub data
+    for (const doc of yearDocs) {
+      if (doc.document_type === 'paystub' && doc.platform) {
+        if (!platformPaystubMonths.has(doc.platform)) {
+          platformPaystubMonths.set(doc.platform, new Set());
+        }
+        platformPaystubMonths.get(doc.platform)!.add(doc.period_month);
+      }
+    }
+
     for (const doc of yearDocs) {
       const entry = monthly.get(doc.period_month)!;
+      
+      // Skip annual tax_form entries if we already have paystub data for that platform
+      // (tax_forms contain annual totals which double-count when added to monthly paystubs)
+      if (doc.document_type === 'tax_form' && doc.platform) {
+        const hasPaystubs = platformPaystubMonths.has(doc.platform) && 
+                            platformPaystubMonths.get(doc.platform)!.size > 0;
+        if (hasPaystubs) {
+          // Still add platform badge but skip income/km to avoid double-counting
+          entry.platforms.add(doc.platform);
+          continue;
+        }
+      }
+      
       entry.income += doc.income_amount || 0;
       // Always use estimated_km as it covers all platforms consistently
       entry.estimatedKm += doc.estimated_km || 0;
