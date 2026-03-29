@@ -121,8 +121,10 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
   }
 
   // Fuel/Gas (vehicle) — gas stations only
+  // IMPORTANT: use whole-word match for "mobil" so "FIDO MOBILE" doesn't get misclassified as gas
+  const isMobilGasBrand = /\bmobil\b/.test(vendor);
   if (category === 'fuel' || vendor.includes('esso') || vendor.includes('petro') || 
-      vendor.includes('chevron') || vendor.includes('shell') || vendor.includes('mobil') ||
+      vendor.includes('chevron') || vendor.includes('shell') || isMobilGasBrand ||
       vendor.includes('hi quadra') || vendor.includes('hi-quadra') ||
       vendor.includes('smart stop') ||
       (vendor.includes('7-eleven') && (notes.includes('gas') || category === 'fuel'))) {
