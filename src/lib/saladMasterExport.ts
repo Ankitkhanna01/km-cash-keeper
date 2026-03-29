@@ -57,10 +57,39 @@ const SM_COLUMNS = [
 
 // Classify an expense into the correct SM column
 // Returns { column, unknown } — unknown=true means we couldn't confidently classify
+// Transactions to exclude from the Salad Master export entirely
+export function shouldExcludeExpense(expense: any): boolean {
+  const vendor = (expense.vendor_name || '').toLowerCase();
+  const notes = (expense.notes || '').toLowerCase();
+  
+  // Remove Remitly transactions
+  if (vendor.includes('remitly')) return true;
+  // Remove Interac e-Transfer transactions
+  if (vendor.includes('e-transfer') || vendor.includes('etransfer') || vendor.includes('e transfer') ||
+      vendor.includes('interac') || vendor.includes('interact')) return true;
+  // Remove Interest Capitalize (line of credit interest)
+  if (vendor.includes('interest capitalize') || vendor.includes('interest capitali') ||
+      notes.includes('interest capitalize')) return true;
+  // Remove Pre Auth Debit
+  if (vendor.includes('pre auth debit') || vendor.includes('pre-auth debit') ||
+      vendor.includes('preauth debit') || vendor.includes('pre authorized debit') ||
+      vendor.includes('pre-authorized debit')) return true;
+  // Remove Service Charge
+  if (vendor.includes('service charge') || vendor.includes('service chg') ||
+      vendor.includes('monthly fee') || vendor.includes('acct fee')) return true;
+  
+  return false;
+}
+
 export function classifyExpense(expense: any): { column: string; unknown: boolean } {
   const vendor = (expense.vendor_name || '').toLowerCase();
   const notes = (expense.notes || '').toLowerCase();
   const category = expense.category || 'other';
+
+  // Map "1598" to Rent
+  if (vendor.includes('1598') || vendor === '1598') {
+    return { column: 'rent', unknown: false };
+  }
 
   // Fuel/Gas (vehicle) — gas stations only
   if (category === 'fuel' || vendor.includes('esso') || vendor.includes('petro') || 
