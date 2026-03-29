@@ -57,10 +57,39 @@ const SM_COLUMNS = [
 
 // Classify an expense into the correct SM column
 // Returns { column, unknown } — unknown=true means we couldn't confidently classify
+// Transactions to exclude from the Salad Master export entirely
+export function shouldExcludeExpense(expense: any): boolean {
+  const vendor = (expense.vendor_name || '').toLowerCase();
+  const notes = (expense.notes || '').toLowerCase();
+  
+  // Remove Remitly transactions
+  if (vendor.includes('remitly')) return true;
+  // Remove Interac e-Transfer transactions
+  if (vendor.includes('e-transfer') || vendor.includes('etransfer') || vendor.includes('e transfer') ||
+      vendor.includes('interac') || vendor.includes('interact')) return true;
+  // Remove Interest Capitalize (line of credit interest)
+  if (vendor.includes('interest capitalize') || vendor.includes('interest capitali') ||
+      notes.includes('interest capitalize')) return true;
+  // Remove Pre Auth Debit
+  if (vendor.includes('pre auth debit') || vendor.includes('pre-auth debit') ||
+      vendor.includes('preauth debit') || vendor.includes('pre authorized debit') ||
+      vendor.includes('pre-authorized debit')) return true;
+  // Remove Service Charge
+  if (vendor.includes('service charge') || vendor.includes('service chg') ||
+      vendor.includes('monthly fee') || vendor.includes('acct fee')) return true;
+  
+  return false;
+}
+
 export function classifyExpense(expense: any): { column: string; unknown: boolean } {
   const vendor = (expense.vendor_name || '').toLowerCase();
   const notes = (expense.notes || '').toLowerCase();
   const category = expense.category || 'other';
+
+  // Map "1598" to Rent
+  if (vendor.includes('1598') || vendor === '1598') {
+    return { column: 'rent', unknown: false };
+  }
 
   // Fuel/Gas (vehicle) — gas stations only
   if (category === 'fuel' || vendor.includes('esso') || vendor.includes('petro') || 
@@ -436,15 +465,16 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
-  // Include ALL expenses for the year (personal + business)
+  // Include ALL expenses for the year (personal + business), excluding unwanted types
   const dbExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
-    return d.getFullYear() === year && !e.deleted_at;
+    return d.getFullYear() === year && !e.deleted_at && !shouldExcludeExpense(e);
   });
 
   // Merge Uber card expenses (only for 2025)
   const uberCardExpenses = year === 2025 ? UBER_CARD_EXPENSES_2025 : [];
   const uniqueUberExpenses = uberCardExpenses.filter(ue => {
+    if (shouldExcludeExpense(ue)) return false;
     return !dbExpenses.some(de => 
       de.date === ue.date && 
       de.vendor_name?.toLowerCase().includes(ue.vendor_name.toLowerCase().substring(0, 10)) &&
@@ -452,7 +482,15 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
     );
   });
 
-  const yearExpenses = [...dbExpenses, ...uniqueUberExpenses];
+  // Deduplicate: remove transactions with same date, vendor, and amount
+  const deduped = [...dbExpenses, ...uniqueUberExpenses];
+  const seen = new Set<string>();
+  const yearExpenses = deduped.filter(e => {
+    const key = `${e.date}|${(e.vendor_name || '').toLowerCase().trim()}|${Number(e.amount).toFixed(2)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   // Track unknown transactions for flagging
   const unknownTransactions: any[] = [];
