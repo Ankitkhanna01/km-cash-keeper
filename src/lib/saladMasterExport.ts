@@ -465,15 +465,16 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   
   const ws = workbook.addWorksheet(`Salad Master ${year}`);
 
-  // Include ALL expenses for the year (personal + business)
+  // Include ALL expenses for the year (personal + business), excluding unwanted types
   const dbExpenses = expenses.filter(e => {
     const d = parseISO(e.date);
-    return d.getFullYear() === year && !e.deleted_at;
+    return d.getFullYear() === year && !e.deleted_at && !shouldExcludeExpense(e);
   });
 
   // Merge Uber card expenses (only for 2025)
   const uberCardExpenses = year === 2025 ? UBER_CARD_EXPENSES_2025 : [];
   const uniqueUberExpenses = uberCardExpenses.filter(ue => {
+    if (shouldExcludeExpense(ue)) return false;
     return !dbExpenses.some(de => 
       de.date === ue.date && 
       de.vendor_name?.toLowerCase().includes(ue.vendor_name.toLowerCase().substring(0, 10)) &&
@@ -481,7 +482,15 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
     );
   });
 
-  const yearExpenses = [...dbExpenses, ...uniqueUberExpenses];
+  // Deduplicate: remove transactions with same date, vendor, and amount
+  const deduped = [...dbExpenses, ...uniqueUberExpenses];
+  const seen = new Set<string>();
+  const yearExpenses = deduped.filter(e => {
+    const key = `${e.date}|${(e.vendor_name || '').toLowerCase().trim()}|${Number(e.amount).toFixed(2)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   // Track unknown transactions for flagging
   const unknownTransactions: any[] = [];
