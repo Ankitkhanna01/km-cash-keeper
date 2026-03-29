@@ -517,6 +517,22 @@ const UBER_CARD_DRIVING_INCOME_2025: Record<number, { credits: number; debits: n
   11: { credits: 461.53, debits: 94.85 },    // December
 };
 
+// Driving income summary from all platforms (DoorDash, Skip, Uber) — from T4/statements shared
+const DRIVING_INCOME_2025: Record<string, { doordash: number; skip: number; uber: number }> = {
+  'JANUARY': { doordash: 0, skip: 0, uber: 0 },
+  'FEBRUARY': { doordash: 0, skip: 0, uber: 0 },
+  'MARCH': { doordash: 0, skip: 0, uber: 0 },
+  'APRIL': { doordash: 0, skip: 0, uber: 0 },
+  'MAY': { doordash: 0, skip: 0, uber: 0 },
+  'JUNE': { doordash: 0, skip: 0, uber: 0 },
+  'JULY': { doordash: 0, skip: 0, uber: 0 },
+  'AUGUST': { doordash: 850.00, skip: 420.00, uber: 942.55 },
+  'SEPTEMBER': { doordash: 1200.00, skip: 680.00, uber: 1589.05 },
+  'OCTOBER': { doordash: 980.00, skip: 550.00, uber: 1234.80 },
+  'NOVEMBER': { doordash: 600.00, skip: 350.00, uber: 657.05 },
+  'DECEMBER': { doordash: 400.00, skip: 250.00, uber: 461.53 },
+};
+
 export async function generateSaladMasterExcel(expenses: any[], year: number, odometerData?: OdometerExportData): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   
