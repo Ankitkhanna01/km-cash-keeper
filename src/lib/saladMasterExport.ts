@@ -319,8 +319,8 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'delivery_freight', unknown: false };
   }
 
-  // Mobile Bill (Fido)
-  if (vendor.includes('fido')) {
+  // Mobile Bill (Fido, Fizz)
+  if (vendor.includes('fido') || vendor.includes('fizz')) {
     return { column: 'mobile_bill', unknown: false };
   }
 
