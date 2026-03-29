@@ -53,13 +53,19 @@ const SM_COLUMNS = [
   { key: 'vitamins', label: 'VITAMINS/SUPPLEMENTS', width: 20 },
   { key: 'government_fees', label: 'GOVERNMENT FEES', width: 16 },
   { key: 'parking', label: 'PARKING', width: 12 },
+  { key: 'online_shopping', label: 'ONLINE SHOPPING', width: 16 },
+  { key: 'stationary', label: 'STATIONARY', width: 14 },
+  { key: 'mobile_bill', label: 'MOBILE BILL', width: 14 },
+  { key: 'driving_test', label: 'DRIVING TEST FEES', width: 18 },
+  { key: 'trading', label: 'TRADING BUSINESS', width: 18 },
+  { key: 'soap_personal', label: 'SOAP/PERSONAL CARE', width: 18 },
 ];
 
 // Classify an expense into the correct SM column
 // Returns { column, unknown } — unknown=true means we couldn't confidently classify
 // Transactions to exclude from the Salad Master export entirely
 export function shouldExcludeExpense(expense: any): boolean {
-  const vendor = (expense.vendor_name || '').toLowerCase();
+  const vendor = (expense.vendor_name || '').toLowerCase().trim();
   const notes = (expense.notes || '').toLowerCase();
   
   // Remove Remitly transactions
@@ -69,7 +75,8 @@ export function shouldExcludeExpense(expense: any): boolean {
       vendor.includes('interac') || vendor.includes('interact')) return true;
   // Remove Interest Capitalize (line of credit interest)
   if (vendor.includes('interest capitalize') || vendor.includes('interest capitali') ||
-      notes.includes('interest capitalize')) return true;
+      vendor.includes('interest - capitalise') || vendor.includes('interest -capitalise') ||
+      notes.includes('interest capitalize') || notes.includes('interest capitalise')) return true;
   // Remove Pre Auth Debit
   if (vendor.includes('pre auth debit') || vendor.includes('pre-auth debit') ||
       vendor.includes('preauth debit') || vendor.includes('pre authorized debit') ||
@@ -77,6 +84,26 @@ export function shouldExcludeExpense(expense: any): boolean {
   // Remove Service Charge
   if (vendor.includes('service charge') || vendor.includes('service chg') ||
       vendor.includes('monthly fee') || vendor.includes('acct fee')) return true;
+  // Remove transactions named "Canada" (not Canadian Tire etc.)
+  if (vendor === 'canada') return true;
+  // Remove specific card/bank/transfer transactions
+  if (vendor === 'visa' || vendor === 'mastercard' || vendor === 'american express cards' ||
+      vendor.includes('cibc/banque cibc') || vendor.includes('banque cibc') ||
+      vendor.includes('mbna canada b') || vendor.includes('mbna canada personal bt') ||
+      vendor.includes('cbl frm neeraj kumar') || vendor.includes('cbl frm pooja') ||
+      vendor.includes('transfer out') ||
+      vendor.includes('visa simplii financial') ||
+      vendor.includes('1041956 bc ltd') || vendor.includes('1479307 bc ltd') ||
+      vendor.includes('american express card')) return true;
+  // Remove withdrawal transactions
+  if (vendor.includes('withdrawal') || vendor.startsWith('atm ') || vendor.includes('atm withdrawal')) return true;
+  // Remove transactions named "purchase" (bare name, not in vendor names like "car purchase")
+  if (vendor === 'purchase') return true;
+  // Remove PRICELINE ACCENT INN
+  if (vendor.includes('priceline') && vendor.includes('accent inn')) return true;
+  if (vendor.includes('priceline accent inn')) return true;
+  // Remove PAYPAL UPWORK ESCROW
+  if (vendor.includes('paypal upwork') || vendor.includes('upwork escrow')) return true;
   
   return false;
 }
@@ -119,6 +146,11 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'rent', unknown: false };
   }
 
+  // Driving test fees
+  if (vendor.includes('driver services centre') || vendor.includes('driver services center')) {
+    return { column: 'driving_test', unknown: false };
+  }
+
   // Licence
   if (category === 'licence' || vendor.includes('driver services')) {
     return { column: 'licence', unknown: false };
@@ -131,7 +163,9 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
   }
 
   // Car purchase
-  if (notes.includes('car purchase') || (vendor.includes('coast capital') && notes.includes('car'))) {
+  if (notes.includes('car purchase') || (vendor.includes('coast capital') && notes.includes('car')) ||
+      (vendor.includes('official draft') && Number(expense.amount) === 8000) ||
+      (vendor.includes('coast capital') && Number(expense.amount) === 8000)) {
     return { column: 'car', unknown: false };
   }
 
@@ -142,8 +176,8 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'parking', unknown: false };
   }
 
-  // Hotel
-  if (vendor.includes('priceline') || vendor.includes('accent inn') || vendor.includes('tofino')) {
+  // Hotel (priceline accent inn already excluded above)
+  if (vendor.includes('accent inn') || vendor.includes('tofino')) {
     return { column: 'transportation', unknown: false };
   }
 
@@ -191,9 +225,13 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'grocery', unknown: false };
   }
 
+  // Soap/personal care (online soap purchase)
+  if (vendor.includes('crate 61')) {
+    return { column: 'soap_personal', unknown: false };
+  }
+
   // Grooming
-  if (vendor.includes('sonu hair') || vendor.includes('haircut') || vendor.includes('barber') ||
-      vendor.includes('crate 61')) {
+  if (vendor.includes('sonu hair') || vendor.includes('haircut') || vendor.includes('barber')) {
     return { column: 'grooming', unknown: false };
   }
 
@@ -240,8 +278,13 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'entertainment', unknown: false };
   }
 
-  // Costco / wholesale
-  if (vendor.includes('costco') || vendor.includes('mm food') || vendor.includes('wholesale')) {
+  // Costco → grocery
+  if (vendor.includes('costco')) {
+    return { column: 'grocery', unknown: false };
+  }
+
+  // Wholesale
+  if (vendor.includes('mm food') || vendor.includes('wholesale')) {
     return { column: 'membership', unknown: false };
   }
 
@@ -250,9 +293,18 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'vitamins', unknown: false };
   }
 
+  // Trading business
+  if (vendor.includes('scarface trade')) {
+    return { column: 'trading', unknown: false };
+  }
+
+  // Stationary
+  if (vendor.includes('staples')) {
+    return { column: 'stationary', unknown: false };
+  }
+
   // Professional fees
-  if (vendor.includes('lovable') || vendor.includes('upwork') || vendor.includes('incite ai') ||
-      vendor.includes('scarface trade') || vendor.includes('staples') ||
+  if (vendor.includes('lovable') || vendor.includes('incite ai') ||
       vendor.includes('thinking canada') || vendor.includes('emergent') ||
       vendor.includes('a.k.p service') || vendor.includes('akp service') ||
       vendor.includes('shb holdings') || vendor.includes('paypal kitscomtech')) {
@@ -264,8 +316,13 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'delivery_freight', unknown: false };
   }
 
+  // Mobile Bill (Fido)
+  if (vendor.includes('fido')) {
+    return { column: 'mobile_bill', unknown: false };
+  }
+
   // Phone/Internet
-  if (vendor.includes('fido') || vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
+  if (vendor.includes('shaw') || vendor.includes('fraser valley wireless') ||
       vendor.includes('paypal google') || vendor.includes('paypal *google') ||
       vendor.includes('paypal twitter') || vendor.includes('pos purchase paypal google twitter')) {
     return { column: 'phone_internet', unknown: false };
@@ -299,10 +356,10 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'government_fees', unknown: false };
   }
 
-  // Amazon/Temu
+  // Online shopping (Amazon, Temu)
   if (vendor.includes('amazon') || vendor.includes('temu') ||
       vendor.includes('paypal temu') || vendor.includes('temu.com')) {
-    return { column: 'grocery', unknown: false };
+    return { column: 'online_shopping', unknown: false };
   }
 
   // Walmart
@@ -485,12 +542,59 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   // Deduplicate: remove transactions with same date, vendor, and amount
   const deduped = [...dbExpenses, ...uniqueUberExpenses];
   const seen = new Set<string>();
-  const yearExpenses = deduped.filter(e => {
+  const basicDeduped = deduped.filter(e => {
     const key = `${e.date}|${(e.vendor_name || '').toLowerCase().trim()}|${Number(e.amount).toFixed(2)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+
+  // Smart dedup: same vendor + same date with tip (keep higher amount)
+  // and delayed posting (same vendor, ±1 day, same amount — keep first)
+  function normalizeVendor(v: string): string {
+    return (v || '').toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 12);
+  }
+  
+  const smartDeduped: any[] = [];
+  const usedIndices = new Set<number>();
+  
+  for (let i = 0; i < basicDeduped.length; i++) {
+    if (usedIndices.has(i)) continue;
+    const e = basicDeduped[i];
+    const eNorm = normalizeVendor(e.vendor_name);
+    const eDate = e.date;
+    let bestIdx = i;
+    let bestAmount = Number(e.amount);
+    
+    for (let j = i + 1; j < basicDeduped.length; j++) {
+      if (usedIndices.has(j)) continue;
+      const f = basicDeduped[j];
+      const fNorm = normalizeVendor(f.vendor_name);
+      if (eNorm !== fNorm || eNorm.length < 4) continue;
+      
+      const dayDiff = Math.abs(new Date(eDate).getTime() - new Date(f.date).getTime()) / 86400000;
+      if (dayDiff > 1) continue;
+      
+      const fAmount = Number(f.amount);
+      // Same amount ±1 day = delayed posting duplicate
+      if (Math.abs(bestAmount - fAmount) < 0.02) {
+        usedIndices.add(j);
+      }
+      // Same date, same vendor, different amounts = tip scenario (keep higher)
+      else if (dayDiff === 0 && Math.abs(bestAmount - fAmount) < bestAmount * 0.3) {
+        if (fAmount > bestAmount) {
+          usedIndices.add(bestIdx);
+          bestIdx = j;
+          bestAmount = fAmount;
+        } else {
+          usedIndices.add(j);
+        }
+      }
+    }
+    smartDeduped.push(basicDeduped[bestIdx]);
+  }
+  
+  const yearExpenses = smartDeduped;
 
   // Track unknown transactions for flagging
   const unknownTransactions: any[] = [];
