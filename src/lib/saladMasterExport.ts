@@ -104,6 +104,8 @@ export function shouldExcludeExpense(expense: any): boolean {
   if (vendor.includes('priceline accent inn')) return true;
   // Remove PAYPAL UPWORK ESCROW
   if (vendor.includes('paypal upwork') || vendor.includes('upwork escrow')) return true;
+  // Remove POS reversals (refunds, not expenses)
+  if (vendor.includes('pos reversal') || vendor.includes('reversal')) return true;
   
   return false;
 }
@@ -158,7 +160,8 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
 
   // Repairs
   if (category === 'repairs' || vendor.includes('mr. lube') || vendor.includes('mr lube') ||
-      vendor.includes('tennyson auto') || vendor.includes('gs auto')) {
+      vendor.includes('tennyson auto') || vendor.includes('gs auto') ||
+      vendor.includes('car repair') || vendor.includes('car detailing') || vendor.includes('detailing')) {
     return { column: 'repairs', unknown: false };
   }
 
