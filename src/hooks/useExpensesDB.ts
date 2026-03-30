@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -33,9 +33,13 @@ export function useExpensesDB() {
   const [trashedExpenses, setTrashedExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchExpenses = async () => {
-    if (!user) return;
-    
+  const fetchExpenses = useCallback(async (): Promise<Expense[]> => {
+    if (!user) {
+      setExpenses([]);
+      setLoading(false);
+      return [];
+    }
+
     try {
       const { data, error } = await supabase
         .from('expenses')
@@ -44,13 +48,16 @@ export function useExpensesDB() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setExpenses(data?.map(mapExpense) || []);
+      const mappedExpenses = data?.map(mapExpense) || [];
+      setExpenses(mappedExpenses);
+      return mappedExpenses;
     } catch (error) {
       console.error('Error fetching expenses:', error);
+      return [];
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   const fetchTrashed = async () => {
     if (!user) return;
@@ -69,8 +76,24 @@ export function useExpensesDB() {
   };
 
   useEffect(() => {
-    fetchExpenses();
-  }, [user]);
+    void fetchExpenses();
+  }, [fetchExpenses]);
+
+  useEffect(() => {
+    const refreshOnFocusOrVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchExpenses();
+      }
+    };
+
+    window.addEventListener('focus', refreshOnFocusOrVisibility);
+    document.addEventListener('visibilitychange', refreshOnFocusOrVisibility);
+
+    return () => {
+      window.removeEventListener('focus', refreshOnFocusOrVisibility);
+      document.removeEventListener('visibilitychange', refreshOnFocusOrVisibility);
+    };
+  }, [fetchExpenses]);
 
   const addExpense = async (expenseData: Omit<Expense, 'id' | 'user_id' | 'created_at' | 'deleted_at'>) => {
     if (!user) return null;
