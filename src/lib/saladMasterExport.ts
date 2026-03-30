@@ -225,9 +225,9 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'medicals', unknown: false };
   }
 
-  // London Drugs
+  // London Drugs → medicals
   if (vendor.includes('london drugs')) {
-    return { column: 'grocery', unknown: false };
+    return { column: 'medicals', unknown: false };
   }
 
   // Soap/personal care (online soap purchase)
@@ -372,14 +372,14 @@ export function classifyExpense(expense: any): { column: string; unknown: boolea
     return { column: 'grocery', unknown: false };
   }
 
-  // Dollarama
+  // Dollarama → online_shopping (general goods, not grocery)
   if (vendor.includes('dollarama') || vendor.includes('dollar')) {
-    return { column: 'grocery', unknown: false };
+    return { column: 'online_shopping', unknown: false };
   }
 
-  // 7-Eleven (non-fuel)
+  // 7-Eleven (non-fuel) → entertainment/snacks
   if (vendor.includes('7-eleven') || vendor.includes('7eleven')) {
-    return { column: 'grocery', unknown: false };
+    return { column: 'entertainment', unknown: false };
   }
 
   // Grocery stores
