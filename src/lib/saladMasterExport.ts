@@ -623,6 +623,24 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   // Track unknown transactions for flagging
   const unknownTransactions: any[] = [];
 
+  // --- GROUP EXPENSES BY MONTH AND COLUMN ---
+  const monthlyData: Record<number, Record<string, number[]>> = {};
+  for (let m = 0; m < 12; m++) {
+    monthlyData[m] = {};
+    SM_COLUMNS.forEach(col => { monthlyData[m][col.key] = []; });
+  }
+
+  yearExpenses.forEach(expense => {
+    const month = parseISO(expense.date).getMonth();
+    const result = classifyExpense(expense);
+    if (result.unknown) {
+      unknownTransactions.push(expense);
+    }
+    if (monthlyData[month][result.column]) {
+      monthlyData[month][result.column].push(Number(expense.amount));
+    }
+  });
+
   // --- DESIGN MATCHING DEMO TEMPLATE ---
   const thinBorder: Partial<ExcelJS.Borders> = {
     top: { style: 'thin' }, bottom: { style: 'thin' },
