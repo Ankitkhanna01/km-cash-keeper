@@ -623,19 +623,6 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   // Track unknown transactions for flagging
   const unknownTransactions: any[] = [];
 
-  // --- HEADER ROWS ---
-  const groupRow = ws.addRow(['', 'SUPPLIES', 'CLOTHING', '', '', 'TRANSPORTATION', '', '', '', '', 'INTEREST', 'ENTERTAINMENT/MEALS', 'ADVERTISING', 'CAR WASH', 'DELIVERY/FREIGHT', 'REPAIRS/MAINTENANCE', 'USE OF HOME', '', '', '', '', 'LICENSE', '', '', '', '', '', 'MEMBERSHIP', '', 'TOTAL']);
-  groupRow.font = { bold: true, size: 9 };
-
-  const headerLabels = ['DATE', ...SM_COLUMNS.map(c => c.label), 'TOTAL'];
-  const headerRow = ws.addRow(headerLabels);
-  headerRow.font = { bold: true, size: 8 };
-  headerRow.eachCell(cell => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-    cell.border = { bottom: { style: 'thin' } };
-    cell.alignment = { wrapText: true, vertical: 'bottom', horizontal: 'center' };
-  });
-
   // --- GROUP EXPENSES BY MONTH AND COLUMN ---
   const monthlyData: Record<number, Record<string, number[]>> = {};
   for (let m = 0; m < 12; m++) {
@@ -654,25 +641,157 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
     }
   });
 
+  // --- DESIGN MATCHING DEMO TEMPLATE ---
+  const thinBorder: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin' }, bottom: { style: 'thin' },
+    left: { style: 'thin' }, right: { style: 'thin' },
+  };
+
+  // Color definitions matching demo
+  const BLUE = 'FF00B0F0';
+  const GREEN = 'FF92D050';
+  const ORANGE = 'FFFFC000';
+  const PINK = 'FFFF66FF';
+  const YELLOW = 'FFFFFF00';
+  const RED = 'FFFF3300';
+  const BROWN = 'FFCC9900';
+  const BRIGHT_GREEN = 'FF00FF00';
+
+  // Column color mapping (0-based index in SM_COLUMNS)
+  // B=grocery(0), C=clothing(1), D=grooming(2), E=mani_pedicure(3)
+  // F=transportation(4), G=professional_fees(5), H=medicals(6), I=gas(7), J=work_from_home(8)
+  // K=cookware(9), L=entertainment(10), M=advertising(11)
+  // N=car_wash(12), O=delivery_freight(13), P=repairs(14)
+  // Q=hydro(15), R=phone_internet(16), S=rent(17), T=home_insurance(18), U=kitchen_dining(19)
+  // V=licence(20), W=drivers_insurance(21), X=car_gas(22), Y=car(23), Z=car_maintenance(24), AA=home_power(25)
+  // AB=membership(26), AC+=gym,alcohol,etc.
+  const colFills: Record<number, string> = {
+    1: BLUE, 2: BLUE, 3: BLUE, // clothing, grooming, mani_pedicure
+    4: GREEN, 5: GREEN, 6: GREEN, 7: GREEN, 8: GREEN, // transportation group
+    9: ORANGE, // cookware
+    10: PINK, // entertainment
+    11: YELLOW, // advertising
+    13: RED, // delivery_freight
+    14: PINK, // repairs
+    21: BROWN, // drivers_insurance
+    26: BRIGHT_GREEN, // membership (index in SM_COLUMNS)
+  };
+
+  // Also apply green to gym(27), alcohol(28) etc. that are extra columns beyond demo
+  // Find membership index
+  const membershipIdx = SM_COLUMNS.findIndex(c => c.key === 'membership');
+
+  // --- GROUP HEADER ROW (Row 1) ---
+  const groupValues: any[] = [''];
+  SM_COLUMNS.forEach(() => groupValues.push(''));
+  groupValues.push(''); // needs review col
+  groupValues.push('TOTAL');
+  const groupRow = ws.addRow(groupValues);
+  groupRow.height = 48.75;
+  groupRow.font = { bold: true, size: 12 };
+
+  // Set group header labels and colors
+  const setGroupCell = (colIdx: number, label: string, fill?: string, fontSize?: number) => {
+    const cell = groupRow.getCell(colIdx + 2); // +2 because col A=1 is DATE
+    cell.value = label;
+    if (fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+    if (fontSize) cell.font = { bold: true, size: fontSize };
+    cell.border = thinBorder;
+  };
+
+  setGroupCell(0, 'SUPPLIES');
+  setGroupCell(1, 'CLOTHING', BLUE);
+  setGroupCell(4, 'TRANSPORTATION', GREEN);
+  setGroupCell(9, 'INTEREST', ORANGE);
+  setGroupCell(10, 'ENTERTAINMENT/ MEALS', PINK);
+  setGroupCell(11, 'ADVERTISING', YELLOW);
+  setGroupCell(12, 'CAR WASH');
+  setGroupCell(13, 'DELIVERY/  FREIGHT', RED);
+  setGroupCell(14, 'REPAIRS/ MAINTENANCE', PINK);
+
+  // USE OF HOME group (hydro through kitchen_dining = indices 15-19)
+  const hydroIdx = SM_COLUMNS.findIndex(c => c.key === 'hydro');
+  const kitchenIdx = SM_COLUMNS.findIndex(c => c.key === 'kitchen_dining');
+  if (hydroIdx >= 0 && kitchenIdx >= 0) {
+    setGroupCell(hydroIdx, 'USE OF HOME', undefined, 14);
+    // Merge USE OF HOME cells
+    ws.mergeCells(1, hydroIdx + 2, 1, kitchenIdx + 2);
+    const useOfHomeCell = groupRow.getCell(hydroIdx + 2);
+    useOfHomeCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    useOfHomeCell.border = { top: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+  }
+
+  // TRANSPORTATION merge (F-G in demo = indices 4-5... but in our template it spans 4-8)
+  // In demo F1:G1 is merged for TRANSPORTATION. Let's merge our transportation + professional_fees
+  ws.mergeCells(1, 6, 1, 7); // F1:G1
+
+  // LICENSE
+  const licenceIdx = SM_COLUMNS.findIndex(c => c.key === 'licence');
+  if (licenceIdx >= 0) setGroupCell(licenceIdx, 'LICENSE', undefined, 14);
+
+  // MEMBERSHIP
+  if (membershipIdx >= 0) setGroupCell(membershipIdx, 'MEMBERSHIP', BRIGHT_GREEN, 14);
+
+  // --- SUB-HEADER ROW (Row 2) ---
+  const headerLabels = ['DATE', ...SM_COLUMNS.map(c => c.label), '', 'TOTAL'];
+  const headerRow = ws.addRow(headerLabels);
+  headerRow.height = 99;
+  headerRow.font = { size: 11 };
+  headerRow.getCell(1).font = { bold: true, size: 11 };
+  headerRow.getCell(1).border = { bottom: { style: 'thin' }, left: { style: 'thin' } };
+
+  SM_COLUMNS.forEach((col, i) => {
+    const cell = headerRow.getCell(i + 2);
+    cell.border = thinBorder;
+    cell.alignment = { wrapText: true, vertical: 'bottom' };
+    // Apply group colors to sub-headers
+    const fill = colFills[i];
+    if (fill) {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+    }
+    // Transportation group sub-headers get right alignment
+    if (i >= 4 && i <= 8) {
+      cell.font = { size: 12 };
+      cell.alignment = { wrapText: true, vertical: 'bottom', horizontal: 'right' };
+    }
+  });
+
   // --- DATA ROWS (one per month) ---
+  // Also build the "Needs Review" column (AC equivalent)
+  const needsReviewColIdx = SM_COLUMNS.length + 2; // column after all SM columns
+  const totalColIdx = SM_COLUMNS.length + 3;
+
   MONTHS.forEach((monthName, m) => {
     const rowValues: any[] = [monthName];
     SM_COLUMNS.forEach(() => rowValues.push(null));
-    rowValues.push(null);
+    rowValues.push(monthName); // Needs review column = month name repeated
+    rowValues.push(null); // Total
 
     const dataRow = ws.addRow(rowValues);
+    dataRow.height = 18.75;
     const rowNum = dataRow.number;
+
+    // Month name styling
+    dataRow.getCell(1).font = { bold: true, size: 14 };
+    dataRow.getCell(1).border = thinBorder;
+
+    // Needs review column (month name repeated)
+    const reviewCell = dataRow.getCell(needsReviewColIdx);
+    reviewCell.font = { bold: true, size: 14 };
+    reviewCell.border = thinBorder;
 
     SM_COLUMNS.forEach((col, i) => {
       const amounts = monthlyData[m][col.key];
       const cell = dataRow.getCell(i + 2);
+      cell.border = thinBorder;
       if (amounts.length > 0) {
         cell.value = { formula: amounts.map(a => a.toFixed(2)).join('+') } as any;
         cell.numFmt = '#,##0.00';
       }
     });
 
-    const totalCell = dataRow.getCell(SM_COLUMNS.length + 2);
+    // Total column
+    const totalCell = dataRow.getCell(totalColIdx);
     totalCell.value = { formula: `SUM(B${rowNum}:${colLetter(SM_COLUMNS.length)}${rowNum})` } as any;
     totalCell.numFmt = '#,##0.00';
     totalCell.font = { bold: true };
@@ -681,7 +800,8 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
   // --- TOTALS ROW ---
   const totalsRowValues: any[] = ['Total'];
   SM_COLUMNS.forEach(() => totalsRowValues.push(null));
-  totalsRowValues.push(null);
+  totalsRowValues.push(''); // needs review col
+  totalsRowValues.push(null); // total
   
   const totalsRow = ws.addRow(totalsRowValues);
   totalsRow.font = { bold: true };
@@ -693,119 +813,35 @@ export async function generateSaladMasterExcel(expenses: any[], year: number, od
     const cell = totalsRow.getCell(i + 2);
     cell.value = { formula: `SUM(${cLetter}${firstDataRow}:${cLetter}${lastDataRow})` } as any;
     cell.numFmt = '#,##0.00';
+    cell.border = thinBorder;
   });
 
-  const grandTotalCell = totalsRow.getCell(SM_COLUMNS.length + 2);
-  grandTotalCell.value = { formula: `SUM(B${totalsRow.number}:${colLetter(SM_COLUMNS.length)}${totalsRow.number})` } as any;
+  // Grand total with yellow fill (like demo's AD15)
+  const grandTotalCell = totalsRow.getCell(totalColIdx);
+  grandTotalCell.value = { formula: `SUM(B${totalsRow.number}:${colLetter(needsReviewColIdx - 1)}${totalsRow.number})` } as any;
   grandTotalCell.numFmt = '#,##0.00';
   grandTotalCell.font = { bold: true };
+  grandTotalCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW } };
 
-  // --- ODOMETER / CAR PURCHASE INFO ---
-  ws.addRow([]);
-  if (odometerData) {
-    ws.addRow(['Car Purchase', '$8,000.00', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', `Business Use: ${odometerData.businessPercent.toFixed(1)}%`]);
-    ws.addRow(['Odometer Start', `${odometerData.startReading.toLocaleString()} km`]);
-    ws.addRow(['Odometer End', `${odometerData.endReading.toLocaleString()} km`]);
-    ws.addRow(['Total KM', `${odometerData.totalKm.toLocaleString()} km`]);
-    ws.addRow(['Business KM', `${odometerData.businessKm.toLocaleString()} km`]);
-    ws.addRow(['Business %', `${odometerData.businessPercent.toFixed(1)}%`]);
-  }
-
-  // --- UBER CARD DRIVING INCOME (inline, for 2025) ---
-  if (year === 2025) {
-    ws.addRow([]);
-    const uberTitle = ws.addRow(['UBER PRO CARD — DRIVING INCOME SUMMARY (Aug-Dec 2025)']);
-    uberTitle.font = { bold: true, size: 12 };
-    ws.addRow(['Month', 'Total Credits (Income)', 'Total Debits (Expenses)', 'Net']);
-    ws.getRow(ws.rowCount).font = { bold: true };
-    ws.getRow(ws.rowCount).eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-    });
-
-    let totalCredits = 0, totalDebits = 0;
-    Object.entries(UBER_CARD_DRIVING_INCOME_2025).forEach(([monthIdx, data]) => {
-      ws.addRow([MONTHS[Number(monthIdx)], data.credits, data.debits, data.credits - data.debits]);
-      totalCredits += data.credits;
-      totalDebits += data.debits;
-    });
-    const driveTotalRow = ws.addRow(['TOTAL', totalCredits, totalDebits, totalCredits - totalDebits]);
-    driveTotalRow.font = { bold: true };
-
-    // --- DRIVING INCOME FROM ALL PLATFORMS ---
-    ws.addRow([]);
-    const incomeTitle = ws.addRow(['DRIVING INCOME SUMMARY — ALL PLATFORMS (2025)']);
-    incomeTitle.font = { bold: true, size: 12 };
-    const incomeHeader = ws.addRow(['Month', 'DoorDash', 'Skip The Dishes', 'Uber', 'TOTAL']);
-    incomeHeader.font = { bold: true };
-    incomeHeader.eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-    });
-
-    let totalDD = 0, totalSkip = 0, totalUber = 0;
-    MONTHS.forEach(month => {
-      const data = DRIVING_INCOME_2025[month] || { doordash: 0, skip: 0, uber: 0 };
-      const monthTotal = data.doordash + data.skip + data.uber;
-      if (monthTotal > 0) {
-        ws.addRow([month, data.doordash, data.skip, data.uber, monthTotal]);
-      }
-      totalDD += data.doordash;
-      totalSkip += data.skip;
-      totalUber += data.uber;
-    });
-    const incomeTotalRow = ws.addRow(['TOTAL', totalDD, totalSkip, totalUber, totalDD + totalSkip + totalUber]);
-    incomeTotalRow.font = { bold: true };
-    incomeTotalRow.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-    
-    ws.addRow([]);
-    ws.addRow(['NOTE: Verify these income figures against T4A slips and platform annual summaries.']);
-    ws.getRow(ws.rowCount).font = { italic: true, color: { argb: 'FF666666' } };
-  }
-
-  // --- ALL TRANSACTION DETAILS (inline on same sheet) ---
-  ws.addRow([]);
-  ws.addRow([]);
-  const detailTitle = ws.addRow(['ALL TRANSACTION DETAILS']);
-  detailTitle.font = { bold: true, size: 14 };
-  
-  const detailHeader = ws.addRow(['Date', 'Vendor', 'Amount', 'Category (SM)', 'App Category', 'Card Last 4', 'Notes', '⚠️ NEEDS REVIEW']);
-  detailHeader.font = { bold: true };
-  detailHeader.eachCell(cell => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-    cell.border = { bottom: { style: 'thin' } };
+  // Column widths matching demo
+  ws.getColumn(1).width = 16; // DATE/month col
+  const demoWidths: Record<string, number> = {
+    grocery: 11.4, clothing: 9.1, grooming: 9.3, mani_pedicure: 8.9,
+    transportation: 13.9, professional_fees: 10.4, medicals: 10, gas: 10,
+    work_from_home: 10, cookware: 10.4, entertainment: 20, advertising: 14.4,
+    car_wash: 12.4, delivery_freight: 12.9, repairs: 16.4, hydro: 8.9,
+    phone_internet: 9.9, rent: 10.4, home_insurance: 10.4, kitchen_dining: 10.9,
+    licence: 9.4, drivers_insurance: 9.3, car_gas: 9.9, car: 10.3,
+    car_maintenance: 10.3, home_power: 10.1, membership: 17.4,
+    gym: 10, alcohol: 10, airport_shopping: 10, vitamins: 10,
+    government_fees: 10, parking: 10, online_shopping: 10, stationary: 10,
+    mobile_bill: 10, driving_test: 10, trading: 10, soap_personal: 10,
+  };
+  SM_COLUMNS.forEach((col, i) => {
+    ws.getColumn(i + 2).width = demoWidths[col.key] || 10;
   });
-  // Highlight "NEEDS REVIEW" header in yellow
-  detailHeader.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
-
-  yearExpenses
-    .sort((a: any, b: any) => a.date.localeCompare(b.date))
-    .forEach((expense: any) => {
-      const result = classifyExpense(expense);
-      const smLabel = SM_COLUMNS.find(c => c.key === result.column)?.label || result.column;
-      const row = ws.addRow([
-        expense.date,
-        expense.vendor_name,
-        Number(expense.amount),
-        smLabel,
-        expense.category,
-        expense.card_last4 || '',
-        expense.notes || '',
-        result.unknown ? `⚠️ ACCOUNTANT: What is "${expense.vendor_name}" ($${Number(expense.amount).toFixed(2)}) for? Please assign correct category.` : '',
-      ]);
-      
-      if (result.unknown) {
-        // Highlight the entire row in yellow for unknown transactions
-        row.eachCell(cell => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFCC' } };
-        });
-        row.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
-        row.getCell(8).font = { bold: true, color: { argb: 'FFCC0000' } };
-      }
-    });
-
-  // Column widths
-  ws.getColumn(1).width = 12;
-  SM_COLUMNS.forEach((col, i) => { ws.getColumn(i + 2).width = Math.max(col.width, 10); });
-  ws.getColumn(SM_COLUMNS.length + 2).width = 12;
+  ws.getColumn(needsReviewColIdx).width = 32; // needs review col
+  ws.getColumn(totalColIdx).width = 10.3; // total
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
