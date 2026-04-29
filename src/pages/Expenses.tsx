@@ -19,7 +19,7 @@ export default function Expenses() {
   const { analyzeExpenses } = useExpenseReviews();
 
   const thisYear = new Date().getFullYear();
-  const [currentYear, setCurrentYear] = useState(thisYear - 1);
+  const [currentYear, setCurrentYear] = useState(thisYear);
   const yearExpenses = expenses.filter(
     (e) => parseLocalDate(e.date).getFullYear() === currentYear
   );

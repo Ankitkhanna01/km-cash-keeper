@@ -18,7 +18,7 @@ export default function Trips() {
   const { trips, loading, addTrip, updateTrip, categorizeTrip, deleteTrip, getUncategorizedTrips } = useTripsDB();
   const [activeTab, setActiveTab] = useState('uncategorized');
   const thisYear = new Date().getFullYear();
-  const [currentYear, setCurrentYear] = useState(thisYear - 1);
+  const [currentYear, setCurrentYear] = useState(thisYear);
 
   const uncategorizedTrips = getUncategorizedTrips();
   const categorizedTrips = trips
