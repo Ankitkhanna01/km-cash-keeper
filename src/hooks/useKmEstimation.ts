@@ -98,8 +98,15 @@ export function useKmEstimation({
     const monthlyEstimates: MonthEstimate[] = [];
 
     for (let month = 1; month <= 12; month++) {
-      // Skip months beyond the current month ONLY when estimating the current calendar year
-      if (cutoffMonth === 0 || month > cutoffMonth) {
+      // Actual logged data this year must be calculated before future-month handling.
+      // Imported/backfilled future-year trips (ex: 2026 data) should still appear in the breakdown.
+      const thisMonthTrips = getMonthTrips(businessTrips, month, currentYear);
+      const actualKm = thisMonthTrips.reduce((s, t) => s + t.kilometres, 0);
+      const actualTrips = thisMonthTrips.length;
+      const actualDays = getUniqueDays(thisMonthTrips);
+
+      // Skip projection methods for future months only when there are no actual logged trips.
+      if ((cutoffMonth === 0 || month > cutoffMonth) && actualTrips === 0) {
         monthlyEstimates.push({
           month,
           monthName: MONTH_NAMES[month - 1],
@@ -111,20 +118,14 @@ export function useKmEstimation({
           historicalTrips: null,
           historicalDaysWorked: null,
           combinedEstimate: null,
-          actualLoggedKm: 0,
-          actualTrips: 0,
-          actualDaysWorked: 0,
+          actualLoggedKm: actualKm,
+          actualTrips,
+          actualDaysWorked: actualDays,
           estimatedGap: null,
           methodology: cutoffMonth === 0 ? 'Future year' : 'Future month',
         });
         continue;
       }
-
-      // Actual logged data this year
-      const thisMonthTrips = getMonthTrips(businessTrips, month, currentYear);
-      const actualKm = thisMonthTrips.reduce((s, t) => s + t.kilometres, 0);
-      const actualTrips = thisMonthTrips.length;
-      const actualDays = getUniqueDays(thisMonthTrips);
 
       // Method 1: Income-based estimation
       let incomeBasedKm: number | null = null;
