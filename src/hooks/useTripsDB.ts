@@ -54,18 +54,28 @@ export function useTripsDB() {
     if (!user) return;
     
     try {
-      const { data, error } = await supabase
-        .from('trips')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Paginate to bypass Supabase's 1000-row default limit
+      const pageSize = 1000;
+      let from = 0;
+      const all: any[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from('trips')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
 
-      if (error) throw error;
-      
-      setTrips(data?.map(t => ({
+      setTrips(all.map(t => ({
         ...t,
         kilometres: Number(t.kilometres),
         category: t.category as 'business' | 'personal' | 'uncategorized'
-      })) || []);
+      })));
     } catch (error) {
       console.error('Error fetching trips:', error);
     } finally {
