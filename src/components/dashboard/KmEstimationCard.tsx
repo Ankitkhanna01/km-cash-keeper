@@ -82,7 +82,9 @@ export function KmEstimationCard({ year, onEstimationChange }: KmEstimationCardP
     );
   }
 
-  const activeMonths = estimation.monthlyEstimates.filter(m => m.combinedEstimate !== null);
+  const activeMonths = estimation.monthlyEstimates.filter(
+    m => m.combinedEstimate !== null || m.actualLoggedKm > 0 || m.actualTrips > 0
+  );
 
   return (
     <>
