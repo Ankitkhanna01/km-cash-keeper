@@ -490,6 +490,9 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     const notesText = comments.trim() 
       ? `${purposeText} | ${comments.trim()}`
       : purposeText;
+    const category = selectedPurpose === 'pickup' || selectedPurpose === 'dropoff' || selectedPurpose === 'hotzone'
+      ? 'business'
+      : 'uncategorized';
 
     onTripComplete({
       date: getLocalDateString(),
@@ -498,7 +501,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       start_location: startLocation.address,
       end_location: endLocationStr,
       kilometres,
-      category: 'uncategorized',
+      category,
       waypoints: waypoints,
       notes: notesText,
       company: selectedCompany,
