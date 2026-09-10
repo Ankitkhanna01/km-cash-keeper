@@ -108,7 +108,12 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const state: PersistedTripState = JSON.parse(saved);
-        if (state.isRecording && state.startLocation) {
+        // Discard stale recordings (older than 8 hours) so an abandoned trip
+        // does not restore an old start location days later.
+        const ageMs = Date.now() - (state.startTimestamp || 0);
+        if (!state.startTimestamp || ageMs > 8 * 60 * 60 * 1000) {
+          localStorage.removeItem(STORAGE_KEY);
+        } else if (state.isRecording && state.startLocation) {
           setIsRecording(true);
           setStartLocation(state.startLocation);
           setStops(state.stops || []);
