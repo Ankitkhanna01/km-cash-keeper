@@ -94,8 +94,10 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   }, []);
 
   const requestLocation = () => {
-    if (geoRequestedRef.current || userLocation) return;
-    geoRequestedRef.current = true;
+    // Refresh the fix if it is older than 2 minutes so the search stays
+    // anchored to where the driver actually is right now.
+    if (Date.now() - geoRequestedRef.current < 2 * 60 * 1000) return;
+    geoRequestedRef.current = Date.now();
 
     if (!navigator.geolocation) return;
 
@@ -104,7 +106,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
       },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 60 * 1000, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 30 * 1000, timeout: 10000 }
     );
   };
 
