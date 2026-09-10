@@ -142,6 +142,9 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     setIsSearching(true);
     setPage(0);
 
+    const requestId = ++searchIdRef.current;
+    const isStale = () => requestId !== searchIdRef.current;
+
     try {
       // Use edge function for better Canadian address support
       const { data, error } = await supabase.functions.invoke('geocode', {
