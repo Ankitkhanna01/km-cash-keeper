@@ -186,14 +186,16 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         });
       }
 
+      if (isStale()) return;
       setSearchResults(results);
       setShowResults(results.length > 0);
     } catch (err) {
       console.error("Search failed:", err);
+      if (isStale()) return;
       setSearchResults([]);
       setShowResults(false);
     } finally {
-      setIsSearching(false);
+      if (!isStale()) setIsSearching(false);
     }
   };
 
