@@ -159,6 +159,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         },
       });
 
+      if (isStale()) return;
+
       if (error) {
         console.error("Geocode error:", error);
         setSearchResults([]);
