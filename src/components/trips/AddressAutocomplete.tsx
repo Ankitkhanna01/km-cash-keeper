@@ -214,6 +214,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     const newValue = e.target.value;
     setInputValue(newValue);
     onChange(newValue);
+    // Invalidate any in-flight search so an older response can't repopulate the list
+    searchIdRef.current++;
 
     // Debounced autocomplete search
     if (debounceRef.current) {
