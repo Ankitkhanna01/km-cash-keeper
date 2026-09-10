@@ -179,8 +179,18 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
       .from('cached_addresses')
       .select('*')
       .neq('source', 'usage_tracking');
-    
-    // If we have coordinates, search nearby first (within ~500m)
+
+    // IMPORTANT: always constrain by the text the user typed, otherwise we return
+    // arbitrary historical addresses that merely share a common word.
+    const longestTerm = searchTerms.sort((a, b) => b.length - a.length)[0];
+    if (!longestTerm || longestTerm.length < 3) {
+      return [];
+    }
+    dbQuery = dbQuery.or(
+      `display_name.ilike.%${longestTerm}%,place_name.ilike.%${longestTerm}%`
+    );
+
+    // If we have coordinates, prefer nearby entries (within ~500m)
     if (near) {
       const delta = 0.005; // ~500m
       dbQuery = dbQuery
@@ -189,7 +199,7 @@ async function searchCache(query: string, near?: Nearby): Promise<any[]> {
         .gte('lon', near.lon - delta)
         .lte('lon', near.lon + delta);
     }
-    
+
     const { data, error } = await dbQuery.limit(50);
     
     if (error || !data) {
