@@ -62,6 +62,86 @@ const PURPOSE_LABELS: Record<TripPurpose, string> = {
 };
 
 const STORAGE_KEY = 'quickTripRecording';
+const GOOD_GPS_ACCURACY_METERS = 35;
+const MAX_GPS_ACCURACY_METERS = 100;
+const MAX_REASONABLE_SPEED_METERS_PER_SECOND = 55;
+
+const getDistanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const radius = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const getAccuratePosition = (): Promise<GeolocationPosition> => {
+  return new Promise((resolve, reject) => {
+    let bestPosition: GeolocationPosition | null = null;
+    let previousGoodPosition: GeolocationPosition | null = null;
+    let settled = false;
+
+    const finish = (position?: GeolocationPosition, error?: GeolocationPositionError) => {
+      if (settled) return;
+      settled = true;
+      navigator.geolocation.clearWatch(watchId);
+      window.clearTimeout(timerId);
+      if (position) resolve(position);
+      else reject(error || new Error('Unable to obtain an accurate GPS location'));
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(accuracy)) return;
+
+        if (!bestPosition || accuracy < bestPosition.coords.accuracy) {
+          bestPosition = position;
+        }
+
+        // A very precise fix is safe immediately. Otherwise require two nearby,
+        // good fixes so the phone's initial network estimate cannot start a trip.
+        if (accuracy <= 15) {
+          finish(position);
+          return;
+        }
+
+        if (accuracy <= GOOD_GPS_ACCURACY_METERS) {
+          if (previousGoodPosition) {
+            const separation = getDistanceMeters(
+              previousGoodPosition.coords.latitude,
+              previousGoodPosition.coords.longitude,
+              latitude,
+              longitude,
+            );
+            const allowedSeparation = Math.max(
+              GOOD_GPS_ACCURACY_METERS,
+              previousGoodPosition.coords.accuracy + accuracy,
+            );
+            if (separation <= allowedSeparation) {
+              finish(accuracy <= previousGoodPosition.coords.accuracy ? position : previousGoodPosition);
+              return;
+            }
+          }
+          previousGoodPosition = position;
+        }
+      },
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) finish(undefined, error);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+
+    const timerId = window.setTimeout(() => {
+      if (bestPosition && bestPosition.coords.accuracy <= MAX_GPS_ACCURACY_METERS) {
+        finish(bestPosition);
+      } else {
+        finish(undefined);
+      }
+    }, 20000);
+  });
+};
 
 interface PersistedTripState {
   isRecording: boolean;
@@ -168,27 +248,27 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     let watchId: number;
     let lastLat = startLocation.lat;
     let lastLon = startLocation.lon;
-    
-    // Calculate distance between two points (in meters)
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-      const R = 6371000; // Earth's radius in meters
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R * c;
-    };
+    let lastAcceptedAt = Date.now();
+    let lastAccuracy = GOOD_GPS_ACCURACY_METERS;
 
     const handlePosition = (position: GeolocationPosition) => {
-      const { latitude, longitude } = position.coords;
+      const { latitude, longitude, accuracy } = position.coords;
+      if (!Number.isFinite(accuracy) || accuracy > MAX_GPS_ACCURACY_METERS) return;
+
+      const distance = getDistanceMeters(lastLat, lastLon, latitude, longitude);
+      const elapsedSeconds = Math.max(1, (position.timestamp - lastAcceptedAt) / 1000);
+      const possibleGpsDrift = Math.max(accuracy + lastAccuracy, 50);
+      const isImpossibleJump = distance > possibleGpsDrift &&
+        distance / elapsedSeconds > MAX_REASONABLE_SPEED_METERS_PER_SECOND;
+
+      // Ignore a sudden far-away reading instead of drawing it into the route.
+      if (isImpossibleJump) return;
       
-      // Always update current position for map
       setCurrentPosition({ lat: latitude, lon: longitude });
+      lastAcceptedAt = position.timestamp;
+      lastAccuracy = accuracy;
       
       // Only add waypoint if moved more than 50 meters from last point
-      const distance = getDistance(lastLat, lastLon, latitude, longitude);
       if (distance > 50) {
         lastLat = latitude;
         lastLon = longitude;
@@ -304,13 +384,7 @@ export function QuickTripRecorder({ onTripComplete }: QuickTripRecorderProps) {
     if (!silent) setGettingLocation(true);
 
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0,
-        });
-      });
+      const position = await getAccuratePosition();
 
       const { latitude, longitude } = position.coords;
 
