@@ -53,7 +53,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const geoRequestedRef = useRef(false);
+  const geoRequestedRef = useRef(0);
+  const searchIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const instanceKeyRef = useRef<string>(
     `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
@@ -94,8 +95,10 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
   }, []);
 
   const requestLocation = () => {
-    if (geoRequestedRef.current || userLocation) return;
-    geoRequestedRef.current = true;
+    // Refresh the fix if it is older than 2 minutes so the search stays
+    // anchored to where the driver actually is right now.
+    if (Date.now() - geoRequestedRef.current < 2 * 60 * 1000) return;
+    geoRequestedRef.current = Date.now();
 
     if (!navigator.geolocation) return;
 
@@ -104,7 +107,7 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
       },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 60 * 1000, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 30 * 1000, timeout: 10000 }
     );
   };
 
@@ -140,6 +143,9 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     setIsSearching(true);
     setPage(0);
 
+    const requestId = ++searchIdRef.current;
+    const isStale = () => requestId !== searchIdRef.current;
+
     try {
       // Use edge function for better Canadian address support
       const { data, error } = await supabase.functions.invoke('geocode', {
@@ -152,6 +158,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
             : undefined,
         },
       });
+
+      if (isStale()) return;
 
       if (error) {
         console.error("Geocode error:", error);
@@ -178,14 +186,16 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
         });
       }
 
+      if (isStale()) return;
       setSearchResults(results);
       setShowResults(results.length > 0);
     } catch (err) {
       console.error("Search failed:", err);
+      if (isStale()) return;
       setSearchResults([]);
       setShowResults(false);
     } finally {
-      setIsSearching(false);
+      if (!isStale()) setIsSearching(false);
     }
   };
 
@@ -204,6 +214,8 @@ export function AddressAutocomplete({ value, onChange, onActiveChange, placehold
     const newValue = e.target.value;
     setInputValue(newValue);
     onChange(newValue);
+    // Invalidate any in-flight search so an older response can't repopulate the list
+    searchIdRef.current++;
 
     // Debounced autocomplete search
     if (debounceRef.current) {
