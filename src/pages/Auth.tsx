@@ -91,7 +91,7 @@ export default function Auth() {
 
     setIsSubmitting(true);
     
-    const { error } = await signUp(signupEmail, signupPassword, signupName);
+    const { error } = await signUp(signupEmail, signupPassword, signupName, nextPath);
     
     if (error) {
       if (error.message.includes('already registered')) {
