@@ -1,0 +1,261 @@
+{
+  "version": 1,
+  "sdk_version": "3.0.2",
+  "path": "/functions/v1/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://jdjrdshcacrfskqzluxi.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "drive-deduct",
+      "version": "0.1.0",
+      "title": "Drive & Deduct"
+    },
+    "tools": [
+      {
+        "name": "list_trips",
+        "title": "List trips",
+        "description": "List the signed-in driver's logged trips, optionally filtered by date range and category (business, personal, uncategorized).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "start_date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Earliest trip date, YYYY-MM-DD."
+            },
+            "end_date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Latest trip date, YYYY-MM-DD."
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "business",
+                "personal",
+                "uncategorized"
+              ],
+              "description": "Filter by trip category."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Maximum trips to return (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "log_trip",
+        "title": "Log a trip",
+        "description": "Record a new trip for the signed-in driver with date, times, locations, distance and category.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Trip date, YYYY-MM-DD (Pacific time)."
+            },
+            "start_time": {
+              "type": "string",
+              "description": "Start time, HH:MM (24-hour, Pacific time)."
+            },
+            "end_time": {
+              "type": "string",
+              "description": "End time, HH:MM (24-hour, Pacific time)."
+            },
+            "start_location": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Where the trip started."
+            },
+            "end_location": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Where the trip ended."
+            },
+            "kilometres": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Distance driven in kilometres."
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "business",
+                "personal",
+                "uncategorized"
+              ],
+              "description": "Trip category."
+            },
+            "company": {
+              "type": "string",
+              "description": "Platform or company, e.g. Uber, DoorDash, Skip."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Free-form notes about the trip."
+            }
+          },
+          "required": [
+            "date",
+            "start_time",
+            "end_time",
+            "start_location",
+            "end_location",
+            "kilometres",
+            "category"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_expenses",
+        "title": "List expenses",
+        "description": "List the signed-in driver's expenses, optionally filtered by date range, category or vendor name.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "start_date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Earliest expense date, YYYY-MM-DD."
+            },
+            "end_date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Latest expense date, YYYY-MM-DD."
+            },
+            "category": {
+              "type": "string",
+              "description": "Expense category, e.g. fuel, repairs, insurance, grocery."
+            },
+            "vendor": {
+              "type": "string",
+              "description": "Vendor name (partial match)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Maximum expenses to return (default 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "log_expense",
+        "title": "Log an expense",
+        "description": "Record a new expense for the signed-in driver with date, vendor, amount and category.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Expense date, YYYY-MM-DD (Pacific time)."
+            },
+            "vendor_name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Vendor or store name."
+            },
+            "amount": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Amount in CAD."
+            },
+            "category": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Category, e.g. fuel, repairs, insurance, licence, interest, grocery, other."
+            },
+            "purpose": {
+              "type": "string",
+              "enum": [
+                "business",
+                "personal"
+              ],
+              "description": "Whether the expense is business or personal (default business)."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Free-form notes."
+            }
+          },
+          "required": [
+            "date",
+            "vendor_name",
+            "amount",
+            "category"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "tax_year_summary",
+        "title": "Tax year summary",
+        "description": "Summarize a tax year for the signed-in driver: business vs personal kilometres, odometer total, unlogged gap, business-use percentage, and expense totals by category.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "year": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100,
+              "description": "Tax year, e.g. 2026."
+            }
+          },
+          "required": [
+            "year"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
