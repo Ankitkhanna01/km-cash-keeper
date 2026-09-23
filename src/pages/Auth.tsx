@@ -41,9 +41,9 @@ export default function Auth() {
 
   useEffect(() => {
     if (user && !loading) {
-      navigate('/', { replace: true });
+      navigate(nextPath, { replace: true });
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, navigate, nextPath]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
