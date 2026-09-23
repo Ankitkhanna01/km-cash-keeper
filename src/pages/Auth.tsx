@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,8 +14,17 @@ const emailSchema = z.string().email('Please enter a valid email address');
 const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
 const nameSchema = z.string().min(1, 'Full name is required');
 
+function safeNext(raw: string | null): string {
+  if (!raw) return '/';
+  // Same-origin relative paths only.
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+  return raw;
+}
+
 export default function Auth() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const nextPath = safeNext(searchParams.get('next'));
   const { user, loading, signIn, signUp } = useAuth();
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -32,9 +41,9 @@ export default function Auth() {
 
   useEffect(() => {
     if (user && !loading) {
-      navigate('/', { replace: true });
+      navigate(nextPath, { replace: true });
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, navigate, nextPath]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,7 +91,7 @@ export default function Auth() {
 
     setIsSubmitting(true);
     
-    const { error } = await signUp(signupEmail, signupPassword, signupName);
+    const { error } = await signUp(signupEmail, signupPassword, signupName, nextPath);
     
     if (error) {
       if (error.message.includes('already registered')) {
