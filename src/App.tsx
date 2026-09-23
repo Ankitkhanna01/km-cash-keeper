@@ -12,6 +12,7 @@ import Reports from "./pages/Reports";
 import Backup from "./pages/Backup";
 import Documents from "./pages/Documents";
 import Insights from "./pages/Insights";
+import OAuthConsent from "./pages/OAuthConsent";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -39,6 +40,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
+      <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
       <Route
         path="/"
         element={
